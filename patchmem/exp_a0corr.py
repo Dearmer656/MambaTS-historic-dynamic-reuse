@@ -1,5 +1,5 @@
 """PAT-304 A0-frozen innovation correction: official run.py / data / seed / early stopping / vali / test, model = A0Corr (frozen A0 checkpoint).
-Env: A0C_MODE (self = F1/F2 | cross = F3), A0C_STEP (lambda of the per-step innovation loss, default 0), A0C_CKPT (A0 checkpoint.pth, required), A0C_CORR (shared | none = A0 baseline in the fixed order), A0C_SHUFFLE=1 (residual rolled in batch),
+Env: A0C_MODE (self = F1/F2 | cross = F3), A0C_STEP (lambda of the per-step innovation loss, default 0), A0C_CKPT (A0 checkpoint.pth, required), A0C_CORR (shared | gated = GatedCorrNet, C(h, e=0) = 0 | none = A0 baseline in the fixed order), A0C_DECOR (weight of the per-channel corr(h-, C)^2 penalty, default 0), A0C_SHUFFLE=1 (residual rolled in batch),
 A0C_GAMMA (default 1e-4). Stage 1: ridge fit of the next-patch predictor aux on the frozen A0. Stage 2: train CorrNet only (official MSE on the
 last origin + gamma * mean C^2). Vali/test are the official ones (run.py calls test after train)."""
 import os, sys, time
@@ -501,6 +501,7 @@ class Exp_A0Corr(Exp_Long_Term_Forecast):
             return m
         m.use_corr = True
         gamma = float(os.environ.get('A0C_GAMMA', '1e-4')); lam = float(os.environ.get('A0C_STEP', '0'))
+        mu = float(os.environ.get('A0C_DECOR', '0'))                                       # weight of the per-channel corr(h-, C)^2 penalty
         params = list(m.corr_net.parameters()) if m.corr_net is not None else []
         head_params = list(m.base.head.parameters()) if tune == 'head' else []
         for p in head_params:
@@ -516,19 +517,20 @@ class Exp_A0Corr(Exp_Long_Term_Forecast):
                 opt.param_groups[-1]['lr'] *= head_factor
         scale_head_lr()
         for epoch in range(a.train_epochs):
-            m.train(); t0 = time.time(); tl, tr, tsp = [], [], []
+            m.train(); t0 = time.time(); tl, tr, tsp, tdc = [], [], [], []
             for i, (bx, by, _, _) in enumerate(train_loader):
                 opt.zero_grad()
                 out = (m.run_cross if m.mode == 'cross' else m.run)(bx.float().to(self.device))
                 mse = crit(out['pred'], by.float().to(self.device)[:, -a.pred_len:]).mean()
                 reg = out['reg'] if out['reg'] is not None else mse.new_zeros(()); step = out['step'] if out['step'] is not None else mse.new_zeros(())
-                loss = mse + gamma * reg + lam * step
+                dec = out.get('decor'); dec = dec if dec is not None else mse.new_zeros(())
+                loss = mse + gamma * reg + lam * step + mu * dec
                 loss.backward(); opt.step()
-                tl.append(mse.item()); tr.append(reg.item()); tsp.append(step.item())
-                if (i + 1) % 100 == 0: print(f'\titers: {i + 1}, epoch: {epoch + 1} | mse: {mse.item():.7f} reg: {reg.item():.3e} step: {step.item():.4f}', flush=True)
+                tl.append(mse.item()); tr.append(reg.item()); tsp.append(step.item()); tdc.append(dec.item())
+                if (i + 1) % 100 == 0: print(f'\titers: {i + 1}, epoch: {epoch + 1} | mse: {mse.item():.7f} reg: {reg.item():.3e} step: {step.item():.4f} decor: {dec.item():.4f}', flush=True)
             print(f'Epoch: {epoch + 1} cost time: {time.time() - t0:.0f}')
             vloss = self.vali(vali_data, vali_loader, crit); tloss = self.vali(test_data, test_loader, crit)
-            print(f'Epoch: {epoch + 1}, Steps: {len(train_loader)} | Train Loss: {np.average(tl):.7f} (reg {np.average(tr):.3e} step {np.average(tsp):.4f}) Vali Loss: {vloss:.7f} Test Loss: {tloss:.7f}', flush=True)
+            print(f'Epoch: {epoch + 1}, Steps: {len(train_loader)} | Train Loss: {np.average(tl):.7f} (reg {np.average(tr):.3e} step {np.average(tsp):.4f} decor {np.average(tdc):.4f}) Vali Loss: {vloss:.7f} Test Loss: {tloss:.7f}', flush=True)
             early(vloss, m, path)
             if early.early_stop: print('Early stopping'); break
             adjust_learning_rate(opt, epoch + 1, a); scale_head_lr()

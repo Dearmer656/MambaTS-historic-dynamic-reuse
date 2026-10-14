@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 from patchmem.ref_scan import mamba_proj
-from patchmem.tm_model import CorrNet
+from patchmem.tm_model import CorrNet, GatedCorrNet, channel_decor
 
 
 class A0Corr(nn.Module):
@@ -33,7 +33,10 @@ class A0Corr(nn.Module):
         self.ro = nn.Linear(m.d_inner * m.d_state, self.patch_len)                     # state readout h_{k,t} -> x_{k,t+1}, ridge-fitted then frozen
         self.ro.requires_grad_(False)
         res_dim = self.patch_len * (self.n_vars if mode == 'cross' else 1)
-        self.corr_net = CorrNet(corr, m.d_inner, m.d_state, res_dim) if corr else None
+        if corr == 'gated':                                                            # C = gate(h, z) * (z @ Wc), C(h, e=0) = 0
+            self.corr_net = GatedCorrNet(m.d_inner, m.d_state, res_dim)
+        else:
+            self.corr_net = CorrNet(corr, m.d_inner, m.d_state, res_dim) if corr else None
         self.use_corr = True
 
     def train(self, mode=True):
@@ -149,7 +152,7 @@ class A0Corr(nn.Module):
                 trace['e0'] = (xp[:, :, 1:] - pred0).square().mean(-1); trace['pri'] = []; trace['post'] = []
                 trace.update(dA=dA, h0=h0, xp=xp, C=[])
         h = x.new_zeros(b, x.shape[1], A.shape[1])
-        ys, regs, steps = [], [], []
+        ys, regs, steps, hs, cs = [], [], [], [], []
         for s in range(L):
             h = dA[:, :, s] * h + dBu[:, :, s]
             ys.append((torch.einsum('bdn,bn->bd', h, C[:, :, s]) + D * x[:, :, s]) * F.silu(z[:, :, s]))
@@ -164,7 +167,7 @@ class A0Corr(nn.Module):
                 if trace is not None:
                     trace['pri'].append((xp[:, k, t + 1] - self.ro(h.flatten(1))).square().mean(1))
                 Cm = self.corr_net(h.detach(), u)
-                regs.append(Cm.square().mean())
+                regs.append(Cm.square().mean()); hs.append(h.detach()); cs.append(Cm)
                 if trace is not None:
                     trace['C'].append(Cm)
                 h = h + Cm
@@ -172,7 +175,8 @@ class A0Corr(nn.Module):
                 if trace is not None:
                     trace['post'].append((xp[:, k, t + 1] - self.ro(h.flatten(1))).square().mean(1))
         tok = self.tokens_out(m.out_proj(torch.stack(ys, 1)), res)
-        return dict(pred=self.head(tok, means, stdev), reg=torch.stack(regs).mean(), step=torch.stack(steps).mean(), step0=step0)
+        decor = channel_decor(torch.cat(hs, 0), torch.cat(cs, 0))                      # per-channel corr(h-, C)^2 over batch x sites
+        return dict(pred=self.head(tok, means, stdev), reg=torch.stack(regs).mean(), step=torch.stack(steps).mean(), step0=step0, decor=decor)
 
     @torch.no_grad()
     def scan_states(self, x_enc):

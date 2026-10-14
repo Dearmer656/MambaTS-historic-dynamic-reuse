@@ -50,6 +50,37 @@ class CorrNet(nn.Module):
         return torch.einsum('bdh,dhn->bdn', a, self.W2) + self.b2
 
 
+class GatedCorrNet(nn.Module):
+    """Innovation correction with the roles of h and e separated, per SSM channel k:
+        z = E(e)  (bias-free, so E(0) = 0),   C_k = sigmoid(g(h_k, z)) * (z @ Wc_k).
+    The gate (from h_k and z) only decides where / how much to write; the content is linear in z, so C(h, e=0) = 0 for every h:
+    a function of the state alone can never be written back into the state. Wc is zero-initialised, so C == 0 at init."""
+    def __init__(self, d_inner, d_state, res_dim, z_dim=32, hidden=64):
+        super().__init__()
+        self.E = nn.Sequential(nn.Linear(res_dim, hidden, bias=False), nn.GELU(), nn.Linear(hidden, z_dim, bias=False))
+        self.Wc = nn.Parameter(torch.zeros(d_inner, z_dim, d_state))
+        self.G1 = nn.Linear(d_state + z_dim, hidden); self.G2 = nn.Linear(hidden, d_state)
+
+    def forward(self, h, e):
+        """h (b, d_inner, d_state) prior state (caller passes it detached), e (b, res_dim) innovation. Returns C (b, d_inner, d_state)."""
+        d = h.shape[1]
+        z = self.E(e)
+        content = torch.einsum('bz,dzn->bdn', z, self.Wc)
+        gate = torch.sigmoid(self.G2(F.gelu(self.G1(torch.cat([h, z[:, None].expand(-1, d, -1)], -1)))))
+        return gate * content
+
+
+def channel_decor(h, C, eps=1e-6):
+    """Mean squared per-channel cross-correlation between state and correction over all samples:
+    h, C (N, d_inner, d_state) -> scalar. Zero iff, in every channel, C is linearly unpredictable from h. h is treated as a constant."""
+    h = h.detach()
+    hc = h - h.mean(0, keepdim=True); cc = C - C.mean(0, keepdim=True)
+    cov = torch.einsum('ndi,ndj->dij', hc, cc) / h.shape[0]
+    sh = (hc.pow(2).mean(0) + eps).sqrt(); sc = (cc.pow(2).mean(0) + eps).sqrt()     # eps inside the sqrt: finite gradient at C == 0 (init)
+    corr = cov / (sh[:, :, None] * sc[:, None, :])                                     # |corr| <= 1 (Cauchy-Schwarz)
+    return corr.pow(2).mean()
+
+
 class TMMambaTS(nn.Module):
     def __init__(self, base, readout_layer=-1, head='state', detach_trunk=False, corr=None, corr_shuffle=False, corr_res='full'):
         super().__init__()
