@@ -14,7 +14,9 @@ from utils.tools import EarlyStopping, adjust_learning_rate
 
 class A1Model(TMMambaTS):
     def __init__(self, configs):
-        super().__init__(Model(configs))
+        super().__init__(Model(configs), head=os.environ.get('A1_HEAD', 'state'), detach_trunk=os.environ.get('A1_SG_TRUNK', '0') == '1',
+                         corr=os.environ.get('A1_CORR') or None, corr_shuffle=os.environ.get('A1_CORR_SHUFFLE', '0') == '1',
+                         corr_res=os.environ.get('A1_CORR_RES', 'full'))
 
     def train_perm(self, b, dev):
         enc = self.base.encoder
@@ -41,6 +43,16 @@ class A1Model(TMMambaTS):
     def reset_ids_shuffle(self): self.base.reset_ids_shuffle()
 
 
+def origin_weights(mode, K, dev):
+    """A1_LOSS: all = equal weight (returns None, plain mean); last = handled by slicing; last50 = last origin 0.5, the other K-1 share 0.5 equally;
+    expG = w_j proportional to G**(K-1-j). Weights sum to 1 (same loss scale as the equal-weight mean)."""
+    if mode in ('all', 'last'): return None
+    if mode == 'last50': w = torch.full((K,), 0.5 / (K - 1)); w[-1] = 0.5
+    elif mode.startswith('exp'): w = float(mode[3:]) ** torch.arange(K - 1, -1, -1, dtype=torch.float)
+    else: raise ValueError(mode)
+    return (w / w.sum()).to(dev)
+
+
 class Exp_A1(Exp_Long_Term_Forecast):
     def _build_model(self):
         return A1Model(self.args).float()
@@ -51,14 +63,26 @@ class Exp_A1(Exp_Long_Term_Forecast):
         path = os.path.join(a.checkpoints, setting); os.makedirs(path, exist_ok=True)
         early = EarlyStopping(patience=a.patience, verbose=True); opt = self._select_optimizer(); crit = self._select_criterion()
         assert not a.use_amp and a.features == 'M'
+        assert os.environ.get('A1_HEAD', 'state') != 'official' or os.environ.get('A1_LOSS') == 'last'   # official head only ever returns the last origin
+        w = origin_weights(os.environ.get('A1_LOSS', 'all'), a.seq_len // P, self.device)
+        print('origin loss weights:', None if w is None else np.round(w.cpu().numpy(), 4).tolist(), flush=True)
+        gamma = float(os.environ.get('A1_CORR_GAMMA', '1e-4'))
+        n_all = sum(p.numel() for p in self.model.parameters()); cn = self.model.corr_net
+        print(f'params: total {n_all} | corr_net {0 if cn is None else sum(p.numel() for p in cn.parameters())} | corr={os.environ.get("A1_CORR")} '
+              f'shuffle={self.model.corr_shuffle} gamma={gamma} res={self.model.corr_res} delay={self.model.corr_delay} jmax={self.model.corr_jmax}', flush=True)
         for epoch in range(a.train_epochs):
             self.model.train(); t0 = time.time(); tl, per_ep = [], []
             for i, (bx, by, _, _) in enumerate(train_loader):
                 opt.zero_grad(); bx = bx.float().to(self.device); yf = by.float().to(self.device)[:, -H:]
-                pred = self.model.scan(bx)['pred']                                    # (b, n_patch, H, C)
-                err = crit(pred, patch_targets(bx, yf, P, H))                         # reduction='none'
+                out = self.model.scan(bx); pred = out['pred']                         # (b, n_patch, H, C)
+                tgt = patch_targets(bx, yf, P, H)
+                if os.environ.get('A1_LOSS', 'all') == 'last': pred, tgt = pred[:, -1:], tgt[:, -1:]   # diagnostic E1/E2: official last-origin-only loss
+                err = crit(pred, tgt)                                                 # reduction='none'
                 self.model.batch_update_state(rearrange(err, 'b n h c -> b (n h) c'))  # ATSP cost: per-sample loss over all origins
-                loss = err.mean(); per = err.detach().mean((0, 2, 3))
+                per_full = err.mean((0, 2, 3)); per = per_full.detach()
+                loss = (per_full * w).sum() if w is not None else err.mean()
+                if out.get('corr_reg') is not None:
+                    loss = loss + gamma * out['corr_reg']
                 tl.append(loss.item()); per_ep.append(per.cpu().numpy())
                 if (i + 1) % 100 == 0: print(f'\titers: {i + 1}, epoch: {epoch + 1} | loss: {loss.item():.7f}', flush=True)
                 loss.backward(); opt.step()
@@ -70,4 +94,11 @@ class Exp_A1(Exp_Long_Term_Forecast):
             if early.early_stop: print('Early stopping'); break
             if not a.no_lradj: adjust_learning_rate(opt, epoch + 1, a)
         self.model.load_state_dict(torch.load(path + '/checkpoint.pth'))
+        if os.environ.get('A1_HEAD', 'state') in ('state', 'causal'):
+            self.model.eval(); se, n = 0, 0
+            with torch.no_grad():
+                for bx, by, _, _ in vali_loader:
+                    bx = bx.float().to(self.device); yf = by.float().to(self.device)[:, -H:]
+                    se = se + (self.model.scan(bx)['pred'] - patch_targets(bx, yf, P, H)).square().mean((0, 2, 3)).cpu(); n += 1
+            print('  per-origin val MSE (best ckpt):', np.round((se / n).numpy(), 4).tolist(), flush=True)
         return self.model

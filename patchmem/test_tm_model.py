@@ -57,35 +57,64 @@ def run_tests():
         close(o2['pred'][:, :k], o['pred'][:, :k], f'pred_j j<{k}')
         assert (o2['pred'][:, k:] - o['pred'][:, k:]).abs().max() > 1e-4; print('  ok   later predictions do change')
 
-    print('T3 zero injection == no injection;  T4 non-zero injection changes later states / predictions, never earlier ones')
+    L_ = len(lay) - 1
     dm = lay[-1].mixer.d_inner, lay[-1].mixer.d_state
-    J = torch.nn.Parameter(torch.randn(*dm, device=dev) * 0.5)
+    Jr = torch.nn.Parameter(torch.randn(*dm, device=dev) * 0.5); Jp = torch.nn.Parameter(torch.randn(*dm, device=dev) * 0.5)
     inj_at = 1
-    with torch.no_grad():
-        oz = m(x, perm, hooks={len(lay) - 1: lambda i, h: torch.zeros_like(h)})
-        for li in range(len(lay)): close(oz['states'][li], o['states'][li], f'zero-inject layer {li} states')
-        oi = m(x, perm, hooks={len(lay) - 1: lambda i, h: J.expand_as(h) if i == inj_at else None})
-        close(oi['states'][-1][:, :inj_at + 1], o['states'][-1][:, :inj_at + 1], 'h^- up to the injection patch unchanged (injection acts after the capture)')
-        assert (oi['states'][-1][:, inj_at + 1:] - o['states'][-1][:, inj_at + 1:]).abs().max() > 1e-3
-        assert (oi['pred'][:, inj_at + 1:] - o['pred'][:, inj_at + 1:]).abs().max() > 1e-4
-        print('  ok   injection changes ssm state, prediction and later states')
+    hk = lambda at, r=None, p=None: {L_: lambda i, h: ((r.expand_as(h) if r is not None else None), (p.expand_as(h) if p is not None else None)) if i == at else None}
 
-    print('T5 gradients: loss on the last patch prediction reaches (a) the injected delta (b) early X (c) all layer / G params, via the re-started scan')
-    m.zero_grad(); x.grad = None; J.grad = None
-    oi = m(x, perm, hooks={len(lay) - 1: lambda i, h: J.expand_as(h) if i == inj_at else None})
-    oi['pred'][:, -1].square().mean().backward()
-    print(f'   |grad J| {J.grad.norm().item():.3e}   |grad x[:, :P]| {x.grad[:, :P].norm().item():.3e}   |grad G| {m.G.weight.grad.norm().item():.3e}')
-    assert J.grad.abs().max() > 0 and x.grad[:, :P].abs().max() > 0
-    for n, p in m.named_parameters():
-        if p.requires_grad and p.grad is None and 'adjacency' not in n and 'count_matrix' not in n and 'ending' not in n and 'norm_f' not in n:
+    print('T3 no hook == zero-delta hook (pred, pred_prior, prior states, reads)')
+    with torch.no_grad():
+        assert torch.equal(o['pred'], o['pred_prior']) and torch.equal(o['reads'], o['states'][-1]); print('  ok   without a hook read == prior, pred == pred_prior')
+        oz = m(x, perm, hooks={L_: lambda i, h: (torch.zeros_like(h), torch.zeros_like(h))})
+        for li in range(len(lay)): close(oz['states'][li], o['states'][li], f'zero-inject layer {li} states')
+        close(oz['pred'], o['pred'], 'pred'); close(oz['pred_prior'], o['pred_prior'], 'pred_prior')
+
+    print('T4a post-label correction d_post at patch k: current-patch pred and h^- up to k unchanged; later patches change')
+    with torch.no_grad():
+        op = m(x, perm, hooks=hk(inj_at, p=Jp))
+        close(op['states'][-1][:, :inj_at + 1], o['states'][-1][:, :inj_at + 1], 'prior h^- up to the injection patch'); close(op['pred'][:, :inj_at + 1], o['pred'][:, :inj_at + 1], 'pred up to the injection patch')
+        assert (op['pred'][:, inj_at + 1:] - o['pred'][:, inj_at + 1:]).abs().max() > 1e-4 and (op['pred_prior'][:, inj_at + 1:] - o['pred_prior'][:, inj_at + 1:]).abs().max() > 1e-4
+        print('  ok   d_post changes later states and predictions')
+
+    print('T4b read-time correction d_read at patch k: pred_k changes, pred_prior / prior h^- / every other patch unchanged (incl. k = last origin)')
+    with torch.no_grad():
+        for k in (inj_at, NP - 1):
+            orr = m(x, perm, hooks=hk(k, r=Jr))
+            for li in range(len(lay)): close(orr['states'][li], o['states'][li], f'k={k} layer {li} prior states')
+            close(orr['pred_prior'], o['pred_prior'], f'k={k} pred_prior')
+            diff = (orr['pred'] - o['pred']).abs().amax((0, 2, 3))
+            assert diff[k] > 1e-4 and torch.all(diff[torch.arange(NP) != k] == 0), diff
+            print(f'  ok   k={k}: only pred[{k}] changes (max diff {diff[k].item():.3e})')
+
+    print('T4c d_read and d_post together at patch k: pred_k sees d_read only; later patches see d_post only')
+    with torch.no_grad():
+        ob = m(x, perm, hooks=hk(inj_at, r=Jr, p=Jp))
+        close(ob['pred'][:, inj_at + 1:], op['pred'][:, inj_at + 1:], 'later pred == d_post-only run'); close(ob['pred'][:, :inj_at], o['pred'][:, :inj_at], 'earlier pred')
+        orr = m(x, perm, hooks=hk(inj_at, r=Jr)); close(ob['pred'][:, inj_at], orr['pred'][:, inj_at], 'pred_k == d_read-only run')
+
+    print('T4d d_read on a lower layer is rejected')
+    try:
+        m(x, perm, hooks={0: lambda i, h: (torch.zeros_like(h), None)}); raise SystemExit('FAIL: should have asserted')
+    except AssertionError:
+        print('  ok   assertion raised')
+
+    print('T5 gradients: loss on the last-origin pred reaches d_read, d_post (via later patches), early X, all layer / G params')
+    m.zero_grad(); x.grad = None; Jr.grad = None; Jp.grad = None
+    oi = m(x, perm, hooks=hk(NP - 1, r=Jr)); oi['pred'][:, -1].square().mean().backward()
+    assert Jr.grad.abs().max() > 0 and x.grad[:, :P].abs().max() > 0; print(f'   last-origin d_read: |grad Jr| {Jr.grad.norm().item():.3e}  |grad x[:, :P]| {x.grad[:, :P].norm().item():.3e}  |grad G| {m.G.weight.grad.norm().item():.3e}')
+    m.zero_grad(); x.grad = None; Jp.grad = None
+    oi = m(x, perm, hooks=hk(inj_at, p=Jp)); oi['pred'][:, -1].square().mean().backward()
+    assert Jp.grad.abs().max() > 0 and x.grad[:, :P].abs().max() > 0; print(f'   d_post at patch {inj_at}: |grad Jp| {Jp.grad.norm().item():.3e}')
+    for n, p_ in m.named_parameters():
+        if p_.requires_grad and p_.grad is None and 'adjacency' not in n and 'count_matrix' not in n and 'ending' not in n and 'norm_f' not in n:
             print('   no grad:', n)
 
     print('T5b detached restart state (what a naive h.detach() rollout does) kills the history gradient; non-detached keeps it')
     m.zero_grad(); x.grad = None
-    od = m(x, perm, hooks={len(lay) - 1: lambda i, h: (J.expand_as(h) + (h.detach() - h)) if i == inj_at else None})
+    od = m(x, perm, hooks={L_: lambda i, h: (None, Jp.expand_as(h) + (h.detach() - h)) if i == inj_at else None})
     od['pred'][:, -1].square().mean().backward()
-    g_early = x.grad[:, :P].norm().item()
-    print(f'   |grad x[:, :P]| with detached restart state {g_early:.3e} (last layer cut only; lower layers still carry gradient)')
+    print(f'   |grad x[:, :P]| with detached restart state {x.grad[:, :P].norm().item():.3e} (last layer cut only; lower layers still carry gradient)')
 
     print('T6 dropout: eval deterministic, train differs')
     mt = build(dropout=0.3); mt.eval(); a, b2 = mt(x[:, :], perm)['pred'], mt(x, perm)['pred']; close(a, b2, 'eval deterministic', 1e-6, 1e-7)
