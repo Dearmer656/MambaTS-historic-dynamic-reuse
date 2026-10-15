@@ -12,12 +12,52 @@ from patchmem.ref_scan import mamba_proj
 from patchmem.tm_model import CorrNet, GatedCorrNet, channel_decor
 
 
-class A0Corr(nn.Module):
-    def __init__(self, base, order, corr='shared', shuffle=False, mode='self'):
+class StateMem(nn.Module):
+    """PAT-304 state-level retrieval memory, a module separate from CorrNet (the writer). Slots are written at every corrected site of the
+    current variable: key = W_K flat(sg h_j-), value = C_j (NOT detached: a later site's loss reaches the historical C_j and CorrNet).
+    Read at site t from the slots j < t: a = softmax(W_Q flat(sg h_t-) . K / (sqrt(dk) tau)), m = sum_j a_j C_j (b, D, N), injected
+    into the SSM state through a per-channel scalar gate g = sigmoid(W_g flat(sg h_t-) + b_g) (b, D, 1), b_g = -4, W_g = 0 at init.
+    No learned memory->state map W this round. audit: None | 'zero' (g = 0) | 'uniform' (a = 1/M) -- evaluation-only ablations."""
+    def __init__(self, d_inner, d_state, dk=64, tau0=1.0, gate_bias=-4.0):
         super().__init__()
-        self.base = base.eval()
+        self.dk = dk
+        self.Wq = nn.Linear(d_inner * d_state, dk, bias=False)
+        self.Wk = nn.Linear(d_inner * d_state, dk, bias=False)
+        self.log_tau = nn.Parameter(torch.tensor(float(tau0)).log())
+        self.Wg = nn.Linear(d_inner * d_state, d_inner)
+        nn.init.zeros_(self.Wg.weight); nn.init.constant_(self.Wg.bias, gate_bias)
+        self.audit = None
+
+    def key(self, h):
+        return self.Wk(h.detach().flatten(1))
+
+    def forward(self, h, keys, vals):
+        """h (b, D, N) current pre-correction state; keys (b, M, dk); vals (b, M, D, N). Returns the injection g*m (b, D, N), a (b, M), g (b, D, 1)."""
+        hq = h.detach().flatten(1)
+        if self.audit == 'uniform':
+            a = keys.new_full(keys.shape[:2], 1.0 / keys.shape[1])
+        else:
+            a = torch.softmax(torch.einsum('bd,bmd->bm', self.Wq(hq), keys) / (self.dk ** 0.5 * self.log_tau.exp()), -1)
+        g = torch.sigmoid(self.Wg(hq)).unsqueeze(-1)
+        if self.audit == 'zero':
+            g = torch.zeros_like(g)
+        return g * torch.einsum('bm,bmdn->bdn', a, vals), a, g
+
+
+class A0Corr(nn.Module):
+    def __init__(self, base, order, corr='shared', shuffle=False, mode='self', freeze=True, step_sg=False, mem=None, mem_dk=64):
+        super().__init__()
+        assert mem in (None, 'none', 'real', 'shuf')
+        self.mem = mem                                                                 # cross mode. None: legacy (no step_mem term). 'none': M0, step_mem
+        self.cut_value = self.cut_carry = False                                       # on h- (m = 0); 'real': M1; 'shuf': M2, values rolled by one slot
+                                                                                       # along time within the sequence. Test-only gradient surgeries:
+                                                                                       # cut_value detaches memory values (no retrieval credit to C_j),
+                                                                                       # cut_carry adds sg(C) to the carried state (no recurrence credit)
+        self.step_sg = step_sg                                                         # cross mode: per-step loss on sg(h-) + C (no backbone gradient)
+        self.freeze = freeze                                                          # False: backbone + ro train from scratch alongside corr_net
+        self.base = base.eval() if freeze else base
         for p in self.base.parameters():
-            p.requires_grad_(False)
+            p.requires_grad_(not freeze)
         self.patch_len, self.pred_len = base.patch_len, base.pred_len
         self.n_vars = base.encoder.n_vars
         self.n_patch = base.seq_len // base.patch_len
@@ -30,18 +70,20 @@ class A0Corr(nn.Module):
         self.shuffle = shuffle
         assert mode in ('self', 'cross')
         self.mode = mode                                                               # self: F1/F2 (own innovation); cross: F3 (run_cross)
-        self.ro = nn.Linear(m.d_inner * m.d_state, self.patch_len)                     # state readout h_{k,t} -> x_{k,t+1}, ridge-fitted then frozen
-        self.ro.requires_grad_(False)
+        self.ro = nn.Linear(m.d_inner * m.d_state, self.patch_len)                     # state readout h_{k,t} -> x_{k,t+1}; ridge-fitted then
+        self.ro.requires_grad_(not freeze)                                             # frozen when freeze, else trained from scratch like any other layer
         res_dim = self.patch_len * (self.n_vars if mode == 'cross' else 1)
         if corr == 'gated':                                                            # C = gate(h, z) * (z @ Wc), C(h, e=0) = 0
             self.corr_net = GatedCorrNet(m.d_inner, m.d_state, res_dim)
         else:
             self.corr_net = CorrNet(corr, m.d_inner, m.d_state, res_dim) if corr else None
+        self.mem_net = StateMem(m.d_inner, m.d_state, dk=mem_dk) if mem in ('real', 'shuf') else None
         self.use_corr = True
 
     def train(self, mode=True):
         super().train(mode)
-        self.base.eval()                                                               # the backbone never leaves eval mode
+        if self.freeze:
+            self.base.eval()                                                           # the backbone never leaves eval mode
         return self
 
     def norm(self, x_enc):
@@ -153,10 +195,13 @@ class A0Corr(nn.Module):
                 trace.update(dA=dA, h0=h0, xp=xp, C=[])
         h = x.new_zeros(b, x.shape[1], A.shape[1])
         ys, regs, steps, hs, cs = [], [], [], [], []
+        steps_mem, mstats = [], dict(ent=[], g=[], ratio=[])
         for s in range(L):
             h = dA[:, :, s] * h + dBu[:, :, s]
             ys.append((torch.einsum('bdn,bn->bd', h, C[:, :, s]) + D * x[:, :, s]) * F.silu(z[:, :, s]))
             k, t = divmod(s, l)
+            if t == 0:
+                mkeys, mvals = [], []                                                  # memory scope: own variable, earlier patches (t' < t), in-window
             if t <= l - 2:
                 cross = torch.cat([es[:, :k, t + 1], es.new_zeros(b, c - 1 - k, P)], 1).reshape(b, -1)
                 u = torch.cat([es[:, k, t], cross], 1)
@@ -166,17 +211,44 @@ class A0Corr(nn.Module):
                     u = u.roll(1, 0)
                 if trace is not None:
                     trace['pri'].append((xp[:, k, t + 1] - self.ro(h.flatten(1))).square().mean(1))
-                Cm = self.corr_net(h.detach(), u)
-                regs.append(Cm.square().mean()); hs.append(h.detach()); cs.append(Cm)
+                h_minus = h
+                Cm = self.corr_net(h_minus.detach(), u)
+                regs.append(Cm.square().mean()); hs.append(h_minus.detach()); cs.append(Cm)
                 if trace is not None:
                     trace['C'].append(Cm)
-                h = h + Cm
-                steps.append((xp[:, k, t + 1] - self.ro(h.flatten(1))).square().mean())
+                if self.mem is not None:                                                # h_mem = h- + g * sum_j a_j C_j, re-predict x_{k,t+1} from it
+                    if self.mem_net is not None and mvals:
+                        V = torch.stack(mvals, 1)
+                        if self.mem == 'shuf':
+                            V = V.roll(1, 1)                                            # key_j <-> value_{j-1}, earliest key <-> latest value
+                        if self.cut_value:
+                            V = V.detach()
+                        inj, a, g = self.mem_net(h_minus, torch.stack(mkeys, 1), V)
+                        h = h_minus + inj
+                        mstats['ent'].append(-(a * a.clamp_min(1e-12).log()).sum(-1).mean().detach())
+                        mstats['g'].append(g.mean().detach())
+                        mstats['ratio'].append((inj.flatten(1).norm(dim=1) / Cm.flatten(1).norm(dim=1).clamp_min(1e-12)).mean().detach())
+                    yhat_mem = self.ro(h.flatten(1))
+                    steps_mem.append((xp[:, k, t + 1] - yhat_mem).square().mean())
+                    if trace is not None:
+                        trace.setdefault('mem', []).append(dict(k=k, t=t, yhat=yhat_mem, a=a if self.mem_net is not None and mvals else None,
+                                                                inj=inj if self.mem_net is not None and mvals else None,
+                                                                keys=torch.stack(mkeys, 1) if mkeys else None))
+                    if self.mem_net is not None:
+                        mkeys.append(self.mem_net.key(h_minus)); mvals.append(Cm)
+                h_pre = h                                                               # h- (or h_mem) before the site's own correction
+                h = h + (Cm.detach() if self.cut_carry else Cm)
+                h_step = (h_pre.detach() + Cm) if self.step_sg else h                   # step_sg: the step loss reaches CorrNet and ro only, never the backbone
+                steps.append((xp[:, k, t + 1] - self.ro(h_step.flatten(1))).square().mean())
                 if trace is not None:
                     trace['post'].append((xp[:, k, t + 1] - self.ro(h.flatten(1))).square().mean(1))
         tok = self.tokens_out(m.out_proj(torch.stack(ys, 1)), res)
         decor = channel_decor(torch.cat(hs, 0), torch.cat(cs, 0))                      # per-channel corr(h-, C)^2 over batch x sites
-        return dict(pred=self.head(tok, means, stdev), reg=torch.stack(regs).mean(), step=torch.stack(steps).mean(), step0=step0, decor=decor)
+        out = dict(pred=self.head(tok, means, stdev), reg=torch.stack(regs).mean(), step=torch.stack(steps).mean(), step0=step0, decor=decor)
+        if self.mem is not None:
+            out.update(step_mem=torch.stack(steps_mem).mean(), steps_mem=steps_mem,
+                       mem_stats={n: torch.stack(v).mean().item() for n, v in mstats.items() if v})
+        return out
 
     @torch.no_grad()
     def scan_states(self, x_enc):

@@ -57,6 +57,24 @@ class Exp_Mem(Exp_Long_Term_Forecast):
                 tot += loss.item() * bx.shape[0]; n += bx.shape[0]
         return tot / n
 
+    def shuffle_audit(self):
+        """Eval-only re-check of the T1/T2 shuffle control (A0C_MEM_AUDIT=1). The original val/test loaders are unshuffled, so the in-batch
+        roll(1, 0) of mode 'shuf' paired each window with the one a single timestep earlier: near-real memory. Here batches are drawn in a
+        fixed random order, so the roll pairs genuinely unrelated windows. The same checkpoint is scored with its own memory ('mem') and
+        with another window's memory ('shuf'); the metric does not depend on sample order."""
+        m = self.model; crit = nn.MSELoss(); saved = m.mode
+        assert m.retr is not None, 'audit needs a checkpoint with a retrieval module (mem or shuf)'
+        for flag in ('val', 'test'):
+            ds, _ = self._get_data(flag)
+            row = []
+            for mode in ('mem', 'shuf'):
+                loader = DataLoader(MemDataset(ds, m.R), batch_size=self.args.batch_size, shuffle=True, num_workers=self.args.num_workers,
+                                    generator=torch.Generator().manual_seed(0))
+                m.mode = mode
+                row.append(f'{"own" if mode == "mem" else "other-window"} memory {self.run_eval(loader, crit):.7f}')
+            print(f'[shuffle audit] trained as {saved} | {flag}: ' + ' | '.join(row), flush=True)
+        m.mode = saved
+
     def train(self, setting):
         a = self.args; m = self.model
         loaders = self.mem_loaders()
@@ -100,6 +118,8 @@ class Exp_Mem(Exp_Long_Term_Forecast):
         called unconditionally by run.py after train(). Uses the same best-val checkpoint train() already loaded."""
         if test:
             self.model.load_state_dict(torch.load(os.path.join(self.args.checkpoints, setting, 'checkpoint.pth')))
+        if os.environ.get('A0C_MEM_AUDIT') == '1':
+            return self.shuffle_audit()
         ds, _ = self._get_data('test')
         loader = DataLoader(MemDataset(ds, self.model.R), batch_size=self.args.batch_size, shuffle=False, num_workers=self.args.num_workers)
         self.model.eval(); preds = []; trues = []
