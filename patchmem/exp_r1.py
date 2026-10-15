@@ -9,6 +9,7 @@ Env:
   R1_VAL_STRIDE          window stride for the per-epoch validation (default 4)
   R1_TEST_L / R1_TEST_H  test grid (default 384,720,1440 / 96,192,336)
   R1_EVAL_BS             evaluation batch size (default 64)
+  R1_MAX_ITERS           stop each training epoch after this many iterations (smoke runs; default 0 = full epoch)
 The training loss is the forecast MSE over the sampled horizon (+ lambda_hist * L_hist). L_hist is in-window auxiliary supervision:
 the lookback's RevIN statistics already include x_(t+1), so it is NOT an online per-origin evaluation."""
 import copy, os, time
@@ -103,6 +104,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
         assert Lmin % P == 0 and Lmax % P == 0 and Lmin <= Lmax and 1 <= Hmin <= Hmax
         val_grid = _grid(os.environ.get('R1_VAL_GRID', '384:96,720:96,1440:96,384:336,720:336,1440:336'))
         vstride = int(os.environ.get('R1_VAL_STRIDE', '4'))
+        max_it = int(os.environ.get('R1_MAX_ITERS', '0'))
         tr_ds = self._ds('train', Lmax, Hmax * P)
         loader = DataLoader(tr_ds, batch_size=a.batch_size, shuffle=True, drop_last=True, num_workers=a.num_workers)
         print(f'R1 train: {len(tr_ds)} windows of {Lmax}+{Hmax * P} | lookback {Lmin}..{Lmax} step {P} | horizon {Hmin}..{Hmax} patches | '
@@ -135,6 +137,8 @@ class Exp_R1(Exp_Long_Term_Forecast):
                     raise FloatingPointError(f'non-finite loss at epoch {epoch + 1} iter {i + 1} (L={L}, H={nH * P})')
                 if (i + 1) % 100 == 0:
                     print(f'\titers: {i + 1}, epoch: {epoch + 1} | L {L} H {nH * P} | future mse {fut.item():.5f} hist mse {hist.item():.5f}', flush=True)
+                if max_it and i + 1 >= max_it:
+                    break
             res = self.eval_grid('val', val_grid, stride=vstride)
             vloss = float(np.mean([r['mse'] for r in res.values()]))
             print(f'Epoch: {epoch + 1} cost time: {time.time() - t0:.0f} | train future {np.mean(lf):.5f} hist {np.mean(lh):.5f} | val mean mse {vloss:.5f} | ' +

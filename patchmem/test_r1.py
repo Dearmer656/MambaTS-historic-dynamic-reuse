@@ -1,13 +1,16 @@
 """PAT-304 R1 gates (Linear 722e5953 / d4ad8aee acceptance): block replication vs the official layers, step vs full scan (forward and
 gradients), whole-pipeline equality with a pure step-by-step reference, variable lookback / horizon, VPT permutation handling (per-sample
 pi fixed over the window, scan-position readout + pi^-1, equivariance, identity pi == fixed time-major scan, deterministic eval order),
-VPT cost bookkeeping, one training step. usage: python patchmem/test_r1.py"""
-import sys
+VPT cost bookkeeping, history -> rollout cache gradients vs a pure step reference (G), one real-config training step. usage: python patchmem/test_r1.py"""
+import re, sys
 from argparse import Namespace
 from pathlib import Path
 import torch
 ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT))
+from mamba_ssm.ops.selective_scan_interface import selective_scan_fn
 from patchmem.r1_model import R1
+from patchmem.ref_scan import mamba_proj
+_mixer_full_fixed = R1._mixer_full
 
 dev = 'cuda'
 C, P, D_MODEL = 5, 48, 16
@@ -75,21 +78,71 @@ for name, fn in (('full', lambda: m.read(m.history(tok)[0])), ('step', None)):
 worst = max(rel(g['step'][n], g['full'][n]) for n in g['full'])
 ok(set(g['full']) == set(g['step']) and worst < 1e-3, f'gradients agree on {len(g["full"])} tensors, worst rel diff {worst:.1e}')
 
+def step_ref(m, x, n_out, perm):
+    """Pure token-by-token reference: every layer (history and rollout) through the explicit one-token step, fully differentiable."""
+    b, L, c = x.shape
+    means = x.mean(1, keepdim=True).detach(); xc = x - means
+    sd = torch.sqrt(xc.var(1, keepdim=True, unbiased=False) + 1e-5).detach()
+    xs = m.to_scan((xc / sd).permute(0, 2, 1).reshape(b, c, L // P, P).permute(0, 2, 1, 3), perm)
+    st = [x.new_zeros(b, l.mixer.d_inner, l.mixer.d_state) for l in m.enc.layers]
+    for t in range(L // P):
+        st = m.step_time(m.embed(xs[:, t]), st)
+    outs = [m.to_orig(m.read(st[-1]).unsqueeze(1), perm).squeeze(1)]
+    for _ in range(n_out - 1):
+        st = m.step_time(m.embed(m.to_scan(outs[-1].unsqueeze(1), perm)).squeeze(1), st)
+        outs.append(m.to_orig(m.read(st[-1]).unsqueeze(1), perm).squeeze(1))
+    return (torch.stack(outs, 1).transpose(-1, -2) * sd.unsqueeze(1) + means.unsqueeze(1)).reshape(b, n_out * P, c)
+
+
 print('R  whole forward (kernel history + boundary readout + autoregressive rollout) == pure step-by-step reference')
 m = build(seed=3).eval()
 perm = torch.stack([torch.randperm(C, device=dev) for _ in range(3)])
-ref_out = m(x, 4, perm=perm)['pred']
-means = x.mean(1, keepdim=True); xc = x - means; sd = torch.sqrt(xc.var(1, keepdim=True, unbiased=False) + 1e-5)
-xs = m.to_scan((xc / sd).permute(0, 2, 1).reshape(3, C, 15, P).permute(0, 2, 1, 3), perm)
-st = [x.new_zeros(3, l.mixer.d_inner, l.mixer.d_state) for l in m.enc.layers]
-for t in range(15):
-    st = m.step_time(m.embed(xs[:, t]), st)
-outs = [m.to_orig(m.read(st[-1]).unsqueeze(1), perm).squeeze(1)]
-for _ in range(3):
-    st = m.step_time(m.embed(m.to_scan(outs[-1].unsqueeze(1), perm)).squeeze(1), st)
-    outs.append(m.to_orig(m.read(st[-1]).unsqueeze(1), perm).squeeze(1))
-step_out = (torch.stack(outs, 1).transpose(-1, -2) * sd.unsqueeze(1) + means.unsqueeze(1)).reshape(3, 4 * P, C)
+with torch.no_grad():
+    ref_out = m(x, 4, perm=perm)['pred']
+    step_out = step_ref(m, x, 4, perm)
 ok(rel(step_out, ref_out) < 1e-4, f'forecast rel diff {rel(step_out, ref_out):.1e}')
+
+
+def _legacy_mixer_full(mx, hn):
+    """b637aac behaviour: the kernel's return_last_state (no gradient) as the rollout cache."""
+    xx, dt, A, B, Cm, D, z, bias = mamba_proj(mx, hn)
+    y, last = selective_scan_fn(xx, dt, A, B, Cm, D, z=z, delta_bias=bias, delta_softplus=True, return_last_state=True)
+    return mx.out_proj(y.transpose(1, 2)), last
+
+
+print('G  history -> rollout cache gradient (loss on future patches 2..n only, which read the lower-layer caches)')
+m = build(seed=7, e_layers=4).eval()
+perm = torch.stack([torch.randperm(C, device=dev) for _ in range(3)])
+tok = m.embed(torch.randn(3, 15, C, P, device=dev)).reshape(3, 15 * C, -1)
+hn, resid = m._norm(m.enc.layers[0], tok, None)
+xx, dt, A, B, Cm, D, z, bias = mamba_proj(m.enc.layers[0].mixer, hn)
+_, kern_last = _legacy_mixer_full(m.enc.layers[0].mixer, hn)
+cf = m._final_state(xx, dt, A, B, bias)
+ok(rel(cf, kern_last) < 1e-4, f'forward: closed-form final state == kernel last_state, rel diff {rel(cf, kern_last):.1e}')
+wts = torch.randn(3, 3 * P, C, device=dev)
+
+
+def grads(fn):
+    m.zero_grad()
+    xg = x.clone().requires_grad_(True)
+    (fn(xg)[:, P:] * wts).sum().backward()                                          # future patches 2..4 only
+    return {n: p.grad.detach().clone() for n, p in m.named_parameters() if p.grad is not None}, xg.grad.detach().clone()
+
+
+g_ref, gx_ref = grads(lambda xg: step_ref(m, xg, 4, perm))
+g_new, gx_new = grads(lambda xg: m(xg, 4, perm=perm)['pred'])
+R1._mixer_full = staticmethod(_legacy_mixer_full)
+g_old, gx_old = grads(lambda xg: m(xg, 4, perm=perm)['pred'])
+R1._mixer_full = staticmethod(_mixer_full_fixed)
+lower = [n for n in g_ref if re.match(rf'base\.encoder\.layers\.(\d+)\.mixer\.', n) and int(n.split('.')[3]) < len(m.enc.layers) - 1]
+w_new = max(rel(g_new.get(n, torch.zeros_like(g_ref[n])), g_ref[n]) for n in g_ref)
+w_old = max(rel(g_old.get(n, torch.zeros_like(g_ref[n])), g_ref[n]) for n in lower)
+print('       lower-layer param grad rel diff vs step reference (before fix / after fix):')
+for n in lower:
+    print(f'         {n:45s} {rel(g_old.get(n, torch.zeros_like(g_ref[n])), g_ref[n]):.1e} / {rel(g_new[n], g_ref[n]):.1e}')
+ok(set(g_new) == set(g_ref) and w_new < 1e-3, f'after fix: all {len(g_ref)} param grads match the step reference, worst rel diff {w_new:.1e}')
+ok(rel(gx_new, gx_ref) < 1e-3, f'after fix: input grad rel diff {rel(gx_new, gx_ref):.1e} (before fix {rel(gx_old, gx_ref):.1e})')
+ok(w_old > 1e-2, f'repro: the b637aac cache (kernel last_state) gives wrong lower-layer grads, worst rel diff {w_old:.1e}')
 
 print('V  variable lookback / horizon from one model')
 for L in (384, 720, 1440):
@@ -142,15 +195,31 @@ p2 = m(x, 2)['pred']
 ok(sorted(o1) == list(range(C)) and m.ids_shuffle == o1 and (p1 - p2).abs().max().item() == 0.0, f'eval order {o1} fixed, forecasts identical')
 m.train(); m(x, 2); ok(m.ids_shuffle is None, 'a training forward clears the cached eval order (re-solved at the next eval)')
 
-print('T  one training step: finite, gradients reach embedding, readout and every layer state path')
-m = build(seed=6).train()
-o = m(x[:, -480:], 3)
-loss = (o['pred'] - torch.randn_like(o['pred'])).square().mean() + 0.5 * (o['hist'] - x[:, -480 + P:].reshape(3, -1, P, C)).square().mean()
+print('T  one training step, real ETTh2 config (C=7, e_layers=5, dropout=0.3, train mode, lambda_hist=0.5): finite, Adam updates')
+torch.manual_seed(6)
+cfg = Namespace(task_name='long_term_forecast', seq_len=1440, pred_len=336, patch_len=P, stride=P, d_model=16, e_layers=5,
+                enc_in=7, dropout=0.3, VPT_mode=1, ATSP_solver='SA', use_casual_conv=False)
+m = R1(cfg).to(dev).train()
+opt = torch.optim.Adam(m.parameters(), lr=1e-3)
+x7 = torch.randn(8, 1440 + 336, 7, device=dev).cumsum(1) * 0.1
+o = m(x7[:, :720], 3)
+loss = (o['pred'] - x7[:, 720:720 + 3 * P]).square().mean() + 0.5 * (o['hist'] - x7[:, P:720].reshape(8, -1, P, 7)).square().mean()
 loss.backward()
 gn = lambda mod: sum(p.grad.abs().sum().item() for p in mod.parameters() if p.grad is not None)
-ok(torch.isfinite(loss).item() and gn(m.emb) > 0 and gn(m.readout) > 0 and all(gn(l.mixer.in_proj) > 0 for l in m.enc.layers),
-   f'loss {loss.item():.4f}; grad |emb| {gn(m.emb):.2e} |readout| {gn(m.readout):.2e}')
-ok(gn(m.enc.layers[-1].mixer.out_proj) == 0, 'last layer out_proj gets no gradient (its token output is never read) -- expected')
+fin = all(torch.isfinite(p.grad).all() for p in m.parameters() if p.grad is not None)
+ok(torch.isfinite(loss).item() and fin and gn(m.emb) > 0 and gn(m.readout) > 0 and all(gn(l.mixer.in_proj) > 0 for l in m.enc.layers),
+   f'loss {loss.item():.4f}, all grads finite; grad |emb| {gn(m.emb):.2e} |readout| {gn(m.readout):.2e}')
+dead = [n for n, p in m.named_parameters() if p.requires_grad and (p.grad is None or p.grad.abs().sum() == 0)]
+print('       params with no / zero grad (expected dead path: last layer token output, norm_f):\n         ' + '\n         '.join(dead))
+nl = len(m.enc.layers) - 1
+ok(all(n.startswith(f'base.encoder.layers.{nl}.mixer.') or n.startswith('base.encoder.norm_f.') for n in dead),
+   'every dead parameter belongs to the last layer token-output path or norm_f')
+before = {n: p.detach().clone() for n, p in m.named_parameters()}
+opt.step()
+live = [n for n, p in m.named_parameters() if p.requires_grad and n not in dead]
+moved = [n for n in live if not torch.equal(dict(m.named_parameters())[n], before[n])]
+ok(len(moved) == len(live) and all(torch.isfinite(p).all() for p in m.parameters()), f'Adam step moved all {len(moved)} live params, all finite')
+m.update_vpt_cost((o['pred'] - x7[:, 720:720 + 3 * P]).square().detach())
 
 print('ALL PASS' if not FAILS else f'{len(FAILS)} FAILED: ' + '; '.join(FAILS))
 sys.exit(1 if FAILS else 0)

@@ -12,8 +12,9 @@ transition set, so the original cost accumulation (encoder.batch_update_state) i
 from the original open-path ATSP on the accumulated adjacency. The cross-step wrap edge pi_C(t) -> pi_1(t+1) exists in the scan but
 is not an ATSP cost term in this version (closed tour = later ablation).
 
-Lower layers run the official selective-scan kernel over the teacher-forced history; the last layer runs an explicit recurrence so
-its state is captured at every boundary. Rollout steps use the conv-off one-token step. The last layer's token outputs, norm_f and
+Lower layers run the official selective-scan kernel over the teacher-forced history for their token outputs; their final state
+(the rollout cache) is recomputed in closed form so the future loss back-propagates into the history scan (the kernel's last_state
+has no gradient). The last layer runs an explicit recurrence so its state is captured at every boundary. Rollout steps use the conv-off one-token step. The last layer's token outputs, norm_f and
 the official flatten head are unused (only the last layer's state is read)."""
 import torch
 import torch.nn as nn
@@ -103,11 +104,22 @@ class R1(nn.Module):
                              residual_in_fp32=layer.residual_in_fp32, eps=layer.norm.eps)
 
     @staticmethod
+    def _final_state(x, dt, A, B, bias):
+        """Differentiable final SSM state of a zero-initialised scan, closed form:
+        h_l = sum_s exp(A * sum_{r>s} dt_r) * dt_s * x_s * B_s  (dt after softplus; every exponent <= 0)."""
+        dt = F.softplus(dt + bias[None, :, None])                                      # (b, d, l)
+        rc = dt.flip(-1).cumsum(-1).flip(-1)                                           # sum_{r>=s} dt_r
+        after = torch.cat([rc[..., 1:], torch.zeros_like(rc[..., :1])], -1)            # sum_{r>s} dt_r
+        return torch.einsum('bdln,bdl,bnl->bdn', torch.exp(after.unsqueeze(-1) * A[None, :, None, :]), dt * x, B)
+
+    @staticmethod
     def _mixer_full(m, hn):
-        """Official conv-off Mamba forward with the selective-scan kernel; also returns the final SSM state."""
+        """Official conv-off Mamba forward with the selective-scan kernel (token outputs for the next layer) plus the final SSM state.
+        The kernel's return_last_state gets no gradient (mamba_ssm selective_scan_fn docstring), which would cut the
+        history -> rollout-cache path, so the cache is recomputed differentiably from the same projections (same dropout sample)."""
         x, dt, A, B, C, D, z, bias = mamba_proj(m, hn)
-        y, last = selective_scan_fn(x, dt, A, B, C, D, z=z, delta_bias=bias, delta_softplus=True, return_last_state=True)
-        return m.out_proj(y.transpose(1, 2)), last
+        y = selective_scan_fn(x, dt, A, B, C, D, z=z, delta_bias=bias, delta_softplus=True)
+        return m.out_proj(y.transpose(1, 2)), R1._final_state(x, dt, A, B, bias)
 
     def _last_full(self, m, hn):
         """Last layer over the history: explicit recurrence, state captured after every C tokens. Returns (b, T, D, N), final state."""
