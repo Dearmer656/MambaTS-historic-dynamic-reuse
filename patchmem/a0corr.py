@@ -13,62 +13,50 @@ from patchmem.ref_scan import mamba_proj
 from patchmem.tm_model import CorrNet, GatedCorrNet, channel_decor
 
 
-class HeadLinear(nn.Module):
-    """Independent bias-free linear map per head: x (..., nh, d_in) -> (..., nh, d_out), weight (nh, d_in, d_out), nn.Linear's default init."""
-    def __init__(self, nh, d_in, d_out):
-        super().__init__()
-        self.weight = nn.Parameter(torch.empty(nh, d_in, d_out).uniform_(-d_in ** -0.5, d_in ** -0.5))
-
-    def forward(self, x):
-        return torch.einsum('...hi,hio->...ho', x, self.weight)
-
-
 class StateMem(nn.Module):
-    """PAT-304 state-level retrieval memory, a module separate from CorrNet (the writer). The SSM state h (b, D, N) is split into
-    nh = D / group heads of `group` consecutive channels (group * N features each; group=None: one head over the whole state). Slots are
-    written at every corrected site of the current variable: key_h = W_K,h (sg h_j-)[head h], value = C_j (NOT detached: a later site's loss
-    reaches the historical C_j and CorrNet). Read at site t from the slots j < t, per head: a_h = softmax(W_Q,h (sg h_t-)[h] . K_h /
-    (sqrt(dk) tau_h)), m[head h channels] = sum_j a_h,j C_j[head h channels] -- each head selects history for its own channels only.
-    Injected into the SSM state through a per-channel scalar gate g = sigmoid(W_g flat(sg h_t-) + b_g) (b, D, 1), b_g = -4, W_g = 0 at init.
-    W_Q,h / W_K,h / tau_h are independent per head. No learned memory->state map W this round.
-    audit: None | 'zero' (g = 0) | 'uniform' (a = 1/M) -- evaluation-only ablations."""
-    def __init__(self, d_inner, d_state, dk=64, group=None, tau0=1.0, gate_bias=-4.0):
+    """PAT-304 state-level retrieval memory, a module separate from CorrNet (the writer). Multi-head attention over the history slots:
+    q = W_Q flat(sg h_t-), k_j = W_K flat(sg h_j-), with FULL-state projections W_Q, W_K: D*N -> D*N (every q/k coordinate sees every
+    channel), then q, k are split into nh = D / group heads of group*N dims (group=4: 64 dims; ETTh2 8 heads, Weather 16). Head h does
+    its own softmax a_h = softmax(q_h . k_j,h / (sqrt(group*N) tau_h)) and weights only its own channel group of the values:
+    m[group h channels] = sum_j a_h,j C_j[group h channels], so different channel groups can take corrections from different past sites.
+    group=None: one head, a single softmax shared by all channels. value = C_j NOT detached (a later site's loss reaches the historical
+    C_j and CorrNet). Injected through a per-channel scalar gate g = sigmoid(W_g flat(sg h_t-) + b_g) (b, D, 1), b_g = -4, W_g = 0 at init.
+    No learned memory->state map W this round. audit: None | 'zero' (g = 0) | 'uniform' (a = 1/M) -- evaluation-only ablations."""
+    def __init__(self, d_inner, d_state, group=None, tau0=1.0, gate_bias=-4.0):
         super().__init__()
         group = group or d_inner
         assert d_inner % group == 0, f'd_inner {d_inner} not divisible by group {group}'
-        self.dk, self.group, self.nh = dk, group, d_inner // group
-        self.Wq = HeadLinear(self.nh, group * d_state, dk)
-        self.Wk = HeadLinear(self.nh, group * d_state, dk)
+        self.group, self.nh, self.dh = group, d_inner // group, group * d_state       # dh: per-head q/k dim
+        self.Wq = nn.Linear(d_inner * d_state, d_inner * d_state, bias=False)
+        self.Wk = nn.Linear(d_inner * d_state, d_inner * d_state, bias=False)
         self.log_tau = nn.Parameter(torch.full((self.nh,), float(tau0)).log())
         self.Wg = nn.Linear(d_inner * d_state, d_inner)
         nn.init.zeros_(self.Wg.weight); nn.init.constant_(self.Wg.bias, gate_bias)
         self.audit = None
 
-    def heads(self, h):
-        return h.detach().reshape(h.shape[0], self.nh, -1)                            # (b, nh, group * N)
-
     def key(self, h):
-        return self.Wk(self.heads(h))                                                   # (b, nh, dk)
+        return self.Wk(h.detach().flatten(1)).reshape(h.shape[0], self.nh, self.dh)   # (b, nh, dh)
 
     def forward(self, h, keys, vals):
-        """h (b, D, N) current pre-correction state; keys (b, M, nh, dk); vals (b, M, D, N).
+        """h (b, D, N) current pre-correction state; keys (b, M, nh, dh); vals (b, M, D, N).
         Returns the injection g*m (b, D, N), a (b, nh, M), g (b, D, 1)."""
         b, M = keys.shape[:2]
+        hq = h.detach().flatten(1)
         if self.audit == 'uniform':
             a = keys.new_full((b, self.nh, M), 1.0 / M)
         else:
-            S = torch.einsum('bhd,bmhd->bhm', self.Wq(self.heads(h)), keys)
-            a = torch.softmax(S / (self.dk ** 0.5 * self.log_tau.exp())[None, :, None], -1)
-        v = vals.reshape(b, M, self.nh, self.group, vals.shape[-1])                     # each head's own channel slice of C_j
+            q = self.Wq(hq).reshape(b, self.nh, self.dh)
+            a = torch.softmax(torch.einsum('bhd,bmhd->bhm', q, keys) / (self.dh ** 0.5 * self.log_tau.exp())[None, :, None], -1)
+        v = vals.reshape(b, M, self.nh, self.group, vals.shape[-1])                     # each head's own channel group of C_j
         m = torch.einsum('bhm,bmhgn->bhgn', a, v).reshape(b, -1, vals.shape[-1])
-        g = torch.sigmoid(self.Wg(h.detach().flatten(1))).unsqueeze(-1)
+        g = torch.sigmoid(self.Wg(hq)).unsqueeze(-1)
         if self.audit == 'zero':
             g = torch.zeros_like(g)
         return g * m, a, g
 
 
 class A0Corr(nn.Module):
-    def __init__(self, base, order, corr='shared', shuffle=False, mode='self', freeze=True, step_sg=False, mem=None, mem_dk=64, mem_group=None):
+    def __init__(self, base, order, corr='shared', shuffle=False, mode='self', freeze=True, step_sg=False, mem=None, mem_group=None):
         super().__init__()
         assert mem in (None, 'none', 'real', 'shuf')
         self.mem = mem                                                                 # cross mode. None: legacy (no step_mem term). 'none': M0, step_mem
@@ -103,7 +91,7 @@ class A0Corr(nn.Module):
             self.corr_net = GatedCorrNet(m.d_inner, m.d_state, res_dim)
         else:
             self.corr_net = CorrNet(corr, m.d_inner, m.d_state, res_dim) if corr else None
-        self.mem_net = StateMem(m.d_inner, m.d_state, dk=mem_dk, group=mem_group) if mem in ('real', 'shuf') else None
+        self.mem_net = StateMem(m.d_inner, m.d_state, group=mem_group) if mem in ('real', 'shuf') else None
         self.use_corr = True
 
     def train(self, mode=True):

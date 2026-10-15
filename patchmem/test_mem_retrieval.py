@@ -60,20 +60,23 @@ def grads(m, loss, Cs):
                 corr=gsum(m.corr_net.parameters()), C=[(c.grad.abs().sum().item() if c.grad is not None else 0.0) for c in Cs])
 
 
-print('H  multi-head StateMem: one softmax per head of 4 channels; head h reads only its own channels of C_j')
+print('H  StateMem: full-state W_Q/W_K (512 -> 512), q/k split into 8 heads of 64 dims, one softmax per head; head h weights only its own 4 channels of C_j')
 from patchmem.a0corr import StateMem
 torch.manual_seed(0)
-sm = StateMem(32, 16, dk=64, group=GROUP).to(dev); sm.Wg.bias.data.fill_(0.0)
+sm = StateMem(32, 16, group=GROUP).to(dev); sm.Wg.bias.data.fill_(0.0)
 hh = torch.randn(2, 32, 16, device=dev); Kh = torch.stack([sm.key(torch.randn(2, 32, 16, device=dev)) for _ in range(5)], 1)
 Vh = torch.randn(2, 5, 32, 16, device=dev)
 inj, a, g = sm(hh, Kh, Vh)
+ok(tuple(sm.Wq.weight.shape) == (512, 512) and tuple(sm.Wk.weight.shape) == (512, 512), 'W_Q / W_K are full-state 512 -> 512')
 ok(tuple(a.shape) == (2, 8, 5) and torch.allclose(a.sum(-1), torch.ones_like(a.sum(-1))), f'a shape {tuple(a.shape)} (b, nh=8, M=5), rows sum to 1')
 ok((a[:, 0] - a[:, 1]).abs().max().item() > 1e-3, 'heads select history independently (different distributions)')
 V2 = Vh.clone(); V2[:, :, GROUP:] += 5.0                                 # change every channel outside head 0
 inj2, _, _ = sm(hh, Kh, V2)
 ok((inj[:, :GROUP] - inj2[:, :GROUP]).abs().max().item() == 0.0 and (inj[:, GROUP:] - inj2[:, GROUP:]).abs().max().item() > 0,
    "head 0's injection depends only on head 0's channels of C_j")
-sm1 = StateMem(32, 16, dk=64, group=None).to(dev)
+h2 = hh.clone(); h2[:, GROUP:] += 1.0                                    # change only channels OUTSIDE head 0's group
+ok((sm(h2, Kh, Vh)[1][:, 0] - a[:, 0]).abs().max().item() > 1e-4, "head 0's attention still sees every channel (full-state projection)")
+sm1 = StateMem(32, 16, group=None).to(dev)
 ok(sm1.nh == 1 and tuple(sm1(hh, torch.stack([sm1.key(hh)] * 3, 1), Vh[:, :3])[1].shape) == (2, 1, 3), 'group=None keeps the single whole-state head')
 
 C5 = 5
