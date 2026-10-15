@@ -35,6 +35,8 @@ fi
 cd MambaTS-historic-dynamic-reuse
 
 echo "== 3/5 conda env (python 3.12, matches the cluster) =="
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main 2>/dev/null || true
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 2>/dev/null || true
 conda create -n "$ENV_NAME" python=3.12 -y
 conda activate "$ENV_NAME"
 
