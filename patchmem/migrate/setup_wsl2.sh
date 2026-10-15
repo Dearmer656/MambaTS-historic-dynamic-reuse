@@ -9,6 +9,11 @@
 # WSL2. Only the CUDA *runtime* this script installs (via torch's own cu128 wheels) is needed in Ubuntu.
 set -euo pipefail
 
+# Must run from WSL2's own Linux filesystem, NOT /mnt/c/... (a Windows/NTFS path). git/chmod fail there
+# ("Operation not permitted" on .git/config.lock) because NTFS-via-WSL doesn't support POSIX permission
+# bits. cd to $HOME (ext4, real Linux fs) first; from Windows Explorer it's reachable at \\wsl$\Ubuntu\home\<you>.
+case "$PWD" in /mnt/*) echo "Run this from \$HOME, not a /mnt/c/... Windows path (git chmod fails there). cd ~ && bash $0" >&2; exit 1 ;; esac
+
 REPO_URL="https://github.com/Dearmer656/MambaTS-historic-dynamic-reuse.git"
 BRANCH="dearmer656/pat-304-mambats-memory"
 ENV_NAME="mamba_iso"
