@@ -41,7 +41,10 @@ conda create -n "$ENV_NAME" python=3.12 -y
 conda activate "$ENV_NAME"
 
 echo "== 4/5 torch (cu128) then the pinned libs (causal-conv1d/mamba-ssm need torch importable first) =="
+df -h "$HOME" | tail -1 | awk '{ if ($4+0 < 15 && $4 ~ /G/) print "WARNING: only " $4 " free -- the env needs ~6-8GB; WSL2 disk lives on Windows C:" }'
 pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+pip install packaging ninja wheel setuptools
+pip install --no-build-isolation causal-conv1d==1.5.2 mamba-ssm==2.2.5   # no isolation: use the torch above, fetch its prebuilt wheel
 pip install -r patchmem/migrate/requirements-lock.txt
 
 echo "== 5/5 verify: GPU visible, then the unit tests (no dataset needed yet) =="

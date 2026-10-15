@@ -1,18 +1,15 @@
 # PAT-304 exact environment on the cluster (conda env mamba_iso, python 3.12.14), frozen 2026-10-15.
-# Install order matters: torch first (pulls its own CUDA 12.8 runtime as the nvidia-*-cu12 wheels below,
-# so the target machine only needs a driver new enough for CUDA 12.8, not a system CUDA toolkit), then
-# causal-conv1d/mamba-ssm (need torch already importable to find a matching prebuilt wheel), then the rest.
+# causal-conv1d / mamba-ssm are NOT in this file: they must be installed with --no-build-isolation AFTER torch, otherwise
+# pip builds them in an isolated env that downloads a second, latest torch (CUDA 13, several GB), finds no prebuilt wheel
+# for it and compiles from source against the wrong torch. Order:
 #
 #   pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+#   pip install packaging ninja wheel setuptools
+#   pip install --no-build-isolation causal-conv1d==1.5.2 mamba-ssm==2.2.5
 #   pip install -r patchmem/migrate/requirements-lock.txt
 #
-# If causal-conv1d/mamba-ssm have no prebuilt wheel for this exact python/torch/cuda/OS combo, pip falls
-# back to a from-source build: needs `ninja` (already listed) and nvcc on PATH matching the installed
-# nvidia-cuda-nvrtc-cu12 major version (12.x) -- e.g. `conda install -c nvidia cuda-nvcc=12.8`. Confirm
-# with `python -c "import torch; print(torch.cuda.get_device_capability())"` before building: all three
-# target GPUs (4080, A6000/A100/3090/6000) are compute capability >= 8.0, no special-casing needed.
-causal-conv1d==1.5.2
-mamba-ssm==2.2.5
+# With build isolation off, their setup.py sees torch 2.8.0+cu128 and downloads the matching prebuilt wheel (no nvcc needed).
+# Only if no wheel exists for the platform does it compile, which then needs nvcc 12.x (`conda install -c nvidia cuda-nvcc=12.8`).
 einops==0.8.2
 numpy==2.5.3
 scipy==1.18.1

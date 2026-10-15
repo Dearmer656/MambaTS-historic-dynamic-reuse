@@ -30,6 +30,8 @@ On Linux (lab server) the manual steps are:
 ```bash
 conda create -n mamba_iso python=3.12 -y && conda activate mamba_iso
 pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
+pip install packaging ninja wheel setuptools
+pip install --no-build-isolation causal-conv1d==1.5.2 mamba-ssm==2.2.5
 pip install -r patchmem/migrate/requirements-lock.txt
 ```
 See the comments in `requirements-lock.txt` if causal-conv1d/mamba-ssm need to build from source.
