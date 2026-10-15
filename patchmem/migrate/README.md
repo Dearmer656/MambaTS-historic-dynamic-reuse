@@ -13,6 +13,20 @@ up on the new machine, use the https remote instead:
 `https://github.com/Dearmer656/MambaTS-historic-dynamic-reuse.git`.
 
 ## 2. Environment
+**On Windows: use WSL2, not native Windows conda.** mamba-ssm / causal-conv1d have no official Windows
+wheel; a native Windows install means compiling from source with MSVC, which commonly fails on a
+preprocessor incompatibility in the CUDA kernels, and third-party precompiled wheels are pinned to older
+versions (mamba_ssm 2.2.4, causal_conv1d 1.5.0.post8) that don't match the cluster's 2.2.5 / 1.5.2.
+```powershell
+# one time, elevated PowerShell, then open the "Ubuntu" app it installs
+wsl --install
+```
+Then inside that Ubuntu terminal, `patchmem/migrate/setup_wsl2.sh` does everything below in one command
+(clone, conda env, torch+libs, unit-test verification): `bash setup_wsl2.sh` (copy it out of the repo
+first, or just paste its contents into a new file -- see the script's own header for why it can't `git
+clone` before conda exists). GPU passthrough uses the existing Windows NVIDIA driver automatically.
+
+On Linux (lab server) the manual steps are:
 ```bash
 conda create -n mamba_iso python=3.12 -y && conda activate mamba_iso
 pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
