@@ -1,7 +1,8 @@
 """PAT-304 A0-frozen innovation correction: official run.py / data / seed / early stopping / vali / test, model = A0Corr (frozen A0 checkpoint).
 Env: A0C_MODE (self = F1/F2 | cross = F3), A0C_STEP (lambda of the per-step innovation loss, default 0), A0C_CKPT (A0 checkpoint.pth, required), A0C_CORR (shared | gated = GatedCorrNet, C(h, e=0) = 0 | none = A0 baseline in the fixed order), A0C_DECOR (weight of the per-channel corr(h-, C)^2 penalty, default 0), A0C_STEP_SG=1 (cross mode: step loss on sg(h-) + C, no backbone gradient), A0C_SCRATCH_LR (from scratch: backbone+ro lr factor), A0C_SHUFFLE=1 (residual rolled in batch),
 A0C_MEM (cross mode, state-level retrieval memory: unset = legacy | none = M0, step_mem on h- | real = M1 | shuf = M2, deterministic time
-permutation of the key-value pairing within the sequence; the unrelated-history null is evaluated by mem_audit), A0C_STEP_MEM (lambda of the per-site re-prediction loss from h_mem, default 0), A0C_MEM_DK (default 64),
+permutation of the key-value pairing within the sequence; the unrelated-history null is evaluated by mem_audit), A0C_STEP_MEM (lambda of the per-site re-prediction loss from h_mem, default 0), A0C_MEM_DK (per-head key dim, default 64),
+A0C_MEM_GROUP (channels per retrieval head, 0 = one head over the whole state; 4 = 4 channels x d_state 16 = 64 features per head),
 A0C_GAMMA (default 1e-4). Stage 1: ridge fit of the next-patch predictor aux on the frozen A0. Stage 2: train CorrNet only (official MSE on the
 last origin + gamma * mean C^2). Vali/test are the official ones (run.py calls test after train)."""
 import os, sys, time
@@ -33,9 +34,9 @@ class Exp_A0Corr(Exp_Long_Term_Forecast):
         corr = os.environ.get('A0C_CORR', 'shared'); corr = None if corr == 'none' else corr
         step_sg = os.environ.get('A0C_STEP_SG', '0') == '1'
         mem = os.environ.get('A0C_MEM') or None
-        print(f'A0C: ckpt {ckpt or "(none, from scratch)"} | freeze {freeze} | scan order {order} | corr {corr} shuffle {os.environ.get("A0C_SHUFFLE", "0")} | step_sg {step_sg} | mem {mem}', flush=True)
+        print(f'A0C: ckpt {ckpt or "(none, from scratch)"} | freeze {freeze} | scan order {order} | corr {corr} shuffle {os.environ.get("A0C_SHUFFLE", "0")} | step_sg {step_sg} | mem {mem} group {os.environ.get("A0C_MEM_GROUP", "0")}', flush=True)
         return A0Corr(base, order, corr=corr, shuffle=os.environ.get('A0C_SHUFFLE', '0') == '1', mode=os.environ.get('A0C_MODE', 'self'), freeze=freeze, step_sg=step_sg,
-                      mem=mem, mem_dk=int(os.environ.get('A0C_MEM_DK', '64'))).float()
+                      mem=mem, mem_dk=int(os.environ.get('A0C_MEM_DK', '64')), mem_group=int(os.environ.get('A0C_MEM_GROUP', '0')) or None).float()
 
     @torch.no_grad()
     def fit_ro(self, train_loader, lam=1e-4):

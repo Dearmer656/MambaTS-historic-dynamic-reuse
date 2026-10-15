@@ -4,6 +4,7 @@ token s = patch t of variable k. After the scan absorbs token s (t >= 1), the in
 patch, o_{s-1}: the official last-layer token output of the previous patch of the same variable, aux: a frozen next-patch predictor
 fitted on A0) drives a state correction h_s+ = h_s- + CorrNet(stopgrad h_s-, e_s); the scan continues from h_s+. The official head reads
 the corrected token outputs. With CorrNet == 0 this is exactly A0."""
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -12,40 +13,62 @@ from patchmem.ref_scan import mamba_proj
 from patchmem.tm_model import CorrNet, GatedCorrNet, channel_decor
 
 
-class StateMem(nn.Module):
-    """PAT-304 state-level retrieval memory, a module separate from CorrNet (the writer). Slots are written at every corrected site of the
-    current variable: key = W_K flat(sg h_j-), value = C_j (NOT detached: a later site's loss reaches the historical C_j and CorrNet).
-    Read at site t from the slots j < t: a = softmax(W_Q flat(sg h_t-) . K / (sqrt(dk) tau)), m = sum_j a_j C_j (b, D, N), injected
-    into the SSM state through a per-channel scalar gate g = sigmoid(W_g flat(sg h_t-) + b_g) (b, D, 1), b_g = -4, W_g = 0 at init.
-    No learned memory->state map W this round. audit: None | 'zero' (g = 0) | 'uniform' (a = 1/M) -- evaluation-only ablations."""
-    def __init__(self, d_inner, d_state, dk=64, tau0=1.0, gate_bias=-4.0):
+class HeadLinear(nn.Module):
+    """Independent bias-free linear map per head: x (..., nh, d_in) -> (..., nh, d_out), weight (nh, d_in, d_out), nn.Linear's default init."""
+    def __init__(self, nh, d_in, d_out):
         super().__init__()
-        self.dk = dk
-        self.Wq = nn.Linear(d_inner * d_state, dk, bias=False)
-        self.Wk = nn.Linear(d_inner * d_state, dk, bias=False)
-        self.log_tau = nn.Parameter(torch.tensor(float(tau0)).log())
+        self.weight = nn.Parameter(torch.empty(nh, d_in, d_out).uniform_(-d_in ** -0.5, d_in ** -0.5))
+
+    def forward(self, x):
+        return torch.einsum('...hi,hio->...ho', x, self.weight)
+
+
+class StateMem(nn.Module):
+    """PAT-304 state-level retrieval memory, a module separate from CorrNet (the writer). The SSM state h (b, D, N) is split into
+    nh = D / group heads of `group` consecutive channels (group * N features each; group=None: one head over the whole state). Slots are
+    written at every corrected site of the current variable: key_h = W_K,h (sg h_j-)[head h], value = C_j (NOT detached: a later site's loss
+    reaches the historical C_j and CorrNet). Read at site t from the slots j < t, per head: a_h = softmax(W_Q,h (sg h_t-)[h] . K_h /
+    (sqrt(dk) tau_h)), m[head h channels] = sum_j a_h,j C_j[head h channels] -- each head selects history for its own channels only.
+    Injected into the SSM state through a per-channel scalar gate g = sigmoid(W_g flat(sg h_t-) + b_g) (b, D, 1), b_g = -4, W_g = 0 at init.
+    W_Q,h / W_K,h / tau_h are independent per head. No learned memory->state map W this round.
+    audit: None | 'zero' (g = 0) | 'uniform' (a = 1/M) -- evaluation-only ablations."""
+    def __init__(self, d_inner, d_state, dk=64, group=None, tau0=1.0, gate_bias=-4.0):
+        super().__init__()
+        group = group or d_inner
+        assert d_inner % group == 0, f'd_inner {d_inner} not divisible by group {group}'
+        self.dk, self.group, self.nh = dk, group, d_inner // group
+        self.Wq = HeadLinear(self.nh, group * d_state, dk)
+        self.Wk = HeadLinear(self.nh, group * d_state, dk)
+        self.log_tau = nn.Parameter(torch.full((self.nh,), float(tau0)).log())
         self.Wg = nn.Linear(d_inner * d_state, d_inner)
         nn.init.zeros_(self.Wg.weight); nn.init.constant_(self.Wg.bias, gate_bias)
         self.audit = None
 
+    def heads(self, h):
+        return h.detach().reshape(h.shape[0], self.nh, -1)                            # (b, nh, group * N)
+
     def key(self, h):
-        return self.Wk(h.detach().flatten(1))
+        return self.Wk(self.heads(h))                                                   # (b, nh, dk)
 
     def forward(self, h, keys, vals):
-        """h (b, D, N) current pre-correction state; keys (b, M, dk); vals (b, M, D, N). Returns the injection g*m (b, D, N), a (b, M), g (b, D, 1)."""
-        hq = h.detach().flatten(1)
+        """h (b, D, N) current pre-correction state; keys (b, M, nh, dk); vals (b, M, D, N).
+        Returns the injection g*m (b, D, N), a (b, nh, M), g (b, D, 1)."""
+        b, M = keys.shape[:2]
         if self.audit == 'uniform':
-            a = keys.new_full(keys.shape[:2], 1.0 / keys.shape[1])
+            a = keys.new_full((b, self.nh, M), 1.0 / M)
         else:
-            a = torch.softmax(torch.einsum('bd,bmd->bm', self.Wq(hq), keys) / (self.dk ** 0.5 * self.log_tau.exp()), -1)
-        g = torch.sigmoid(self.Wg(hq)).unsqueeze(-1)
+            S = torch.einsum('bhd,bmhd->bhm', self.Wq(self.heads(h)), keys)
+            a = torch.softmax(S / (self.dk ** 0.5 * self.log_tau.exp())[None, :, None], -1)
+        v = vals.reshape(b, M, self.nh, self.group, vals.shape[-1])                     # each head's own channel slice of C_j
+        m = torch.einsum('bhm,bmhgn->bhgn', a, v).reshape(b, -1, vals.shape[-1])
+        g = torch.sigmoid(self.Wg(h.detach().flatten(1))).unsqueeze(-1)
         if self.audit == 'zero':
             g = torch.zeros_like(g)
-        return g * torch.einsum('bm,bmdn->bdn', a, vals), a, g
+        return g * m, a, g
 
 
 class A0Corr(nn.Module):
-    def __init__(self, base, order, corr='shared', shuffle=False, mode='self', freeze=True, step_sg=False, mem=None, mem_dk=64):
+    def __init__(self, base, order, corr='shared', shuffle=False, mode='self', freeze=True, step_sg=False, mem=None, mem_dk=64, mem_group=None):
         super().__init__()
         assert mem in (None, 'none', 'real', 'shuf')
         self.mem = mem                                                                 # cross mode. None: legacy (no step_mem term). 'none': M0, step_mem
@@ -80,7 +103,7 @@ class A0Corr(nn.Module):
             self.corr_net = GatedCorrNet(m.d_inner, m.d_state, res_dim)
         else:
             self.corr_net = CorrNet(corr, m.d_inner, m.d_state, res_dim) if corr else None
-        self.mem_net = StateMem(m.d_inner, m.d_state, dk=mem_dk) if mem in ('real', 'shuf') else None
+        self.mem_net = StateMem(m.d_inner, m.d_state, dk=mem_dk, group=mem_group) if mem in ('real', 'shuf') else None
         self.use_corr = True
 
     def train(self, mode=True):
@@ -206,7 +229,7 @@ class A0Corr(nn.Module):
                 trace.update(dA=dA, h0=h0, xp=xp, C=[])
         h = x.new_zeros(b, x.shape[1], A.shape[1])
         ys, regs, steps, hs, cs = [], [], [], [], []
-        steps_mem, mstats = [], dict(ent=[], g=[], ratio=[])
+        steps_mem, mstats = [], dict(ent=[], ent_norm=[], unif_heads=[], g=[], ratio=[])
         for s in range(L):
             h = dA[:, :, s] * h + dBu[:, :, s]
             ys.append((torch.einsum('bdn,bn->bd', h, C[:, :, s]) + D * x[:, :, s]) * F.silu(z[:, :, s]))
@@ -240,7 +263,11 @@ class A0Corr(nn.Module):
                             V = V.detach()
                         inj, a, g = self.mem_net(h_minus, torch.stack(rk, 1), V)
                         h = h_minus + inj
-                        mstats['ent'].append(-(a * a.clamp_min(1e-12).log()).sum(-1).mean().detach())
+                        ent = -(a * a.clamp_min(1e-12).log()).sum(-1)                  # (b, nh)
+                        mstats['ent'].append(ent.mean().detach())
+                        if a.shape[-1] >= 2:                                            # entropy / log M: 1 = uniform; share of heads > 0.95
+                            en = ent / math.log(a.shape[-1])
+                            mstats['ent_norm'].append(en.mean().detach()); mstats['unif_heads'].append((en > 0.95).float().mean().detach())
                         mstats['g'].append(g.mean().detach())
                         mstats['ratio'].append((inj.flatten(1).norm(dim=1) / Cm.flatten(1).norm(dim=1).clamp_min(1e-12)).mean().detach())
                     yhat_mem = self.ro(h.flatten(1))
