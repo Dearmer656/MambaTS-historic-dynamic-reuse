@@ -8,7 +8,7 @@ from pathlib import Path
 import torch
 ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT))
 from mamba_ssm.ops.selective_scan_interface import selective_scan_fn
-from patchmem.r1_model import R1
+from patchmem.r1_model import R1, atsp_order
 from patchmem.ref_scan import mamba_proj
 _mixer_full_fixed = R1._mixer_full
 
@@ -23,10 +23,10 @@ def ok(cond, msg):
         FAILS.append(msg)
 
 
-def build(vpt=1, seed=0, e_layers=3):
+def build(vpt=1, seed=0, e_layers=3, c=C, solver='SA'):
     torch.manual_seed(seed)
     cfg = Namespace(task_name='long_term_forecast', seq_len=720, pred_len=96, patch_len=P, stride=P, d_model=D_MODEL, e_layers=e_layers,
-                    enc_in=C, dropout=0.0, VPT_mode=vpt, ATSP_solver='SA', use_casual_conv=False)
+                    enc_in=c, dropout=0.0, VPT_mode=vpt, ATSP_solver=solver, use_casual_conv=False)
     return R1(cfg).to(dev)
 
 
@@ -181,14 +181,63 @@ m_fixed = build(vpt=0, seed=4).eval(); m_fixed.load_state_dict(m.state_dict())
 ident = torch.arange(C, device=dev).expand(3, -1)
 ok(rel(m_fixed(x, 3)['pred'], m(x, 3, perm=ident)['pred']) < 1e-6, 'identity pi == fixed time-major scan (VPT off)')
 
-print('A  VPT cost bookkeeping and deterministic evaluation order')
+def expected_vpt(tt, loss_bhc, c):
+    """Independent per-sample, per-edge reference of the VPT cost update: sample b adds cost_b / std to each of its C transitions."""
+    cost = loss_bhc.double().mean((1, 2)); cost = cost / cost.std()
+    tot = torch.zeros(c, c, dtype=torch.float64); cnt = torch.zeros(c, c, dtype=torch.float64)
+    for b in range(tt.shape[0]):
+        for i, j in tt[b].tolist():
+            tot[i, j] += cost[b].item(); cnt[i, j] += 1
+    return tot, cnt
+
+
+def fmt(mat, cnt):
+    return ' '.join(f'({i},{j}):{mat[i, j]:.3f}' for i in range(mat.shape[0]) for j in range(mat.shape[1]) if cnt[i, j] > 0)
+
+
+print('A  VPT cost attribution (exact, per sample and per edge), degenerate batches, sparse adjacency, deterministic eval order')
+m = build(seed=5, c=3)
+tt = torch.tensor([[[0, 0], [0, 1], [1, 2]], [[2, 2], [2, 0], [0, 1]]], device=dev)       # pi = [0,1,2] and [2,0,1]
+loss = torch.stack([torch.full((2 * P, 3), 1.0), torch.full((2 * P, 3), 10.0)]).to(dev)   # per-sample cost 1 and 10
+tot_ref, cnt_ref = expected_vpt(tt.cpu(), loss.cpu(), 3)
+m.enc.transition_tuple = tt
+m.update_vpt_cost(loss)
+tot_new, cnt_new = m.enc.adjacency_matrix.double().cpu(), m.enc.count_matrix.double().cpu()
+mo = build(seed=5, c=3); mo.enc.transition_tuple = tt
+mo.enc.batch_update_state(loss)                                                          # original MambaTS method (A0 path)
+tot_old = mo.enc.adjacency_matrix.double().cpu()
+print(f'       B=2 C=3 hand case, cost [1, 10] -> normalised {(torch.tensor([1., 10.]) / torch.tensor([1., 10.]).std()).tolist()}')
+print(f'         expected     {fmt(tot_ref, cnt_ref)}')
+print(f'         original     {fmt(tot_old, cnt_ref)}')
+print(f'         R1 (fixed)   {fmt(tot_new, cnt_ref)}')
+ok(torch.allclose(tot_new, tot_ref, atol=1e-5) and torch.equal(cnt_new, cnt_ref), 'fixed update == per-sample per-edge reference (sum and count)')
+ok(not torch.allclose(tot_old, tot_ref, atol=1e-3), 'repro: the original batch_update_state (cost.repeat(C)) misattributes the hand case')
+seen = cnt_ref > 0
+ok(bool(torch.isnan(mo.enc.get_adjacency_matrix()).any()), 'repro: original get_adjacency_matrix is NaN with unobserved edges')
+adj = m.vpt_adjacency().cpu().double()
+mean = tot_ref / cnt_ref.clamp_min(1); shift = mean[seen].min().abs() + 1e-7
+ok(bool(torch.isfinite(adj).all()) and torch.allclose(adj[seen], mean[seen] + shift, atol=1e-5)
+   and torch.allclose(adj[~seen], (mean[seen].max() + shift).expand(int((~seen).sum())), atol=1e-5),
+   f'sparse adjacency finite; observed = mean cost, {int((~seen).sum())} unobserved edges = max observed (never preferred)')
+for solver in ('SA', 'LS', 'GD'):
+    order = atsp_order(m.vpt_adjacency(), solver, 3)
+    ok(sorted(int(v) for v in order) == [0, 1, 2], f'ATSP {solver} on the sparse adjacency returns a valid permutation {order}')
+before = (m.enc.adjacency_matrix.clone(), m.enc.count_matrix.clone())
+m.enc.transition_tuple = tt[:1]; m.update_vpt_cost(loss[:1])                             # B = 1: std undefined
+m.enc.transition_tuple = tt; m.update_vpt_cost(torch.ones_like(loss))                    # equal costs: std 0
+ok(m.vpt_skipped == 2 and torch.equal(m.enc.adjacency_matrix, before[0]) and torch.equal(m.enc.count_matrix, before[1])
+   and bool(torch.isfinite(m.vpt_adjacency()).all()), f'B=1 and zero-variance batches skipped ({m.vpt_skipped}), statistics unchanged and finite')
+
 m = build(seed=5)
-c0 = m.enc.count_matrix.sum().item()
 m.train()
+tot_ref = torch.zeros(C, C, dtype=torch.float64); cnt_ref = torch.zeros(C, C, dtype=torch.float64)
 for _ in range(20):
     o = m(x, 2)
-    m.update_vpt_cost((o['pred'] - x[:, :2 * P]).square().detach())
-ok(m.enc.count_matrix.sum().item() - c0 == 20 * 3 * C, f'count matrix grew by {m.enc.count_matrix.sum().item() - c0:.0f} = 20 batches x 3 samples x {C} transitions')
+    el = (o['pred'] - x[:, :2 * P]).square().detach()
+    t_, c_ = expected_vpt(m.enc.transition_tuple.cpu(), el.cpu(), C); tot_ref += t_; cnt_ref += c_
+    m.update_vpt_cost(el)
+ok(torch.allclose(m.enc.adjacency_matrix.double().cpu(), tot_ref, atol=1e-4) and torch.equal(m.enc.count_matrix.double().cpu(), cnt_ref)
+   and cnt_ref.sum().item() == 20 * 3 * C, f'20 random training batches: every edge sum/count == per-sample reference ({cnt_ref.sum().item():.0f} transitions)')
 m.eval()
 p1 = m(x, 2)['pred']; o1 = list(m.ids_shuffle)
 p2 = m(x, 2)['pred']

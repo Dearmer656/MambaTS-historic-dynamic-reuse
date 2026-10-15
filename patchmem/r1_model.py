@@ -8,8 +8,11 @@ restored to the original variable order with pi^-1. Forecasting is autoregressiv
 
 VPT keeps the original MambaTS policy, re-indexed for time-major tokens: training draws one random pi per sample, used for the whole
 window and its rollout; the within-step transitions pi_k -> pi_k+1 (plus the start tuple) are exactly the original channel-major
-transition set, so the original cost accumulation (encoder.batch_update_state) is reused unchanged; evaluation uses one fixed order
-from the original open-path ATSP on the accumulated adjacency. The cross-step wrap edge pi_C(t) -> pi_1(t+1) exists in the scan but
+transition set, so the original cost definition is kept (per-sample loss mean over (t, c), divided by the batch std, added to each
+of the sample's C transitions). It is re-implemented here (update_vpt_cost) because the original encoder.batch_update_state broadcasts
+the per-sample cost with cost.repeat(C), which interleaves samples ([c0, c1, c0, c1, ...]) against the sample-major transition
+indices; the official MambaTS / A0 path is left untouched. Evaluation uses one fixed order from the original open-path ATSP on the
+accumulated mean cost, with never-observed edges filled pessimistically (vpt_adjacency) instead of the original 0/0 = NaN. The cross-step wrap edge pi_C(t) -> pi_1(t+1) exists in the scan but
 is not an ATSP cost term in this version (closed tour = later ablation).
 
 Lower layers run the official selective-scan kernel over the teacher-forced history for their token outputs; their final state
@@ -25,13 +28,12 @@ from models.MambaTS import Model
 from patchmem.ref_scan import mamba_proj, mamba_step_noconv
 
 
-def atsp_order(enc, n_vars):
+def atsp_order(adj, solver, n_vars):
     """Original MambaTS evaluation order (layers/mamba_ssm/mixer2_seq_simple.py, MixerTSModel.forward, eval branch): open-path ATSP
-    on the mean transition cost, start = argmin of the diagonal. Identity if no transition was ever recorded."""
-    if enc.count_matrix.sum() == 0:
+    on the mean transition cost adj (C, C), start = argmin of the diagonal. Identity if adj is None (no transition recorded)."""
+    if adj is None:
         return list(range(n_vars))
-    adj = enc.get_adjacency_matrix()
-    if enc.ATSP_solver == 'GD':
+    if solver == 'GD':
         start = torch.argmin(torch.diag(adj)).item()
         adj = adj.clone()
         for j in range(n_vars):
@@ -51,8 +53,8 @@ def atsp_order(enc, n_vars):
     dm[:, start] = 0                                                                    # open path: returning to the start is free
     dm[:, [start, 0]] = dm[:, [0, start]]
     dm[[start, 0], :] = dm[[0, start], :]
-    solver = dict(SA=solve_tsp_simulated_annealing, LS=solve_tsp_local_search, LK=solve_tsp_lin_kernighan)[enc.ATSP_solver]
-    path, dist = solver(dm, x0=list(range(n_vars)))
+    solve = dict(SA=solve_tsp_simulated_annealing, LS=solve_tsp_local_search, LK=solve_tsp_lin_kernighan)[solver]
+    path, dist = solve(dm, x0=list(range(n_vars)))
     path[path.index(start)] = 0
     path[0] = start
     print(f'[R1 ATSP] order {path} cost {dist:.4f}', flush=True)
@@ -74,6 +76,7 @@ class R1(nn.Module):
         self.readout = nn.Linear(self.D * self.N, self.c * self.P)
         self.vpt = cfg.VPT_mode == 1
         self.ids_shuffle = None                                                         # cached evaluation order (list of C ints)
+        self.vpt_skipped = 0                                                            # cost updates skipped (batch std undefined / ~0)
 
     # ---------------------------------------------------------------- ordering
     def reset_ids_shuffle(self):
@@ -90,13 +93,40 @@ class R1(nn.Module):
         if not self.vpt:
             return torch.arange(self.c, device=device).expand(b, -1)
         if self.ids_shuffle is None:
-            self.ids_shuffle = atsp_order(self.enc, self.c)
+            self.ids_shuffle = atsp_order(self.vpt_adjacency(), self.enc.ATSP_solver, self.c)
         return torch.as_tensor(self.ids_shuffle, device=device).expand(b, -1)
 
     def update_vpt_cost(self, loss_bhc):
-        """Original VPT cost accumulation from the per-element forecast loss (b, H, C) of the last training forward."""
-        if self.vpt:
-            self.enc.batch_update_state(loss_bhc)
+        """VPT cost accumulation from the per-element forecast loss (b, H, C) of the last training forward. Same definition as the
+        original batch_update_state, with the per-sample cost broadcast sample-major (repeat_interleave) to match the transition
+        indices. A batch whose std is undefined (b = 1) or ~0 carries no relative information and is skipped (counted in vpt_skipped)."""
+        if not self.vpt:
+            return
+        enc = self.enc
+        cost = loss_bhc.detach().float().mean((1, 2))                                   # (b,) per-sample mean over (t, c)
+        sd = cost.std() if cost.numel() > 1 else cost.new_tensor(float('nan'))
+        if not torch.isfinite(sd) or sd <= 1e-6 * cost.abs().mean() + 1e-12:
+            self.vpt_skipped += 1
+            return
+        cost = cost / sd
+        tt = enc.transition_tuple                                                       # (b, C, 2) from this forward
+        assert tt.shape[0] == cost.shape[0], (tt.shape, cost.shape)
+        idx = (tt[..., 0] * self.c + tt[..., 1]).reshape(-1)                            # sample-major: s0's C edges, s1's C edges, ...
+        enc.adjacency_matrix.view(-1).scatter_add_(0, idx, cost.repeat_interleave(tt.shape[1]))
+        enc.count_matrix.view(-1).scatter_add_(0, idx, torch.ones_like(cost).repeat_interleave(tt.shape[1]))
+        enc.ending_points.scatter_add_(0, tt[:, -1, 1], cost)
+
+    def vpt_adjacency(self):
+        """Mean transition cost (C, C) shifted as the original get_adjacency_matrix (+|min| + 1e-7). Never-observed edges (count 0;
+        the original gives 0/0 = NaN, which also turns the min shift and so every entry NaN) take the largest observed mean, so an
+        unknown edge is never preferred. None if nothing was recorded."""
+        cnt, tot = self.enc.count_matrix, self.enc.adjacency_matrix
+        seen = cnt > 0
+        if not bool(seen.any()):
+            return None
+        mean = torch.where(seen, tot / cnt.clamp_min(1), torch.zeros_like(tot))
+        adj = torch.where(seen, mean, mean[seen].max())
+        return adj + adj.min().abs() + 1e-7
 
     # ---------------------------------------------------------------- layers
     def _norm(self, layer, hidden, residual):

@@ -165,4 +165,6 @@ class Exp_R1(Exp_Long_Term_Forecast):
                       f'linear mse {r["lin"]:.6f}', flush=True)
         self.eval_grid('val', [(L, Hs[0]) for L in Ls], stride=4, state_stats=True)
         if m.vpt:
-            print(f'[R1 VPT] adjacency (mean transition cost):\n{m.enc.get_adjacency_matrix().cpu().numpy().round(3)}', flush=True)
+            adj = m.vpt_adjacency()
+            print(f'[R1 VPT] skipped cost updates {m.vpt_skipped} | edge counts min {m.enc.count_matrix.min().item():.0f} | adjacency (mean transition cost):\n'
+                  f'{None if adj is None else adj.cpu().numpy().round(3)}', flush=True)
