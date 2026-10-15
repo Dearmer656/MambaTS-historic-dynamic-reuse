@@ -1,7 +1,7 @@
 """PAT-304 A0-frozen innovation correction: official run.py / data / seed / early stopping / vali / test, model = A0Corr (frozen A0 checkpoint).
 Env: A0C_MODE (self = F1/F2 | cross = F3), A0C_STEP (lambda of the per-step innovation loss, default 0), A0C_CKPT (A0 checkpoint.pth, required), A0C_CORR (shared | gated = GatedCorrNet, C(h, e=0) = 0 | none = A0 baseline in the fixed order), A0C_DECOR (weight of the per-channel corr(h-, C)^2 penalty, default 0), A0C_STEP_SG=1 (cross mode: step loss on sg(h-) + C, no backbone gradient), A0C_SCRATCH_LR (from scratch: backbone+ro lr factor), A0C_SHUFFLE=1 (residual rolled in batch),
-A0C_MEM (cross mode, state-level retrieval memory: unset = legacy | none = M0, step_mem on h- | real = M1 | shuf = M2, key-value pairing rolled
-within the sequence), A0C_STEP_MEM (lambda of the per-site re-prediction loss from h_mem, default 0), A0C_MEM_DK (default 64),
+A0C_MEM (cross mode, state-level retrieval memory: unset = legacy | none = M0, step_mem on h- | real = M1 | shuf = M2, deterministic time
+permutation of the key-value pairing within the sequence; the unrelated-history null is evaluated by mem_audit), A0C_STEP_MEM (lambda of the per-site re-prediction loss from h_mem, default 0), A0C_MEM_DK (default 64),
 A0C_GAMMA (default 1e-4). Stage 1: ridge fit of the next-patch predictor aux on the frozen A0. Stage 2: train CorrNet only (official MSE on the
 last origin + gamma * mean C^2). Vali/test are the official ones (run.py calls test after train)."""
 import os, sys, time
@@ -737,21 +737,39 @@ class Exp_A0Corr(Exp_Long_Term_Forecast):
                 line.append(f'{split} R2 {1 - sse / sst:+.4f}')
             print(f'[final resid] {name:6s} ' + ' | '.join(line), flush=True)
 
-    def mem_audit(self, vali_data, vali_loader, test_data, test_loader, crit):
-        """Same checkpoint, evaluation-only ablations of the retrieval memory: as trained | g = 0 (memory removed) | a = 1/M (no selection).
-        Losses from the official vali() on the official loaders, so the three rows are directly comparable. Also mean attention entropy
-        (log M for uniform), gate and |g m| / |C| on val."""
-        m = self.model
-        for audit in (None, 'zero', 'uniform'):
-            m.mem_net.audit = audit
-            print(f'[mem audit] {audit or "trained":8s} | Vali Loss: {self.vali(vali_data, vali_loader, crit):.7f} Test Loss: {self.vali(test_data, test_loader, crit):.7f}', flush=True)
-        m.mem_net.audit = None; m.eval(); st = {}
-        with torch.no_grad():
-            for i, (bx, _, _, _) in enumerate(vali_loader):
-                for n, v in m.run_cross(bx.float().to(self.device))['mem_stats'].items():
-                    st.setdefault(n, []).append(v)
-                if i >= 49:
-                    break
+    @torch.no_grad()
+    def mem_audit(self, vali_data, vali_loader, test_data, bs=32):
+        """Same checkpoint, evaluation-only interventions on the retrieval memory, fixed sample order, official target (seq_y[-H:]),
+        dataset-scaled MSE/MAE like the official vali/test:
+          real      -- own history, true key-value pairing
+          perm      -- own history, deterministic time permutation (M2's roll): same values, wrong pairing
+          unrelated -- another window's history (keys + values written while scanning window (i + N//2) mod N, which shares no time
+                       step with window i or its target since N//2 >= seq_len + pred_len): the null for 'memory content matters'
+          zero      -- g = 0 (memory removed)      uniform -- a = 1/M (no selection)
+        Plus mean attention entropy, gate and |g m| / |C| on val."""
+        m = self.model; a = self.args; m.eval(); saved = m.mem; H = a.pred_len
+        for name, ds in (('val', vali_data), ('test', test_data)):
+            N = len(ds)
+            assert N // 2 >= a.seq_len + a.pred_len, f'{name}: {N} windows too few for a non-overlapping donor'
+            get = lambda ids, j: torch.as_tensor(np.stack([ds[i][j] for i in ids]), dtype=torch.float32, device=self.device)
+            row = []
+            for mode in ('real', 'perm', 'unrelated', 'zero', 'uniform'):
+                m.mem = 'shuf' if mode == 'perm' else 'real'
+                m.mem_net.audit = mode if mode in ('zero', 'uniform') else None
+                se = ae = cnt = 0.0
+                for s0 in range(0, N, bs):
+                    ids = list(range(s0, min(N, s0 + bs)))
+                    bank = m.donor_bank(get([(i + N // 2) % N for i in ids], 0)) if mode == 'unrelated' else None
+                    err = m.run_cross(get(ids, 0), mem_bank=bank)['pred'] - get(ids, 1)[:, -H:]
+                    se += err.square().sum().item(); ae += err.abs().sum().item(); cnt += err.numel()
+                row.append(f'{mode} {se / cnt:.6f}/{ae / cnt:.6f}')
+            print(f'[mem audit] trained as {saved} | {name} MSE/MAE: ' + ' | '.join(row), flush=True)
+        m.mem = saved; m.mem_net.audit = None; st = {}
+        for i, (bx, _, _, _) in enumerate(vali_loader):
+            for n, v in m.run_cross(bx.float().to(self.device))['mem_stats'].items():
+                st.setdefault(n, []).append(v)
+            if i >= 49:
+                break
         print(f'[mem stats val] ' + ' | '.join(f'{n} {np.mean(v):.4f}' for n, v in st.items()), flush=True)
 
     def train(self, setting):
@@ -846,7 +864,7 @@ class Exp_A0Corr(Exp_Long_Term_Forecast):
             adjust_learning_rate(opt, epoch + 1, a); scale_head_lr()
         m.load_state_dict(torch.load(path + '/checkpoint.pth'))
         if m.mem_net is not None:
-            self.mem_audit(vali_data, vali_loader, test_data, test_loader, crit)
+            self.mem_audit(vali_data, vali_loader, test_data)
         if m.mode == 'cross' and m.corr_net is not None:
             for name, loader in (('val', vali_loader), ('test', test_loader)):
                 c1, c0 = self.step_eval(loader)

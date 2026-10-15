@@ -60,7 +60,8 @@ def grads(m, loss, Cs):
 
 
 C5 = 5
-x = torch.randn(2, P * NP, C5, device=dev).cumsum(1) * 0.1
+xy = torch.randn(2, P * NP + H, C5, device=dev).cumsum(1) * 0.1           # one random-walk series: lookback window + its real H-step future
+x, y = xy[:, :P * NP], xy[:, P * NP:]
 l1 = NP - 1                                                              # corrected sites per variable (t = 0..13)
 
 print('G3a memory gated to exactly zero reproduces M0 (mem=none) bit for bit: pred, step, step_mem')
@@ -88,7 +89,7 @@ print(f"   |grad| Wq {gsum([mz.mem_net.Wq.weight]):.2e} Wk {gsum([mz.mem_net.Wk.
 print('G1 gradient credit: target site t = 3 of scan position k = 0 has M = 3 distinct historical slots (t\' = 0, 1, 2)')
 k0, t0 = 0, 3
 idx = k0 * l1 + t0
-for loss_name in ('step_mem_t', 'mse_H96'):
+for loss_name in ('step_mem_t', 'mse_H96'):                             # mse_H96 = the real last-origin forecast loss, not a per-site one
     res = {}
     for surgery in ('full', 'cut_carry', 'cut_value', 'cut_both'):
         m = build('real', C5); m.train()
@@ -98,7 +99,7 @@ for loss_name in ('step_mem_t', 'mse_H96'):
         Cs = tr['C'][k0 * l1: k0 * l1 + l1]                              # this variable's corrections, t = 0..13
         for c in Cs:
             c.retain_grad()
-        loss = out['steps_mem'][idx] if loss_name == 'step_mem_t' else out['pred'].square().mean()
+        loss = out['steps_mem'][idx] if loss_name == 'step_mem_t' else (out['pred'] - y).square().mean()   # actual H96 forecast error
         res[surgery] = grads(m, loss, Cs)
     f = res['full']; ca = res['cut_carry']; cv = res['cut_value']; cb = res['cut_both']
     print(f'  [{loss_name}] |grad| full: Wq {f["Wq"]:.2e} Wk {f["Wk"]:.2e} tau {f["tau"]:.2e} Wg {f["Wg"]:.2e} corr_net {f["corr"]:.2e}')
@@ -119,7 +120,17 @@ with torch.no_grad():
 dy = [(a['yhat'] - b['yhat']).abs().max().item() for a, b in zip(t1['mem'], t2['mem'])]
 ok(dy[1] < 1e-6 and max(dy[2:l1]) > 1e-4, f'bs=1: |yhat_mem M1 - M2| at t=1 {dy[1]:.1e}, max over t>=2 {max(dy[2:l1]):.1e}')
 
-print('G2 causality on a real Weather window (21 variables, 720 steps); site (k*, t*) = (scan position 2, t = 5)')
+print('Unrelated-history control: mem_bank from the same window == own memory; from another window it changes the forecast')
+mu_ = build('real', C5)
+with torch.no_grad():
+    own = mu_.run_cross(x)['pred']
+    same = mu_.run_cross(x, mem_bank=mu_.donor_bank(x))['pred']
+    other = mu_.run_cross(x, mem_bank=mu_.donor_bank(torch.randn_like(x).cumsum(1) * 0.1))['pred']
+ok((own - same).abs().max().item() == 0.0, f'donor = self reproduces own memory exactly, max |diff| {(own - same).abs().max().item():.1e}')
+ok((own - other).abs().max().item() > 1e-5, f'unrelated donor changes the forecast, max |diff| {(own - other).abs().max().item():.1e}')
+
+print('G2 causality on a real Weather window (21 variables, 720 steps); site (k*, t*) = (scan position 2, t = 5). Observed-window protocol: '
+      'this checks scan-order causality of the memory path (stats frozen), NOT chronological online causality of the raw forward')
 df = pd.read_csv(ROOT / 'dataset/weather/weather.csv')
 raw = df.iloc[:, 1:].values.astype(np.float32)[:P * NP]
 raw = (raw - raw.mean(0)) / (raw.std(0) + 1e-5)

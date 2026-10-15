@@ -49,8 +49,11 @@ class A0Corr(nn.Module):
         super().__init__()
         assert mem in (None, 'none', 'real', 'shuf')
         self.mem = mem                                                                 # cross mode. None: legacy (no step_mem term). 'none': M0, step_mem
-        self.cut_value = self.cut_carry = False                                       # on h- (m = 0); 'real': M1; 'shuf': M2, values rolled by one slot
-                                                                                       # along time within the sequence. Test-only gradient surgeries:
+        self.cut_value = self.cut_carry = False                                       # on h- (m = 0); 'real': M1; 'shuf': M2, a deterministic time
+                                                                                       # permutation (values rolled by one slot along time within the
+                                                                                       # sequence: same values, wrong pairing -- NOT an unrelated-memory
+                                                                                       # null; that is run_cross(mem_bank=donor_bank(other window))).
+                                                                                       # Test-only gradient surgeries:
                                                                                        # cut_value detaches memory values (no retrieval credit to C_j),
                                                                                        # cut_carry adds sg(C) to the carried state (no recurrence credit)
         self.step_sg = step_sg                                                         # cross mode: per-step loss on sg(h-) + C (no backbone gradient)
@@ -165,7 +168,15 @@ class A0Corr(nn.Module):
         tok = self.tokens_out(m.out_proj(torch.stack(ys, 1)), res)
         return dict(pred=self.head(tok, means, stdev), reg=torch.stack(regs).mean(), step=torch.stack(steps).mean())
 
-    def run_cross(self, x_enc, record=None, trace=None):
+    @torch.no_grad()
+    def donor_bank(self, x_donor):
+        """Memory slots (key, C) of every corrected site, scan order, written while scanning ANOTHER window: run_cross(x, mem_bank=...) then
+        reads this unrelated history instead of its own (same variable, same t' < t). Evaluation-only null control."""
+        tr = {}
+        self.run_cross(x_donor, trace=tr)
+        return tr['slots']
+
+    def run_cross(self, x_enc, record=None, trace=None, mem_bank=None):
         """F3. State-orthogonal innovations of the uncorrected A0: e*_{k,t} = x_{k,t} - ro(h0_{k,t-1}) (t >= 1; 0 at t = 0). At scan token (k, t),
         t <= l-2, after the scan absorbs it: input u = [e*_{k,t}, e*_{j,t+1} for scan positions j < k (zeros for j >= k)] (c*P), all already
         scanned; h+ = h- + CorrNet(stopgrad h-, u); per-step loss (x_{k,t+1} - ro(h+))^2. The official head reads the prior token outputs.
@@ -217,13 +228,17 @@ class A0Corr(nn.Module):
                 if trace is not None:
                     trace['C'].append(Cm)
                 if self.mem is not None:                                                # h_mem = h- + g * sum_j a_j C_j, re-predict x_{k,t+1} from it
-                    if self.mem_net is not None and mvals:
-                        V = torch.stack(mvals, 1)
+                    if mem_bank is not None:                                            # unrelated-history control: another window's slots
+                        rk = [mem_bank[k * (l - 1) + j][0] for j in range(t)]; rv = [mem_bank[k * (l - 1) + j][1] for j in range(t)]
+                    else:
+                        rk, rv = mkeys, mvals
+                    if self.mem_net is not None and rv:
+                        V = torch.stack(rv, 1)
                         if self.mem == 'shuf':
                             V = V.roll(1, 1)                                            # key_j <-> value_{j-1}, earliest key <-> latest value
                         if self.cut_value:
                             V = V.detach()
-                        inj, a, g = self.mem_net(h_minus, torch.stack(mkeys, 1), V)
+                        inj, a, g = self.mem_net(h_minus, torch.stack(rk, 1), V)
                         h = h_minus + inj
                         mstats['ent'].append(-(a * a.clamp_min(1e-12).log()).sum(-1).mean().detach())
                         mstats['g'].append(g.mean().detach())
@@ -231,11 +246,13 @@ class A0Corr(nn.Module):
                     yhat_mem = self.ro(h.flatten(1))
                     steps_mem.append((xp[:, k, t + 1] - yhat_mem).square().mean())
                     if trace is not None:
-                        trace.setdefault('mem', []).append(dict(k=k, t=t, yhat=yhat_mem, a=a if self.mem_net is not None and mvals else None,
-                                                                inj=inj if self.mem_net is not None and mvals else None,
-                                                                keys=torch.stack(mkeys, 1) if mkeys else None))
+                        trace.setdefault('mem', []).append(dict(k=k, t=t, yhat=yhat_mem, a=a if self.mem_net is not None and rv else None,
+                                                                inj=inj if self.mem_net is not None and rv else None,
+                                                                keys=torch.stack(rk, 1) if rk else None))
                     if self.mem_net is not None:
                         mkeys.append(self.mem_net.key(h_minus)); mvals.append(Cm)
+                        if trace is not None:
+                            trace.setdefault('slots', []).append((mkeys[-1], Cm))
                 h_pre = h                                                               # h- (or h_mem) before the site's own correction
                 h = h + (Cm.detach() if self.cut_carry else Cm)
                 h_step = (h_pre.detach() + Cm) if self.step_sg else h                   # step_sg: the step loss reaches CorrNet and ro only, never the backbone
