@@ -1,12 +1,17 @@
 """PAT-304 R1Mem gates: the memory design h+ = h- + dh_mem (C stored as the value only, never carried; C on the memory-corrected state;
-retrieval over j < t; rollout retrieves without writing). usage: python patchmem/test_r1_mem.py"""
-import sys
+retrieval over j < t; rollout retrieves without writing), the training variants B1 (Pure-B) / B2 (Hybrid) / B3 (retrieval off), the
+writer loss routing, the inference audits, the diagnostics and the per-load parameter snapshot (comment e18ad84b).
+usage: python patchmem/test_r1_mem.py"""
+import glob, json, os, random, shutil, sys, tempfile
 from argparse import Namespace
 from pathlib import Path
+import numpy as np
 import torch
 ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT))
 from patchmem.r1_model import R1
 from patchmem.r1_mem import R1Mem
+from patchmem.param_snapshot import log_model_parameter_stats
+from patchmem.exp_r1 import solve_eval_order
 
 dev = 'cuda'
 C, P, D_MODEL = 5, 48, 16
@@ -24,12 +29,12 @@ def cfg(c=C, e_layers=3):
                      enc_in=c, dropout=0.0, VPT_mode=1, ATSP_solver='SA', use_casual_conv=False)
 
 
-def pair(seed=0):
+def pair(seed=0, readout_ln=False, **kw):
     """R1 and R1Mem with identical backbone / readout weights."""
     torch.manual_seed(seed)
-    r1 = R1(cfg()).to(dev).eval()
+    r1 = R1(cfg(), readout_ln=readout_ln).to(dev).eval()
     torch.manual_seed(seed + 100)
-    rm = R1Mem(cfg()).to(dev).eval()
+    rm = R1Mem(cfg(), readout_ln=readout_ln, **kw).to(dev).eval()
     missing, unexpected = rm.load_state_dict(r1.state_dict(), strict=False)
     assert not unexpected and all(k.startswith(('corr_net.', 'mem_net.')) for k in missing), (missing, unexpected)
     return r1, rm
@@ -108,9 +113,9 @@ r1, rm = pair()
 wake(rm)
 n_ret = {}
 orig = rm._retrieve
-def spy(h, keys, vals):
+def spy(h, keys, vals, *a, **k):
     n_ret.setdefault(len(vals), 0); n_ret[len(vals)] += 1
-    return orig(h, keys, vals)
+    return orig(h, keys, vals, *a, **k)
 rm._retrieve = spy
 rm(x, N_OUT, perm=perm)
 ok(sorted(n_ret) == list(range(1, T)) and all(n_ret[k] == 1 for k in range(1, T - 1)) and n_ret[T - 1] == N_OUT - 1,
@@ -159,6 +164,176 @@ rm.eval()
 rm(x, N_OUT, perm=perm)
 ok(rm.corr_loss is None, 'L_corr not computed in eval mode')
 rm.corr_aux = False
+
+def input_free_last_layer(rm):
+    """Last layer made input independent (B = 0, constant dt): the memory is then its only input path."""
+    with torch.no_grad():
+        lm = rm.enc.layers[-1].mixer
+        lm.x_proj.weight[lm.dt_rank:lm.dt_rank + lm.d_state].zero_()
+        lm.dt_proj.weight.zero_()
+
+
+def grads_by_prefix(m):
+    out = {}
+    for n, p in m.named_parameters():
+        k = n.split('.')[0] if n.split('.')[0] != 'base' else 'backbone'
+        out[k] = out.get(k, 0.0) + (p.grad.abs().sum().item() if p.grad is not None else 0.0)
+    return out
+
+
+print('Y  designed delay: the last history slot C_{T-1} does not reach the first future patch, only the later rollout patches')
+r1, rm = pair(seed=3)
+wake(rm)
+input_free_last_layer(rm)
+x2 = x.clone()
+x2[:, (T - 1) * P:] = x[:, (T - 1) * P:].flip(1)                                 # last patch reordered: only e_{T-1} / slot T-1 change
+p1, p2 = rm(x, N_OUT, perm=perm)['pred'], rm(x2, N_OUT, perm=perm)['pred']
+ok(rel(p2[:, :P], p1[:, :P]) < 1e-5 and rel(p2[:, P:], p1[:, P:]) > 1e-4,
+   f'first future patch unchanged ({rel(p2[:, :P], p1[:, :P]):.1e}), later rollout patches changed ({rel(p2[:, P:], p1[:, P:]):.1e})')
+
+print('B  B2 Hybrid vs B1 Pure-B: L_future ALONE reaches CorrNet through the memory values only in Hybrid')
+for detach in (False, True):
+    r1, rm = pair(value_detach=detach)
+    wake(rm, gate_bias=0.0)
+    rm.train(); rm.zero_grad()
+    rm(x, N_OUT, perm=perm)['pred'].square().mean().backward()
+    gp = grads_by_prefix(rm)
+    tag = 'B1 Pure-B (values detached)' if detach else 'B2 Hybrid'
+    ok((gp['corr_net'] == 0) if detach else (gp['corr_net'] > 0), f'{tag}: CorrNet grad from L_future {gp["corr_net"]:.2e} '
+       f'({"must be 0" if detach else "must be > 0"})')
+    ok(gp['mem_net'] > 0 and gp['readout'] > 0 and gp['backbone'] > 0,
+       f'{tag}: StateMem {gp["mem_net"]:.2e}, readout {gp["readout"]:.2e}, backbone {gp["backbone"]:.2e} all > 0')
+    rm.corr_aux = True; rm.zero_grad()
+    rm(x, N_OUT, perm=perm); rm.corr_loss.backward()
+    gp = grads_by_prefix(rm)
+    ok(gp['corr_net'] > 0 and all(v == 0 for k, v in gp.items() if k != 'corr_net'), f'{tag}: L_corr ALONE reaches CorrNet only {gp}')
+
+print('X  B3 (retrieve=False): C != 0 and gate open but no injection => forecast == R1 exactly; the writer loss still trains CorrNet')
+r1, rm = pair(retrieve=False)
+wake(rm)
+o1, om = r1(x, N_OUT, perm=perm), rm(x, N_OUT, perm=perm)
+ok(rel(om['pred'], o1['pred']) < 1e-5 and rel(om['hist'], o1['hist']) < 1e-5 and rm.stats()['C'] > 1e-4,
+   f'pred {rel(om["pred"], o1["pred"]):.1e} hist {rel(om["hist"], o1["hist"]):.1e} with mean C^2 {rm.stats()["C"]:.2e}')
+rm.train(); rm.corr_aux = True; rm.zero_grad()
+rm(x, N_OUT, perm=perm); rm.corr_loss.backward()
+gp = grads_by_prefix(rm)
+ok(gp['corr_net'] > 0 and gp['mem_net'] == 0, f'B3: CorrNet grad {gp["corr_net"]:.2e} > 0, StateMem {gp["mem_net"]:.2e} == 0')
+
+print('U  inference audits on one model: zero == R1; uniform and perm change the forecast; perm deterministic per seed')
+r1, rm = pair()
+wake(rm)
+o1 = r1(x, N_OUT, perm=perm)['pred']
+outs = {}
+for mode, seed in ((None, 0), ('zero', 0), ('uniform', 0), ('perm', 0), ('perm', 0), ('perm', 1)):
+    rm.set_audit(mode, seed)
+    outs.setdefault((mode, seed), []).append(rm(x, N_OUT, perm=perm)['pred'])
+rm.set_audit(None)
+ok(rel(outs[('zero', 0)][0], o1) < 1e-5, f'zero == R1 ({rel(outs[("zero", 0)][0], o1):.1e})')
+ok(rel(outs[('uniform', 0)][0], outs[(None, 0)][0]) > 1e-4, f'uniform != normal ({rel(outs[("uniform", 0)][0], outs[(None, 0)][0]):.1e})')
+ok(rel(outs[('perm', 0)][0], outs[(None, 0)][0]) > 1e-4, f'perm != normal ({rel(outs[("perm", 0)][0], outs[(None, 0)][0]):.1e})')
+ok(rel(outs[('perm', 0)][1], outs[('perm', 0)][0]) == 0 and rel(outs[('perm', 1)][0], outs[('perm', 0)][0]) > 1e-6,
+   'perm: same seed reproduces exactly, another seed differs')
+ok(rm.audit is None and rm.mem_net.audit is None and rel(rm(x, N_OUT, perm=perm)['pred'], outs[(None, 0)][0]) == 0, 'audit reset restores normal')
+
+print('L  R1_RO_LN=1: the writer loss still reaches CorrNet only (readout LayerNorm parameters stop-gradient too)')
+r1, rm = pair(readout_ln=True)
+wake(rm)
+rm.train(); rm.corr_aux = True; rm.zero_grad()
+rm(x, N_OUT, perm=perm); rm.corr_loss.backward()
+gp = grads_by_prefix(rm)
+ok(gp['corr_net'] > 0 and gp.get('ro_ln', 0) == 0 and all(v == 0 for k, v in gp.items() if k != 'corr_net'), f'grads {gp}')
+
+print('D  diagnostics: diag forward == plain forward; recorded statistics finite; M = 1 entropy not recorded (N/A)')
+r1, rm = pair()
+wake(rm)
+p_plain = rm(x, N_OUT, perm=perm)['pred']
+rm.diag = True
+p_diag = rm(x, N_OUT, perm=perm)['pred']
+rm.diag = False
+d = rm.pop_diag()
+ok(rel(p_diag, p_plain) == 0, 'diag forward output identical')
+need = ('C_fro', 'C_rms', 'C_over_hplus', 'writer_dL', 'writer_frac_improved', 'hist_gate_mean', 'hist_attn_entropy_norm', 'hist_top1_age',
+        'hist_attn_eff_slots', 'roll_mean_age', 'roll_delta_over_hminus', 'hist_q_norm', 'hist_tau_mean')
+ok(all(k in d and np.isfinite(d[k]) for k in need), 'keys present and finite: ' + ', '.join(f'{k}={d.get(k, float("nan")):.3g}' for k in need))
+ok(rm.pop_diag() == {}, 'pop_diag clears the record')
+
+print('Z  parameter snapshot: once per load event, all parameters + buffers, stats change after a load, nothing printed by forwards')
+tmp = tempfile.mkdtemp(prefix='r1snap_')
+lines = []
+pf = lambda s, flush=True: lines.append(s)
+r1, rm = pair()
+st0 = log_model_parameter_stats(rm, 'init', tmp, meta=dict(test=1), print_fn=pf)
+recs0 = [json.loads(l) for l in open(st0 + '.jsonl')]
+names = {n for n, _ in rm.named_parameters()}
+ok({r['name'] for r in recs0 if r['record'] == 'param'} == names, f'one row per named parameter ({len(names)})')
+ok(any(r['record'] == 'param' and 'adjacency_matrix' in r['name'] and r['requires_grad'] is False for r in recs0),
+   'VPT statistics (official nn.Parameter(requires_grad=False): adjacency / count / ending points) listed as frozen parameters')
+ok(recs0[0]['record'] == 'header' and recs0[0]['extra_params_vs_R1'] == sum(p.numel() for n, p in rm.named_parameters()
+                                                                         if n.startswith(('corr_net.', 'mem_net.'))), 'header: extra params vs R1')
+ok(sum(n in '\n'.join(lines) for n in names) == len(names), 'console lists every parameter')
+wake(rm)
+sd = {k: v.clone() for k, v in rm.state_dict().items()}
+rm.load_state_dict(sd)
+st1 = log_model_parameter_stats(rm, 'checkpoint_loaded', tmp, meta=dict(checkpoint='in-memory'), print_fn=pf)
+st2 = log_model_parameter_stats(rm, 'checkpoint_loaded', tmp, meta=dict(checkpoint='in-memory again'), print_fn=pf)
+r_wc = lambda st: [json.loads(l) for l in open(st + '.jsonl') if '"corr_net.Wc"' in l][0]
+ok(r_wc(st0)['l2'] == 0 and r_wc(st1)['l2'] > 0, f'Wc l2 init {r_wc(st0)["l2"]:.3g} -> after load {r_wc(st1)["l2"]:.3g}')
+ok(st2 != st1 and os.path.exists(st2 + '.csv') and len(glob.glob(os.path.join(tmp, '*.jsonl'))) == 3, 'a repeated load prints again (3 snapshots)')
+n_lines = len(lines)
+rm(x, N_OUT, perm=perm); rm.train(); rm(x, N_OUT, perm=perm)
+ok(len(lines) == n_lines and len(glob.glob(os.path.join(tmp, '*.jsonl'))) == 3, 'forwards print / write no snapshot')
+bad = R1Mem(cfg()).to(dev)
+with torch.no_grad():
+    bad.readout.weight[0, 0] = float('nan')
+st3 = log_model_parameter_stats(bad, 'init', tmp, print_fn=pf)
+ok([json.loads(l) for l in open(st3 + '.jsonl') if '"readout.weight"' in l][0]['nonfinite_count'] == 1, 'non-finite entries counted, no crash')
+shutil.rmtree(tmp)
+
+print('C  checkpoint reload consistency: a fresh model loading the saved state_dict gives identical forecasts, the same ATSP eval order and')
+print('   the same per-parameter snapshot; the reloaded model trains on identically (one Adam step, same batch, same RNG)')
+tmp = tempfile.mkdtemp(prefix='r1ckpt_')
+torch.manual_seed(11)
+src = R1Mem(cfg()).to(dev)
+wake(src, gate_bias=0.0)
+src.train()
+for _ in range(4):                                                                # populate the VPT transition statistics
+    o = src(x, N_OUT)
+    src.update_vpt_cost((o['pred'] - o['pred'].detach().mean()).square().detach())
+ck = os.path.join(tmp, 'checkpoint.pth')
+torch.save(src.state_dict(), ck)
+torch.manual_seed(12345)
+dst = R1Mem(cfg()).to(dev)                                                        # different init, then load
+dst.load_state_dict(torch.load(ck))
+src.eval(); dst.eval()
+src.reset_ids_shuffle(); dst.reset_ids_shuffle()
+np.random.seed(1); random.seed(1); solve_eval_order(src, 0)                       # different global RNG states before each solve
+np.random.seed(2); np.random.rand(17); random.seed(5); random.random()
+st_np, st_py = np.random.get_state()[1].copy(), random.getstate()
+solve_eval_order(dst, 0)
+ok(np.array_equal(np.random.get_state()[1], st_np) and random.getstate() == st_py, 'solve_eval_order restores the numpy and Python RNG states')
+ps, pd = src(x, N_OUT)['pred'], dst(x, N_OUT)['pred']
+ok(src.ids_shuffle == dst.ids_shuffle, f'same ATSP eval order {src.ids_shuffle} vs {dst.ids_shuffle} (deterministic solve)')
+ok(rel(pd, ps) == 0, f'identical eval forecast after reload ({rel(pd, ps):.1e})')
+rows = lambda st: [{k: v for k, v in json.loads(l).items()} for l in open(st + '.jsonl') if '"record": "param"' in l]
+sa = log_model_parameter_stats(src, 'checkpoint_loaded', tmp, print_fn=pf)
+sb = log_model_parameter_stats(dst, 'checkpoint_loaded', tmp, print_fn=pf)
+ok(rows(sa) == rows(sb), 'per-parameter snapshot rows identical (saved vs reloaded)')
+for mdl in (src, dst):
+    mdl.train(); mdl.corr_aux = True
+outs = []
+for mdl in (src, dst):
+    torch.manual_seed(99)
+    opt = torch.optim.Adam(mdl.parameters(), lr=1e-3)
+    opt.zero_grad()
+    o = mdl(x, N_OUT, perm=perm)
+    ((o['pred'] - x[:, -N_OUT * P:]).square().mean() + mdl.corr_loss).backward()
+    opt.step()
+    outs.append({n: p.detach().clone() for n, p in mdl.named_parameters()})
+worst = max(rel(outs[1][n], outs[0][n]) for n in outs[0] if outs[0][n].norm() > 0)
+ok(worst < 1e-6, f'one training step after reload matches the original (worst param rel diff {worst:.1e})')
+sc = log_model_parameter_stats(dst, 'checkpoint_loaded', tmp, print_fn=pf)
+ok(rows(sc) != rows(sb), 'snapshot after the update differs from the loaded one')
+shutil.rmtree(tmp)
 
 print('\n' + ('ALL PASS' if not FAILS else f'{len(FAILS)} FAIL(S): ' + '; '.join(FAILS)))
 sys.exit(1 if FAILS else 0)

@@ -4,11 +4,14 @@
 # --seq_len/--pred_len only name the setting; the lengths actually used come from R1_* (patchmem/exp_r1.py).
 # usage (from the repo root): SEED=3047 R1_LAMBDA_HIST=0.5 bash patchmem/r1_etth2.sh      (works locally or inside sbatch)
 # smoke: EPOCHS=1 R1_MAX_ITERS=200 R1_VAL_STRIDE=16 DES=R1smoke bash patchmem/r1_etth2.sh
-# memory: R1_MEM=1 (R1Mem, patchmem/r1_mem.py; R1_CORR / R1_MEM_GROUP / R1_CORR_SHUFFLE, see exp_r1.py); the default DES gets an M tag
-# (S with the shuffle control) so it never shares a checkpoint dir with the baseline.
+# memory: R1_MEM=1 (R1Mem, patchmem/r1_mem.py; see exp_r1.py for R1_CORR / R1_MEM_GROUP / R1_CORR_SHUFFLE / R1_LAMBDA_CORR /
+# R1_MEM_VALUE_DETACH / R1_MEM_RETRIEVE). The default DES gets a tag per arm so no two arms share a checkpoint dir:
+# M (memory) + S (corr shuffle) + D (values detached, Pure-B) + X (retrieval off, B3) + c<lambda_corr>.
+#   A1 baseline: (none) | B0: R1_MEM=1 R1_LAMBDA_CORR=0 -> Mc0 | B1: R1_MEM=1 R1_MEM_VALUE_DETACH=1 -> MDc1
+#   B2 Hybrid: R1_MEM=1 -> Mc1 | B3: R1_MEM=1 R1_MEM_RETRIEVE=0 -> MXc1
 SEED=${SEED:-3047}; LAM=${R1_LAMBDA_HIST:-0}
 export R1_LAMBDA_HIST=$LAM
-TAG=$([ "${R1_MEM:-0}" = 1 ] && echo M$([ "${R1_CORR_SHUFFLE:-0}" = 1 ] && echo S))
+TAG=$([ "${R1_MEM:-0}" = 1 ] && echo M$([ "${R1_CORR_SHUFFLE:-0}" = 1 ] && echo S)$([ "${R1_MEM_VALUE_DETACH:-0}" = 1 ] && echo D)$([ "${R1_MEM_RETRIEVE:-1}" = 0 ] && echo X)c${R1_LAMBDA_CORR:-1})
 PY=${PY:-python}
 $PY -u patchmem/run_r1.py --task_name long_term_forecast --is_training 1 --root_path ./dataset/ETT-small --data_path ETTh2.csv \
   --enc_in 7 --dec_in 7 --c_out 7 --model_id ETTh2_r1 --model MambaTS --data ETTh2 --features M --seed $SEED \
