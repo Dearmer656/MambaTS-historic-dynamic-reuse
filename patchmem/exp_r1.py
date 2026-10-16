@@ -19,6 +19,8 @@ Env:
   R1_LAMBDA_CORR         weight of the writer loss ||R_sg(sg h+ + C) - x_(t+1)||^2 (memory runs only, default 1; trains CorrNet only)
   R1_MEM_VALUE_DETACH=1  Pure-B (B1): memory values detached when written (default 0 = Hybrid B2)
   R1_MEM_RETRIEVE=0      B3: writer trained, retrieval injection off (default 1)
+  R1_MEM_ROLL_RETRIEVE=0 B2-H: retrieval at the history boundaries only, none in the rollout (default 1)
+  R1_MEM_SLOT_KEEP       B2-drop: training-time per-sample probability that a history slot is written (default 1 = all; eval: all)
   R1_DIAG_EVERY          training diagnostics (JSONL) every N steps (default 100; 0 = off)
   R1_DIAG_VAL_BATCHES    eval batches per (L, H) with memory diagnostics at every validation (default 2)
   R1_AUDIT=0             skip the same-checkpoint inference audits after test (memory runs; default 1)
@@ -118,10 +120,13 @@ class Exp_R1(Exp_Long_Term_Forecast):
             m = R1Mem(a, readout_ln=ro_ln, corr=os.environ.get('R1_CORR', 'gated'), mem_group=int(os.environ.get('R1_MEM_GROUP', '4')),
                       corr_shuffle=os.environ.get('R1_CORR_SHUFFLE', '0') == '1',
                       value_detach=os.environ.get('R1_MEM_VALUE_DETACH', '0') == '1',
-                      retrieve=os.environ.get('R1_MEM_RETRIEVE', '1') == '1').float()
+                      retrieve=os.environ.get('R1_MEM_RETRIEVE', '1') == '1',
+                      roll_retrieve=os.environ.get('R1_MEM_ROLL_RETRIEVE', '1') == '1',
+                      slot_keep=float(os.environ.get('R1_MEM_SLOT_KEEP', '1'))).float()
             print(f'R1Mem: corr {os.environ.get("R1_CORR", "gated")} ({sum(p.numel() for p in m.corr_net.parameters())} params) | '
                   f'StateMem group {m.mem_net.group} heads {m.mem_net.nh} ({sum(p.numel() for p in m.mem_net.parameters())} params) | '
-                  f'corr_shuffle {m.corr_shuffle} | value_detach {m.value_detach} (Pure-B) | retrieve {m.retrieve}', flush=True)
+                  f'corr_shuffle {m.corr_shuffle} | value_detach {m.value_detach} (Pure-B) | retrieve {m.retrieve} | '
+                  f'rollout retrieve {m.roll_retrieve} | train slot keep {m.slot_keep}', flush=True)
         else:
             m = R1(a, readout_ln=ro_ln).float()
         nro = sum(p.numel() for p in m.readout.parameters())

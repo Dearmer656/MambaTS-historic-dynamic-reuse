@@ -16,6 +16,9 @@ Rollout (future patches, no ground truth): after each time step h- = the step's 
 slots), read(h+) and carry h+; no slot is written. At init CorrNet's output layer is zero, so C == 0 and R1Mem == R1 exactly.
 
 Training variants (comment e18ad84b):
+  roll_retrieve=False B2-H: retrieval at the history boundaries only; the rollout is R1's plain recurrence from h+_{T-1}
+  slot_keep=p < 1     B2-drop: during training each sample writes each history slot with probability p (per-sample slot dropout;
+                      the dropped slot is invisible to every later retrieval); evaluation uses all slots
   value_detach=False  Hybrid (B2): memory values keep their graph, the forecast losses train CorrNet through later retrievals
   value_detach=True   Pure-B (B1): values detached when written, CorrNet is trained by the writer loss only
   retrieve=False      B3: CorrNet / writer loss as usual but no retrieval injection (h+ = h-), the forecast equals R1's
@@ -44,7 +47,8 @@ def _q(x, qs=(0.1, 0.5, 0.9)):
 
 
 class R1Mem(R1):
-    def __init__(self, cfg, readout_ln=False, corr='gated', mem_group=4, corr_shuffle=False, value_detach=False, retrieve=True):
+    def __init__(self, cfg, readout_ln=False, corr='gated', mem_group=4, corr_shuffle=False, value_detach=False, retrieve=True,
+                 roll_retrieve=True, slot_keep=1.0):
         super().__init__(cfg, readout_ln=readout_ln)
         res_dim = self.c * self.P
         self.corr_net = GatedCorrNet(self.D, self.N, res_dim) if corr == 'gated' else CorrNet(corr, self.D, self.N, res_dim)
@@ -52,11 +56,13 @@ class R1Mem(R1):
         self.corr_shuffle = corr_shuffle
         self.value_detach = value_detach
         self.retrieve = retrieve
+        self.roll_retrieve = roll_retrieve
+        self.slot_keep = slot_keep
         self.corr_aux = False                                                           # compute the writer loss (set by the trainer)
         self.corr_loss = None                                                           # L_corr of the last training forward
         self.audit, self.audit_gen = None, None
         self.diag, self.diag_rec = False, {}
-        self.bank = None                                                                # (keys, vals, slot times) of the current forward
+        self.bank = None                                                                # (keys, vals, slot times, slot masks) of the current forward
         self.mem_stats = {}
 
     def set_audit(self, mode=None, seed=0):
@@ -75,12 +81,12 @@ class R1Mem(R1):
     def _rec(self, key, val):
         self.diag_rec.setdefault(key, []).append(float(val))
 
-    def _retrieve(self, h_minus, keys, vals, times=None, t_now=None, phase='hist'):
+    def _retrieve(self, h_minus, keys, vals, times=None, t_now=None, phase='hist', masks=None):
         K, V = torch.stack(keys, 1), torch.stack(vals, 1)
         M = V.shape[1]
         if self.audit == 'perm' and M >= 2:
             V = V[:, torch.randperm(M, generator=self.audit_gen).to(V.device)]
-        inj, a, g = self.mem_net(h_minus, K, V)
+        inj, a, g = self.mem_net(h_minus, K, V, None if masks is None else torch.stack(masks, 1))
         st = self.mem_stats
         st.setdefault('g', []).append(g.mean().detach())
         st.setdefault('ratio', []).append((inj.flatten(1).norm(dim=1) / h_minus.flatten(1).norm(dim=1).clamp_min(1e-12)).mean().detach())
@@ -148,6 +154,8 @@ class R1Mem(R1):
         dBu = (dt * x).unsqueeze(-1) * B.transpose(1, 2).unsqueeze(1)
         h = x.new_zeros(x.shape[0], self.D, self.N)
         caps, keys, vals, times, prev, aux = [], [], [], [], None, []
+        drop = self.training and self.slot_keep < 1
+        masks = [] if drop else None
         T = xs.shape[1]
         for s in range(x.shape[-1]):
             h = dA[:, :, s] * h + dBu[:, :, s]
@@ -156,7 +164,7 @@ class R1Mem(R1):
             t = (s + 1) // self.c - 1
             h_minus = h
             if vals and self.retrieve:                                                  # slots j < t only
-                h = self._retrieve(h_minus, keys, vals, times, t)
+                h = self._retrieve(h_minus, keys, vals, times, t, masks=masks)
             if t >= 1:
                 e = (xs[:, t] - self.read(prev)).flatten(1).detach()                    # error of the prediction made at t-1
                 if self.corr_shuffle:
@@ -164,13 +172,15 @@ class R1Mem(R1):
                 Cm = self.corr_net(h.detach(), e)
                 self.mem_stats.setdefault('C', []).append(Cm.square().mean().detach())
                 keys.append(self.mem_net.key(h_minus)); vals.append(Cm.detach() if self.value_detach else Cm); times.append(t)
+                if drop:
+                    masks.append(torch.rand(h.shape[0], device=h.device) < self.slot_keep)
                 if self.corr_aux and self.training and t <= T - 2:                     # writer loss, temporary h+ + C
                     aux.append((self.read_sg(h.detach() + Cm) - xs[:, t + 1]).square().mean())
                 if self.diag:
                     self._diag_writer(h.detach(), Cm, e, xs[:, t + 1] if t <= T - 2 else None)
             caps.append(h); prev = h
         self.corr_loss = torch.stack(aux).mean() if aux else None
-        self.bank = (keys, vals, times)
+        self.bank = (keys, vals, times, masks)
         return torch.stack(caps, 1), h
 
     def history(self, tok, xs):
@@ -204,11 +214,11 @@ class R1Mem(R1):
         bstates, states = self.history(tok, xs)
         yh = self.to_orig(self.read(bstates), perm)
         outs = [yh[:, -1]]
-        keys, vals, times = self.bank
+        keys, vals, times, masks = self.bank
         for k in range(n_out - 1):
             states = self.step_time(self.embed(self.to_scan(outs[-1].unsqueeze(1), perm)).squeeze(1), states)
-            if vals and self.retrieve:
-                states[-1] = self._retrieve(states[-1], keys, vals, times, T + k, phase='roll')
+            if vals and self.retrieve and self.roll_retrieve:
+                states[-1] = self._retrieve(states[-1], keys, vals, times, T + k, phase='roll', masks=masks)
             outs.append(self.to_orig(self.read(states[-1]).unsqueeze(1), perm).squeeze(1))
         self.bank = None
         if trace is not None:

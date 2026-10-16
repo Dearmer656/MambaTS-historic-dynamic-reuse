@@ -235,6 +235,59 @@ ok(rel(outs[('perm', 0)][1], outs[('perm', 0)][0]) == 0 and rel(outs[('perm', 1)
    'perm: same seed reproduces exactly, another seed differs')
 ok(rm.audit is None and rm.mem_net.audit is None and rel(rm(x, N_OUT, perm=perm)['pred'], outs[(None, 0)][0]) == 0, 'audit reset restores normal')
 
+print('H  B2-H (roll_retrieve=False): history and the first future patch == B2; no rollout retrieval; later patches differ')
+r1, rm = pair()
+wake(rm)
+_, rh = pair(roll_retrieve=False)
+rh.load_state_dict(rm.state_dict())
+ob, oh = rm(x, N_OUT, perm=perm), rh(x, N_OUT, perm=perm)
+ok(rel(oh['hist'], ob['hist']) < 1e-6 and rel(oh['pred'][:, :P], ob['pred'][:, :P]) < 1e-6 and rel(oh['pred'][:, P:], ob['pred'][:, P:]) > 1e-4,
+   f'hist {rel(oh["hist"], ob["hist"]):.1e}, first patch {rel(oh["pred"][:, :P], ob["pred"][:, :P]):.1e}, later {rel(oh["pred"][:, P:], ob["pred"][:, P:]):.1e}')
+n_ret = {}
+orig = rh._retrieve
+rh._retrieve = spy
+rh(x, N_OUT, perm=perm)
+rh._retrieve = orig
+ok(sorted(n_ret) == list(range(1, T - 1)) and all(v == 1 for v in n_ret.values()),
+   f'retrievals by bank size {dict(sorted(n_ret.items()))}: history boundaries only, none with the full {T - 1}-slot bank')
+
+print('D  B2-drop (slot_keep): evaluation uses every slot (== B2); training with keep 0 == R1; keep 0.5 masks dropped slots per sample')
+r1, rm = pair()
+wake(rm)
+_, rd = pair(slot_keep=0.5)
+rd.load_state_dict(rm.state_dict())
+ok(rel(rd(x, N_OUT, perm=perm)['pred'], rm(x, N_OUT, perm=perm)['pred']) == 0, 'eval: slot_keep 0.5 == slot_keep 1 exactly')
+rd.slot_keep = 0.0
+rd.train(); r1.train()                                                          # cfg dropout is 0: train mode is deterministic
+o1, od = r1(x, N_OUT, perm=perm), rd(x, N_OUT, perm=perm)
+ok(rel(od['pred'], o1['pred']) < 1e-5 and rel(od['hist'], o1['hist']) < 1e-5,
+   f'train, keep 0 (every slot dropped): pred {rel(od["pred"], o1["pred"]):.1e} hist {rel(od["hist"], o1["hist"]):.1e} == R1')
+rd.slot_keep = 0.5
+seen = []
+mem_fwd = rd.mem_net.forward
+def mspy(h, keys, vals, mask=None):
+    inj, a, g = mem_fwd(h, keys, vals, mask)
+    seen.append((a.detach(), None if mask is None else mask.clone()))
+    return inj, a, g
+rd.mem_net.forward = mspy
+torch.manual_seed(5)
+rd.zero_grad(); rd.corr_aux = True
+od = rd(x, N_OUT, perm=perm)
+((od['pred'] - x[:, -N_OUT * P:]).square().mean() + rd.corr_loss).backward()
+rd.mem_net.forward = mem_fwd
+masks = [mk for _, mk in seen]
+dropped_w = max((a * ~mk[:, None, :]).abs().max().item() for a, mk in seen)
+sums_ok = all(torch.allclose(a.sum(-1), mk.any(1, keepdim=True).float().expand_as(a.sum(-1)), atol=1e-5) for a, mk in seen)
+last = masks[-1]
+frac = last.float().mean().item()
+ok(all(mk is not None for mk in masks) and dropped_w == 0 and sums_ok,
+   f'every retrieval masked; dropped slots get attention {dropped_w:.1e}; rows sum to 1 (0 if no slot survives)')
+ok(0.2 < frac < 0.8 and (last != last[:1]).any().item(), f'masks are per sample (kept fraction of the full bank {frac:.2f}, samples differ)')
+ok(all(torch.equal(masks[i][:, :masks[i].shape[1]], masks[-1][:, :masks[i].shape[1]]) for i in range(len(masks))),
+   'one draw per slot: a dropped slot stays dropped for every later retrieval, history and rollout')
+ok(all(torch.isfinite(p.grad).all() for p in rd.parameters() if p.grad is not None) and
+   sum(p.grad.abs().sum().item() for p in rd.mem_net.parameters() if p.grad is not None) > 0, 'finite gradients, StateMem trained')
+
 print('L  R1_RO_LN=1: the writer loss still reaches CorrNet only (readout LayerNorm parameters stop-gradient too)')
 r1, rm = pair(readout_ln=True)
 wake(rm)

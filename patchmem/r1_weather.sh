@@ -10,9 +10,10 @@
 # M (memory) + S (corr shuffle) + D (values detached, Pure-B) + X (retrieval off, B3) + c<lambda_corr>.
 #   A1 baseline: (none) | B0: R1_MEM=1 R1_LAMBDA_CORR=0 -> Mc0 | B1: R1_MEM=1 R1_MEM_VALUE_DETACH=1 -> MDc1
 #   B2 Hybrid: R1_MEM=1 -> Mc1 | B3: R1_MEM=1 R1_MEM_RETRIEVE=0 -> MXc1
+#   B2-H: R1_MEM=1 R1_MEM_ROLL_RETRIEVE=0 -> MNc1 | B2-drop50: R1_MEM=1 R1_MEM_SLOT_KEEP=0.5 -> MK0.5c1
 SEED=${SEED:-3047}; LAM=${R1_LAMBDA_HIST:-0}
 export R1_LAMBDA_HIST=$LAM
-TAG=$([ "${R1_MEM:-0}" = 1 ] && echo M$([ "${R1_CORR_SHUFFLE:-0}" = 1 ] && echo S)$([ "${R1_MEM_VALUE_DETACH:-0}" = 1 ] && echo D)$([ "${R1_MEM_RETRIEVE:-1}" = 0 ] && echo X)c${R1_LAMBDA_CORR:-1})
+TAG=$([ "${R1_MEM:-0}" = 1 ] && echo M$([ "${R1_CORR_SHUFFLE:-0}" = 1 ] && echo S)$([ "${R1_MEM_VALUE_DETACH:-0}" = 1 ] && echo D)$([ "${R1_MEM_RETRIEVE:-1}" = 1 ] || echo X)$([ "${R1_MEM_ROLL_RETRIEVE:-1}" = 1 ] || echo N)$([ "${R1_MEM_SLOT_KEEP:-1}" = 1 ] || echo K${R1_MEM_SLOT_KEEP})c${R1_LAMBDA_CORR:-1})
 PY=${PY:-python}
 $PY -u patchmem/run_r1.py --task_name long_term_forecast --is_training 1 --root_path ./dataset/weather --data_path weather.csv \
   --enc_in 21 --dec_in 21 --c_out 21 --model_id weather_r1 --model MambaTS --data custom --features M --seed $SEED \

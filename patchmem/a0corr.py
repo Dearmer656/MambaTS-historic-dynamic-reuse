@@ -37,8 +37,9 @@ class StateMem(nn.Module):
     def key(self, h):
         return self.Wk(h.detach().flatten(1)).reshape(h.shape[0], self.nh, self.dh)   # (b, nh, dh)
 
-    def forward(self, h, keys, vals):
-        """h (b, D, N) current pre-correction state; keys (b, M, nh, dh); vals (b, M, D, N).
+    def forward(self, h, keys, vals, mask=None):
+        """h (b, D, N) current pre-correction state; keys (b, M, nh, dh); vals (b, M, D, N); mask (b, M) bool or None: per-sample
+        slots that exist (False = slot dropped; a sample with no slot gets a = 0, i.e. no injection).
         Returns the injection g*m (b, D, N), a (b, nh, M), g (b, D, 1)."""
         b, M = keys.shape[:2]
         hq = h.detach().flatten(1)
@@ -46,7 +47,13 @@ class StateMem(nn.Module):
             a = keys.new_full((b, self.nh, M), 1.0 / M)
         else:
             q = self.Wq(hq).reshape(b, self.nh, self.dh)
-            a = torch.softmax(torch.einsum('bhd,bmhd->bhm', q, keys) / (self.dh ** 0.5 * self.log_tau.exp())[None, :, None], -1)
+            logit = torch.einsum('bhd,bmhd->bhm', q, keys) / (self.dh ** 0.5 * self.log_tau.exp())[None, :, None]
+            if mask is not None:
+                anyv = mask.any(1)
+                mk = mask | ~anyv[:, None]                                              # all-dropped rows: dummy full mask, zeroed below
+                a = torch.softmax(logit.masked_fill(~mk[:, None, :], float('-inf')), -1) * anyv[:, None, None]
+            else:
+                a = torch.softmax(logit, -1)
         v = vals.reshape(b, M, self.nh, self.group, vals.shape[-1])                     # each head's own channel group of C_j
         m = torch.einsum('bhm,bmhgn->bhgn', a, v).reshape(b, -1, vals.shape[-1])
         g = torch.sigmoid(self.Wg(hq)).unsqueeze(-1)

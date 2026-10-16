@@ -1,7 +1,8 @@
 """PAT-304: why does the R1Mem (B2) gain turn negative late in the rollout? Eval-only diagnostics on trained checkpoints (no training).
 Per (L, H) on the official split, all windows, the checkpoint's own deterministic eval order, per rollout patch k:
   modes (memory runs): normal | roll_off (memory used in the history only, no retrieval in the rollout) | from<k0> (rollout retrieval
-  only for patches < k0) | win<m> (rollout retrieves over the m most recent history slots only) | tf (teacher forcing: the rollout is
+  only for patches < k0) | win<m> (rollout retrieves over the m most recent history slots only) | keep<p> (rollout retrieves over a
+  random p% of the history slots, one draw per batch) | tf (teacher forcing: the rollout is
   fed the TRUE previous patch instead of its own forecast) | tf_roll_off. Plain R1 runs: normal | tf.
   retrieval stats per call (history vs rollout steps): normalised attention entropy, max attention weight, gate, ||delta||/||h-||,
   best cosine q.k over the slots, and an out-of-distribution score of the query state: RMS z-score of sg h- against the per-sample mean /
@@ -15,6 +16,7 @@ np.Inf = np.inf
 import torch
 ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT))
 from patchmem.r1_mem import R1Mem
+KEEP_GEN = torch.Generator().manual_seed(0)
 
 ETTH2 = ('--task_name long_term_forecast --is_training 0 --root_path ./dataset/ETT-small --data_path ETTh2.csv --enc_in 7 --dec_in 7 '
          '--c_out 7 --model_id ETTh2_r1 --model MambaTS --data ETTh2 --features M --seq_len 1440 --label_len 48 --pred_len 336 '
@@ -71,7 +73,7 @@ def run(m, x, y, n_out, mode='normal', rec=None):
     if mem:
         m.mem_stats = {}
         bstates, states = m.history(tok, xs)
-        keys, vals, times = m.bank
+        keys, vals, times, _ = m.bank
         m.bank = None
     else:
         bstates, states = m.history(tok)
@@ -92,6 +94,11 @@ def run(m, x, y, n_out, mode='normal', rec=None):
             elif mode.startswith('win'):
                 w = int(mode[3:])
                 ks, vs, ts = keys[-w:], vals[-w:], times[-w:]
+            elif mode.startswith('keep'):                                               # random p% of the slots, one draw per forward
+                if k == 0:
+                    n = max(1, round(len(keys) * int(mode[4:]) / 100))
+                    sel = sorted(torch.randperm(len(keys), generator=KEEP_GEN)[:n].tolist())
+                ks, vs, ts = [keys[i] for i in sel], [vals[i] for i in sel], [times[i] for i in sel]
             if use:
                 states[-1] = m._retrieve(states[-1], ks, vs, ts, T + k, phase='roll')
         outs.append(m.to_orig(m.read(states[-1]).unsqueeze(1), perm).squeeze(1))
