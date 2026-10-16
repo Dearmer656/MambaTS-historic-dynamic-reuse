@@ -13,7 +13,10 @@ reaches later states only through retrieval (value not detached: the later losse
 depends on C_j (j < t), which depends on dh_j, strictly backwards in time. Keys use h- because the query h-_t must exist before h+_t.
 Rollout (future patches, no ground truth): after each time step h- = the step's last-layer state, h+ = h- + StateMem(h-, all history
 slots), read(h+) and carry h+; no slot is written. At init CorrNet's output layer is zero, so C == 0 and R1Mem == R1 exactly.
-corr_shuffle: control, residual rolled across the batch (C from another sample's error)."""
+corr_shuffle: control, residual rolled across the batch (C from another sample's error).
+Writer loss (corr_aux, training only): L_corr = mean_{t=1..T-2} ||R_sg(sg h+_t + C_t) - x_{t+1}||^2 with the SAME readout R under
+stop-gradient weights, so it trains CorrNet only; h+_t + C_t is a temporary state for this loss, never read for the forecast nor
+carried. x_{t+1} is inside the lookback: in-window auxiliary supervision (whole-lookback RevIN), like L_hist; t = T-1 is excluded."""
 import torch
 import torch.nn.functional as F
 from patchmem.r1_model import R1
@@ -29,8 +32,17 @@ class R1Mem(R1):
         self.corr_net = GatedCorrNet(self.D, self.N, res_dim) if corr == 'gated' else CorrNet(corr, self.D, self.N, res_dim)
         self.mem_net = StateMem(self.D, self.N, group=mem_group)
         self.corr_shuffle = corr_shuffle
+        self.corr_aux = False                                                           # compute the writer loss (set by the trainer)
+        self.corr_loss = None                                                           # L_corr of the last training forward
         self.bank = None                                                                # (keys, vals) of the current forward
         self.mem_stats = {}
+
+    def read_sg(self, h):
+        """read(h) with stop-gradient readout parameters: the writer loss reaches CorrNet only."""
+        f = h.flatten(-2)
+        if self.ro_ln is not None:
+            f = F.layer_norm(f, f.shape[-1:], self.ro_ln.weight.detach(), self.ro_ln.bias.detach(), self.ro_ln.eps)
+        return F.linear(f, self.readout.weight.detach(), self.readout.bias.detach()).unflatten(-1, (self.c, self.P))
 
     def _retrieve(self, h_minus, keys, vals):
         inj, a, g = self.mem_net(h_minus, torch.stack(keys, 1), torch.stack(vals, 1))
@@ -50,7 +62,8 @@ class R1Mem(R1):
         dA = torch.exp(dt.unsqueeze(-1) * A[None, :, None, :])
         dBu = (dt * x).unsqueeze(-1) * B.transpose(1, 2).unsqueeze(1)
         h = x.new_zeros(x.shape[0], self.D, self.N)
-        caps, keys, vals, prev = [], [], [], None
+        caps, keys, vals, prev, aux = [], [], [], None, []
+        T = xs.shape[1]
         for s in range(x.shape[-1]):
             h = dA[:, :, s] * h + dBu[:, :, s]
             if (s + 1) % self.c:
@@ -66,7 +79,10 @@ class R1Mem(R1):
                 Cm = self.corr_net(h.detach(), e)
                 self.mem_stats.setdefault('C', []).append(Cm.square().mean().detach())
                 keys.append(self.mem_net.key(h_minus)); vals.append(Cm)
+                if self.corr_aux and self.training and t <= T - 2:                     # writer loss, temporary h+ + C
+                    aux.append((self.read_sg(h.detach() + Cm) - xs[:, t + 1]).square().mean())
             caps.append(h); prev = h
+        self.corr_loss = torch.stack(aux).mean() if aux else None
         self.bank = (keys, vals)
         return torch.stack(caps, 1), h
 

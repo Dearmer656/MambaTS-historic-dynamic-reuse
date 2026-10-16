@@ -14,6 +14,7 @@ Env:
   R1_CORR                CorrNet variant for the memory values: gated (default, GatedCorrNet: C(h, e=0) = 0) | shared | shared_id | channel
   R1_MEM_GROUP           StateMem channels per softmax head (default 4)
   R1_CORR_SHUFFLE=1      control: residual rolled across the batch before CorrNet
+  R1_LAMBDA_CORR         weight of the writer loss ||R_sg(sg h+ + C) - x_(t+1)||^2 (memory runs only, default 1; trains CorrNet only)
 The training loss is the forecast MSE over the sampled horizon (+ lambda_hist * L_hist). L_hist is in-window auxiliary supervision:
 the lookback's RevIN statistics already include x_(t+1), so it is NOT an online per-origin evaluation."""
 import copy, os, time
@@ -114,6 +115,9 @@ class Exp_R1(Exp_Long_Term_Forecast):
         Lmin, Lmax = int(os.environ.get('R1_LMIN', '384')), int(os.environ.get('R1_LMAX', '1440'))
         Hmin, Hmax = int(os.environ.get('R1_HMIN', '2')), int(os.environ.get('R1_HMAX', '7'))
         lam = float(os.environ.get('R1_LAMBDA_HIST', '0'))
+        lam_c = float(os.environ.get('R1_LAMBDA_CORR', '1')) if isinstance(m, R1Mem) else 0.0
+        if isinstance(m, R1Mem):
+            m.corr_aux = lam_c > 0
         assert Lmin % P == 0 and Lmax % P == 0 and Lmin <= Lmax and 1 <= Hmin <= Hmax
         val_grid = _grid(os.environ.get('R1_VAL_GRID', '384:96,720:96,1440:96,384:336,720:336,1440:336'))
         vstride = int(os.environ.get('R1_VAL_STRIDE', '4'))
@@ -121,7 +125,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
         tr_ds = self._ds('train', Lmax, Hmax * P)
         loader = DataLoader(tr_ds, batch_size=a.batch_size, shuffle=True, drop_last=True, num_workers=a.num_workers)
         print(f'R1 train: {len(tr_ds)} windows of {Lmax}+{Hmax * P} | lookback {Lmin}..{Lmax} step {P} | horizon {Hmin}..{Hmax} patches | '
-              f'lambda_hist {lam} | val grid {val_grid} stride {vstride}', flush=True)
+              f'lambda_hist {lam} | lambda_corr {lam_c} | val grid {val_grid} stride {vstride}', flush=True)
         rng = np.random.default_rng(a.seed)
         path = os.path.join(a.checkpoints, setting)
         os.makedirs(path, exist_ok=True)
@@ -142,6 +146,9 @@ class Exp_R1(Exp_Long_Term_Forecast):
                 fut = el.mean()
                 hist = (out['hist'] - x[:, P:].reshape(x.shape[0], -1, P, m.c)).square().mean()
                 loss = fut + lam * hist
+                corr = m.corr_loss if lam_c > 0 else None                              # writer loss, trains CorrNet only
+                if corr is not None:
+                    loss = loss + lam_c * corr
                 loss.backward()
                 opt.step()
                 m.update_vpt_cost(el.detach())
@@ -150,6 +157,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
                     raise FloatingPointError(f'non-finite loss at epoch {epoch + 1} iter {i + 1} (L={L}, H={nH * P})')
                 if (i + 1) % 100 == 0:
                     ms = ' | mem ' + ' '.join(f'{k} {v:.3g}' for k, v in m.stats().items()) if isinstance(m, R1Mem) else ''
+                    ms += f' corr_loss {corr.item():.5f}' if corr is not None else ''
                     print(f'\titers: {i + 1}, epoch: {epoch + 1} | L {L} H {nH * P} | future mse {fut.item():.5f} hist mse {hist.item():.5f}{ms}', flush=True)
                 if max_it and i + 1 >= max_it:
                     break

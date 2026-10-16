@@ -139,5 +139,26 @@ rm.corr_shuffle = True
 o_b = rm(x, N_OUT, perm=perm)['pred']
 ok(rel(o_b, o_a) > 1e-4, f'shuffled residual changes the forecast ({rel(o_b, o_a):.1e})')
 
+print('A  writer loss L_corr = ||R_sg(sg h+ + C) - x_(t+1)||^2: forecast unchanged, trains CorrNet only, training only')
+r1, rm = pair()
+wake(rm, gate_bias=0.0)
+rm.train()
+p_off = rm(x, N_OUT, perm=perm)
+rm.corr_aux = True
+p_on = rm(x, N_OUT, perm=perm)
+ok(rel(p_on['pred'], p_off['pred']) == 0 and rel(p_on['hist'], p_off['hist']) == 0, 'pred / hist identical with the writer loss on (h+ + C is never read nor carried)')
+ok(rm.corr_loss is not None and torch.isfinite(rm.corr_loss), f'L_corr finite ({rm.corr_loss.item():.4f})')
+rm.zero_grad()
+rm.corr_loss.backward()
+named = dict(rm.named_parameters())
+g = {n: (p.grad.abs().sum().item() if p.grad is not None else 0.0) for n, p in named.items()}
+ok(sum(v for n, v in g.items() if n.startswith('corr_net.')) > 0, 'CorrNet receives gradient from L_corr')
+leak = {n: v for n, v in g.items() if not n.startswith('corr_net.') and v > 0}
+ok(not leak, f'no gradient outside CorrNet (readout / backbone / StateMem): {sorted(leak)[:5]}')
+rm.eval()
+rm(x, N_OUT, perm=perm)
+ok(rm.corr_loss is None, 'L_corr not computed in eval mode')
+rm.corr_aux = False
+
 print('\n' + ('ALL PASS' if not FAILS else f'{len(FAILS)} FAIL(S): ' + '; '.join(FAILS)))
 sys.exit(1 if FAILS else 0)
