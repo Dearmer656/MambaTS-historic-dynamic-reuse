@@ -1,0 +1,18 @@
+#!/bin/bash
+# PAT-304 R1 on Weather: one model trained on random lookback 384..1440 / horizon 96..336, tested on the 3x3 grid.
+# Same backbone recipe as the official Weather H=96 script and the existing weather A0/mem runs (e_layers 3, d_model 32, d_ff 512,
+# dropout 0.2, lr 5e-4, batch 8, 10 epochs, patience 3, VPT_mode 1 + SA). Mirrors patchmem/r1_etth2.sh.
+# --seq_len/--pred_len only name the setting; the lengths actually used come from R1_* (patchmem/exp_r1.py).
+# usage (from the repo root): SEED=3047 R1_LAMBDA_HIST=0.5 bash patchmem/r1_weather.sh
+# smoke: EPOCHS=1 R1_MAX_ITERS=100 R1_VAL_STRIDE=64 DES=R1Wsmoke bash patchmem/r1_weather.sh
+# memory: R1_MEM=1 (R1Mem, patchmem/r1_mem.py; R1_CORR / R1_MEM_GROUP / R1_CORR_SHUFFLE, see exp_r1.py); the default DES gets an M tag
+# (S with the shuffle control) so it never shares a checkpoint dir with the baseline.
+SEED=${SEED:-3047}; LAM=${R1_LAMBDA_HIST:-0}
+export R1_LAMBDA_HIST=$LAM
+TAG=$([ "${R1_MEM:-0}" = 1 ] && echo M$([ "${R1_CORR_SHUFFLE:-0}" = 1 ] && echo S))
+PY=${PY:-python}
+$PY -u patchmem/run_r1.py --task_name long_term_forecast --is_training 1 --root_path ./dataset/weather --data_path weather.csv \
+  --enc_in 21 --dec_in 21 --c_out 21 --model_id weather_r1 --model MambaTS --data custom --features M --seed $SEED \
+  --seq_len 1440 --label_len 48 --pred_len 336 --e_layers 3 --d_layers 2 --factor 1 --des ${DES:-R1W${TAG}h${LAM}s${SEED}} --itr 1 \
+  --n_heads 16 --d_model 32 --d_ff 512 --dropout 0.2 --patch_len 48 --stride 48 --VPT_mode 1 --ATSP_solver SA \
+  --train_epochs ${EPOCHS:-10} --patience 3 --batch_size 8 --learning_rate 0.0005

@@ -10,6 +10,10 @@ Env:
   R1_TEST_L / R1_TEST_H  test grid (default 384,720,1440 / 96,192,336)
   R1_EVAL_BS             evaluation batch size (default 64)
   R1_MAX_ITERS           stop each training epoch after this many iterations (smoke runs; default 0 = full epoch)
+  R1_MEM=1               R1 + state-level retrieval memory (patchmem/r1_mem.py, R1Mem); default 0 = plain R1 baseline
+  R1_CORR                CorrNet variant for the memory values: gated (default, GatedCorrNet: C(h, e=0) = 0) | shared | shared_id | channel
+  R1_MEM_GROUP           StateMem channels per softmax head (default 4)
+  R1_CORR_SHUFFLE=1      control: residual rolled across the batch before CorrNet
 The training loss is the forecast MSE over the sampled horizon (+ lambda_hist * L_hist). L_hist is in-window auxiliary supervision:
 the lookback's RevIN statistics already include x_(t+1), so it is NOT an online per-origin evaluation."""
 import copy, os, time
@@ -19,6 +23,7 @@ from torch.utils.data import DataLoader
 from data_provider.data_factory import data_provider
 from exp.exp_long_term_forecasting import Exp_Long_Term_Forecast
 from patchmem.r1_model import R1
+from patchmem.r1_mem import R1Mem
 from utils.tools import EarlyStopping, adjust_learning_rate
 
 
@@ -29,7 +34,15 @@ def _grid(s):
 class Exp_R1(Exp_Long_Term_Forecast):
     def _build_model(self):
         a = self.args
-        m = R1(a, readout_ln=os.environ.get('R1_RO_LN', '0') == '1').float()
+        ro_ln = os.environ.get('R1_RO_LN', '0') == '1'
+        if os.environ.get('R1_MEM', '0') == '1':
+            m = R1Mem(a, readout_ln=ro_ln, corr=os.environ.get('R1_CORR', 'gated'), mem_group=int(os.environ.get('R1_MEM_GROUP', '4')),
+                      corr_shuffle=os.environ.get('R1_CORR_SHUFFLE', '0') == '1').float()
+            print(f'R1Mem: corr {os.environ.get("R1_CORR", "gated")}({sum(p.numel() for p in m.corr_net.parameters())} params) | '
+                  f'StateMem group {m.mem_net.group} heads {m.mem_net.nh} ({sum(p.numel() for p in m.mem_net.parameters())} params) | '
+                  f'corr_shuffle {m.corr_shuffle}', flush=True)
+        else:
+            m = R1(a, readout_ln=ro_ln).float()
         nro = sum(p.numel() for p in m.readout.parameters())
         print(f'R1: d_inner {m.D} d_state {m.N} vars {m.c} patch {m.P} | readout {m.D * m.N} -> {m.c * m.P} ({nro} params) | '
               f'readout LN {m.ro_ln is not None} | VPT {m.vpt} ({a.ATSP_solver}) | trainable {sum(p.numel() for p in m.parameters() if p.requires_grad)}',
@@ -136,7 +149,8 @@ class Exp_R1(Exp_Long_Term_Forecast):
                 if not np.isfinite(lf[-1]):
                     raise FloatingPointError(f'non-finite loss at epoch {epoch + 1} iter {i + 1} (L={L}, H={nH * P})')
                 if (i + 1) % 100 == 0:
-                    print(f'\titers: {i + 1}, epoch: {epoch + 1} | L {L} H {nH * P} | future mse {fut.item():.5f} hist mse {hist.item():.5f}', flush=True)
+                    ms = ' | mem ' + ' '.join(f'{k} {v:.3g}' for k, v in m.stats().items()) if isinstance(m, R1Mem) else ''
+                    print(f'\titers: {i + 1}, epoch: {epoch + 1} | L {L} H {nH * P} | future mse {fut.item():.5f} hist mse {hist.item():.5f}{ms}', flush=True)
                 if max_it and i + 1 >= max_it:
                     break
             res = self.eval_grid('val', val_grid, stride=vstride)
