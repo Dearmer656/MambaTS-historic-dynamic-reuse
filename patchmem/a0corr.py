@@ -23,20 +23,26 @@ class StateMem(nn.Module):
     C_j and CorrNet). Injected through a per-channel scalar gate g = sigmoid(W_g flat(sg h_t-) + b_g) (b, D, 1), b_g = -4, W_g = 0 at init.
     No learned memory->state map W this round. audit: None | 'zero' (g = 0) | 'uniform' (a = 1/M) -- evaluation-only ablations.
     qk_dim: per-head q/k dimension, decoupled from the value channel grouping (default group*N, i.e. W_Q, W_K: D*N -> D*N; qk_dim = r
-    gives W_Q, W_K: D*N -> nh*r, a low-rank score with the same heads and the same value groups)."""
-    def __init__(self, d_inner, d_state, group=None, tau0=1.0, gate_bias=-4.0, qk_dim=None):
+    gives W_Q, W_K: D*N -> nh*r, a low-rank score with the same heads and the same value groups).
+    uniform=True: trained-without-selection control: no W_Q, W_K, tau; a = 1/(number of available slots) in every head (the slot mask,
+    if any, removes dropped slots); the gate W_g and the per-head channel-group value aggregation are unchanged."""
+    def __init__(self, d_inner, d_state, group=None, tau0=1.0, gate_bias=-4.0, qk_dim=None, uniform=False):
         super().__init__()
         group = group or d_inner
         assert d_inner % group == 0, f'd_inner {d_inner} not divisible by group {group}'
         self.group, self.nh, self.dh = group, d_inner // group, qk_dim or group * d_state   # dh: per-head q/k dim
-        self.Wq = nn.Linear(d_inner * d_state, self.nh * self.dh, bias=False)
-        self.Wk = nn.Linear(d_inner * d_state, self.nh * self.dh, bias=False)
-        self.log_tau = nn.Parameter(torch.full((self.nh,), float(tau0)).log())
+        self.uniform = uniform
+        if not uniform:
+            self.Wq = nn.Linear(d_inner * d_state, self.nh * self.dh, bias=False)
+            self.Wk = nn.Linear(d_inner * d_state, self.nh * self.dh, bias=False)
+            self.log_tau = nn.Parameter(torch.full((self.nh,), float(tau0)).log())
         self.Wg = nn.Linear(d_inner * d_state, d_inner)
         nn.init.zeros_(self.Wg.weight); nn.init.constant_(self.Wg.bias, gate_bias)
         self.audit = None
 
     def key(self, h):
+        if self.uniform:
+            return h.new_zeros(h.shape[0], self.nh, 0)                                  # no key: selection-free
         return self.Wk(h.detach().flatten(1)).reshape(h.shape[0], self.nh, self.dh)   # (b, nh, dh)
 
     def forward(self, h, keys, vals, mask=None):
@@ -45,7 +51,13 @@ class StateMem(nn.Module):
         Returns the injection g*m (b, D, N), a (b, nh, M), g (b, D, 1)."""
         b, M = keys.shape[:2]
         hq = h.detach().flatten(1)
-        if self.audit == 'uniform':
+        if self.uniform:
+            if mask is None:
+                a = keys.new_full((b, self.nh, M), 1.0 / M)
+            else:                                                                       # all-dropped rows -> a = 0 (no injection)
+                w = mask.to(keys.dtype)
+                a = (w / w.sum(1, keepdim=True).clamp_min(1.0))[:, None, :].expand(b, self.nh, M)
+        elif self.audit == 'uniform':
             a = keys.new_full((b, self.nh, M), 1.0 / M)
         else:
             q = self.Wq(hq).reshape(b, self.nh, self.dh)

@@ -327,6 +327,31 @@ gp = grads_by_prefix(rz)
 ok(gp['corr_net'] > 0 and all(v == 0 for k, v in gp.items() if k != 'corr_net'), f'L_corr ALONE reaches CorrNet only {gp}')
 rz.eval()
 
+print('U2 selection-free retrieval (uniform=True): no W_Q / W_K / tau; a = 1/available slots; == audit-uniform of the same weights; trains')
+r1, ru = pair(uniform=True)
+ok(not hasattr(ru.mem_net, 'Wq') and not hasattr(ru.mem_net, 'Wk') and not hasattr(ru.mem_net, 'log_tau'),
+   f'no W_Q / W_K / tau; StateMem {sum(p.numel() for p in ru.mem_net.parameters())} params (gate only)')
+wake(ru)
+_, rn = pair()
+rn.load_state_dict(ru.state_dict(), strict=False)                                    # same CorrNet / backbone / gate; rn keeps its own W_Q, W_K
+rn.set_audit('uniform')
+ok(rel(ru(x, N_OUT, perm=perm)['pred'], rn(x, N_OUT, perm=perm)['pred']) < 1e-6, 'uniform=True == audit "uniform" of the full model with the same other weights')
+ru.train(); ru.slot_keep = 0.5; ru.corr_aux = True; ru.zero_grad()
+seen = []
+mem_fwd = ru.mem_net.forward
+def uspy(h, keys, vals, mask=None):
+    inj, a, g = mem_fwd(h, keys, vals, mask)
+    seen.append((a.detach(), mask)); return inj, a, g
+ru.mem_net.forward = uspy
+torch.manual_seed(2)
+ou = ru(x, N_OUT, perm=perm)
+((ou['pred'] - x[:, -N_OUT * P:]).square().mean() + ru.corr_loss).backward()
+ru.mem_net.forward = mem_fwd
+ok(all(abs(a[b, :, ~mk[b]].sum().item()) == 0 for a, mk in seen for b in range(a.shape[0])) and
+   all(torch.allclose(a.sum(-1), mk.any(1, keepdim=True).float().expand_as(a.sum(-1)), atol=1e-5) for a, mk in seen),
+   'with slot dropout: dropped slots get 0, the rest share 1/(kept), rows sum to 1 (0 if none kept)')
+ok(all(torch.isfinite(p.grad).all() for p in ru.parameters() if p.grad is not None) and ru.mem_net.Wg.weight.grad.abs().sum() > 0, 'finite grads, gate trained')
+
 print('L  R1_RO_LN=1: the writer loss still reaches CorrNet only (readout LayerNorm parameters stop-gradient too)')
 r1, rm = pair(readout_ln=True)
 wake(rm)

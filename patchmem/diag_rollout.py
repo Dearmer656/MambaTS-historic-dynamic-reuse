@@ -49,8 +49,11 @@ class Rec:
         with torch.no_grad():
             M = keys.shape[1]
             hq = h.detach().flatten(1)
-            q = mn.Wq(hq).reshape(h.shape[0], mn.nh, mn.dh)
-            cos = torch.einsum('bhd,bmhd->bhm', torch.nn.functional.normalize(q, dim=-1), torch.nn.functional.normalize(keys, dim=-1))
+            if mn.uniform:
+                cos = torch.zeros_like(a)                                               # no query / key
+            else:
+                q = mn.Wq(hq).reshape(h.shape[0], mn.nh, mn.dh)
+                cos = torch.einsum('bhd,bmhd->bhm', torch.nn.functional.normalize(q, dim=-1), torch.nn.functional.normalize(keys, dim=-1))
             ent = (-(a * a.clamp_min(1e-12).log()).sum(-1) / np.log(M)) if M >= 2 else torch.ones_like(a[..., 0])
             self.calls.append(dict(hq=hq, M=M, ent=ent.mean(1), amax=a.max(-1).values.mean(1), gate=g.flatten(1).mean(1),
                                    ratio=inj.flatten(1).norm(dim=1) / hq.norm(dim=1).clamp_min(1e-12), cos=cos.max(-1).values.mean(1)))

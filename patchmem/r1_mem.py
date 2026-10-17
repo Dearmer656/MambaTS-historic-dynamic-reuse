@@ -18,6 +18,7 @@ slots), read(h+) and carry h+; no slot is written. At init CorrNet's output laye
 Training variants (comment e18ad84b):
   roll_retrieve=False B2-H: retrieval at the history boundaries only; the rollout is R1's plain recurrence from h+_{T-1}
   qk_dim=r            low-rank retrieval score: W_Q, W_K: D*N -> nh*r (default r = group*N, full-state); same heads, same value groups
+  uniform=True        selection-free retrieval trained from scratch (no W_Q, W_K, tau): a = 1/(available slots); gate and values unchanged
   z_dim=z             GatedCorrNet code size: content = z @ Wc_d, Wc (D, z, N) (default 32); C keeps its (D, N) shape
   slot_keep=p < 1     B2-drop: during training each sample writes each history slot with probability p (per-sample slot dropout;
                       the dropped slot is invisible to every later retrieval); evaluation uses all slots
@@ -50,12 +51,12 @@ def _q(x, qs=(0.1, 0.5, 0.9)):
 
 class R1Mem(R1):
     def __init__(self, cfg, readout_ln=False, corr='gated', mem_group=4, corr_shuffle=False, value_detach=False, retrieve=True,
-                 roll_retrieve=True, slot_keep=1.0, qk_dim=None, z_dim=32):
+                 roll_retrieve=True, slot_keep=1.0, qk_dim=None, z_dim=32, uniform=False):
         super().__init__(cfg, readout_ln=readout_ln)
         res_dim = self.c * self.P
         assert corr == 'gated' or z_dim == 32, 'z_dim is a GatedCorrNet option'
         self.corr_net = GatedCorrNet(self.D, self.N, res_dim, z_dim=z_dim) if corr == 'gated' else CorrNet(corr, self.D, self.N, res_dim)
-        self.mem_net = StateMem(self.D, self.N, group=mem_group, qk_dim=qk_dim)
+        self.mem_net = StateMem(self.D, self.N, group=mem_group, qk_dim=qk_dim, uniform=uniform)
         self.corr_shuffle = corr_shuffle
         self.value_detach = value_detach
         self.retrieve = retrieve
@@ -128,8 +129,9 @@ class R1Mem(R1):
             r(p + 'top1_age_head_std', top1.std(1, unbiased=False).mean())
         mn = self.mem_net
         hq = h_minus.detach().flatten(1)
-        r(p + 'q_norm', mn.Wq(hq).norm(dim=1).mean()); r(p + 'k_norm', mn.Wk(hq).norm(dim=1).mean())
-        r(p + 'tau_mean', mn.log_tau.exp().mean())
+        if not mn.uniform:
+            r(p + 'q_norm', mn.Wq(hq).norm(dim=1).mean()); r(p + 'k_norm', mn.Wk(hq).norm(dim=1).mean())
+            r(p + 'tau_mean', mn.log_tau.exp().mean())
 
     @torch.no_grad()
     def _diag_writer(self, h_plus, Cm, e, target):
