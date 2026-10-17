@@ -7,13 +7,14 @@
 # memory: R1_MEM=1 (R1Mem, patchmem/r1_mem.py; see exp_r1.py for R1_CORR / R1_MEM_GROUP / R1_CORR_SHUFFLE / R1_LAMBDA_CORR /
 # R1_MEM_VALUE_DETACH / R1_MEM_RETRIEVE). The default DES gets a tag per arm so no two arms share a checkpoint dir:
 # M (memory) + S (corr shuffle) + D (values detached, Pure-B) + X (retrieval off, B3) + N (no rollout retrieval, B2-H)
-# + K<p> (training slot keep probability, B2-drop) + c<lambda_corr>.
+# + K<p> (training slot keep probability, B2-drop) + Q<r> (per-head q/k dim) + Z<z> (CorrNet z_dim) + c<lambda_corr>.
 #   A1 baseline: (none) | B0: R1_MEM=1 R1_LAMBDA_CORR=0 -> Mc0 | B1: R1_MEM=1 R1_MEM_VALUE_DETACH=1 -> MDc1
 #   B2 Hybrid: R1_MEM=1 -> Mc1 | B3: R1_MEM=1 R1_MEM_RETRIEVE=0 -> MXc1
 #   B2-H: R1_MEM=1 R1_MEM_ROLL_RETRIEVE=0 -> MNc1 | B2-drop50: R1_MEM=1 R1_MEM_SLOT_KEEP=0.5 -> MK0.5c1
+#   low-rank Q/K: R1_MEM=1 R1_MEM_QK_DIM=8 -> MQ8c1 | small C code: R1_MEM=1 R1_CORR_ZDIM=8 -> MZ8c1
 SEED=${SEED:-3047}; LAM=${R1_LAMBDA_HIST:-0}
 export R1_LAMBDA_HIST=$LAM
-TAG=$([ "${R1_MEM:-0}" = 1 ] && echo M$([ "${R1_CORR_SHUFFLE:-0}" = 1 ] && echo S)$([ "${R1_MEM_VALUE_DETACH:-0}" = 1 ] && echo D)$([ "${R1_MEM_RETRIEVE:-1}" = 1 ] || echo X)$([ "${R1_MEM_ROLL_RETRIEVE:-1}" = 1 ] || echo N)$([ "${R1_MEM_SLOT_KEEP:-1}" = 1 ] || echo K${R1_MEM_SLOT_KEEP})c${R1_LAMBDA_CORR:-1})
+TAG=$([ "${R1_MEM:-0}" = 1 ] && echo M$([ "${R1_CORR_SHUFFLE:-0}" = 1 ] && echo S)$([ "${R1_MEM_VALUE_DETACH:-0}" = 1 ] && echo D)$([ "${R1_MEM_RETRIEVE:-1}" = 1 ] || echo X)$([ "${R1_MEM_ROLL_RETRIEVE:-1}" = 1 ] || echo N)$([ "${R1_MEM_SLOT_KEEP:-1}" = 1 ] || echo K${R1_MEM_SLOT_KEEP})$([ -z "${R1_MEM_QK_DIM}" ] || echo Q${R1_MEM_QK_DIM})$([ "${R1_CORR_ZDIM:-32}" = 32 ] || echo Z${R1_CORR_ZDIM})c${R1_LAMBDA_CORR:-1})
 PY=${PY:-python}
 $PY -u patchmem/run_r1.py --task_name long_term_forecast --is_training 1 --root_path ./dataset/ETT-small --data_path ETTh2.csv \
   --enc_in 7 --dec_in 7 --c_out 7 --model_id ETTh2_r1 --model MambaTS --data ETTh2 --features M --seed $SEED \

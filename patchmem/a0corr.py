@@ -21,14 +21,16 @@ class StateMem(nn.Module):
     m[group h channels] = sum_j a_h,j C_j[group h channels], so different channel groups can take corrections from different past sites.
     group=None: one head, a single softmax shared by all channels. value = C_j NOT detached (a later site's loss reaches the historical
     C_j and CorrNet). Injected through a per-channel scalar gate g = sigmoid(W_g flat(sg h_t-) + b_g) (b, D, 1), b_g = -4, W_g = 0 at init.
-    No learned memory->state map W this round. audit: None | 'zero' (g = 0) | 'uniform' (a = 1/M) -- evaluation-only ablations."""
-    def __init__(self, d_inner, d_state, group=None, tau0=1.0, gate_bias=-4.0):
+    No learned memory->state map W this round. audit: None | 'zero' (g = 0) | 'uniform' (a = 1/M) -- evaluation-only ablations.
+    qk_dim: per-head q/k dimension, decoupled from the value channel grouping (default group*N, i.e. W_Q, W_K: D*N -> D*N; qk_dim = r
+    gives W_Q, W_K: D*N -> nh*r, a low-rank score with the same heads and the same value groups)."""
+    def __init__(self, d_inner, d_state, group=None, tau0=1.0, gate_bias=-4.0, qk_dim=None):
         super().__init__()
         group = group or d_inner
         assert d_inner % group == 0, f'd_inner {d_inner} not divisible by group {group}'
-        self.group, self.nh, self.dh = group, d_inner // group, group * d_state       # dh: per-head q/k dim
-        self.Wq = nn.Linear(d_inner * d_state, d_inner * d_state, bias=False)
-        self.Wk = nn.Linear(d_inner * d_state, d_inner * d_state, bias=False)
+        self.group, self.nh, self.dh = group, d_inner // group, qk_dim or group * d_state   # dh: per-head q/k dim
+        self.Wq = nn.Linear(d_inner * d_state, self.nh * self.dh, bias=False)
+        self.Wk = nn.Linear(d_inner * d_state, self.nh * self.dh, bias=False)
         self.log_tau = nn.Parameter(torch.full((self.nh,), float(tau0)).log())
         self.Wg = nn.Linear(d_inner * d_state, d_inner)
         nn.init.zeros_(self.Wg.weight); nn.init.constant_(self.Wg.bias, gate_bias)

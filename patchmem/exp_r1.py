@@ -20,6 +20,8 @@ Env:
   R1_MEM_VALUE_DETACH=1  Pure-B (B1): memory values detached when written (default 0 = Hybrid B2)
   R1_MEM_RETRIEVE=0      B3: writer trained, retrieval injection off (default 1)
   R1_MEM_ROLL_RETRIEVE=0 B2-H: retrieval at the history boundaries only, none in the rollout (default 1)
+  R1_MEM_QK_DIM          per-head q/k dimension of the retrieval score (default group*N = full-state W_Q, W_K: D*N -> D*N)
+  R1_CORR_ZDIM           GatedCorrNet code size z_dim (default 32)
   R1_MEM_SLOT_KEEP       B2-drop: training-time per-sample probability that a history slot is written (default 1 = all; eval: all)
   R1_DIAG_EVERY          training diagnostics (JSONL) every N steps (default 100; 0 = off)
   R1_DIAG_VAL_BATCHES    eval batches per (L, H) with memory diagnostics at every validation (default 2)
@@ -122,9 +124,11 @@ class Exp_R1(Exp_Long_Term_Forecast):
                       value_detach=os.environ.get('R1_MEM_VALUE_DETACH', '0') == '1',
                       retrieve=os.environ.get('R1_MEM_RETRIEVE', '1') == '1',
                       roll_retrieve=os.environ.get('R1_MEM_ROLL_RETRIEVE', '1') == '1',
-                      slot_keep=float(os.environ.get('R1_MEM_SLOT_KEEP', '1'))).float()
+                      slot_keep=float(os.environ.get('R1_MEM_SLOT_KEEP', '1')),
+                      qk_dim=int(os.environ['R1_MEM_QK_DIM']) if os.environ.get('R1_MEM_QK_DIM') else None,
+                      z_dim=int(os.environ.get('R1_CORR_ZDIM', '32'))).float()
             print(f'R1Mem: corr {os.environ.get("R1_CORR", "gated")} ({sum(p.numel() for p in m.corr_net.parameters())} params) | '
-                  f'StateMem group {m.mem_net.group} heads {m.mem_net.nh} ({sum(p.numel() for p in m.mem_net.parameters())} params) | '
+                  f'StateMem group {m.mem_net.group} heads {m.mem_net.nh} qk_dim {m.mem_net.dh} ({sum(p.numel() for p in m.mem_net.parameters())} params) | '
                   f'corr_shuffle {m.corr_shuffle} | value_detach {m.value_detach} (Pure-B) | retrieve {m.retrieve} | '
                   f'rollout retrieve {m.roll_retrieve} | train slot keep {m.slot_keep}', flush=True)
         else:

@@ -288,6 +288,45 @@ ok(all(torch.equal(masks[i][:, :masks[i].shape[1]], masks[-1][:, :masks[i].shape
 ok(all(torch.isfinite(p.grad).all() for p in rd.parameters() if p.grad is not None) and
    sum(p.grad.abs().sum().item() for p in rd.mem_net.parameters() if p.grad is not None) > 0, 'finite gradients, StateMem trained')
 
+print('Q  low-rank Q/K (qk_dim): default == full-state; qk_dim r shrinks W_Q, W_K to D*N -> nh*r, same heads / value groups, trains')
+_, rq0 = pair()
+ok(tuple(rq0.mem_net.Wq.weight.shape) == (512, 512) and rq0.mem_net.dh == 64, f'default W_Q {tuple(rq0.mem_net.Wq.weight.shape)} dh {rq0.mem_net.dh}')
+r1, rq = pair(qk_dim=8)
+mn = rq.mem_net
+nq = sum(p.numel() for n, p in mn.named_parameters() if n.startswith(('Wq', 'Wk')))
+ok(tuple(mn.Wq.weight.shape) == (mn.nh * 8, 512) and tuple(mn.Wk.weight.shape) == (mn.nh * 8, 512) and mn.nh == 8 and nq == 2 * 512 * 64,
+   f'W_Q {tuple(mn.Wq.weight.shape)} W_K {tuple(mn.Wk.weight.shape)}, {mn.nh} heads, W_Q+W_K {nq} params (full-state: {2 * 512 * 512})')
+o1, oq = r1(x, N_OUT, perm=perm), rq(x, N_OUT, perm=perm)
+ok(rel(oq['pred'], o1['pred']) < 1e-5, f'at init (C == 0) == R1 ({rel(oq["pred"], o1["pred"]):.1e})')
+wake(rq)
+rq.train(); rq.corr_aux = True; rq.zero_grad()
+oq = rq(x, N_OUT, perm=perm)
+((oq['pred'] - x[:, -N_OUT * P:]).square().mean() + rq.corr_loss).backward()
+ok(rel(oq['pred'], o1['pred']) > 1e-3 and mn.Wq.weight.grad.abs().sum() > 0 and mn.Wk.weight.grad.abs().sum() > 0 and
+   all(torch.isfinite(p.grad).all() for p in rq.parameters() if p.grad is not None), 'memory active changes the forecast; W_Q, W_K trained; finite grads')
+rq.eval()
+
+print('Z  small CorrNet code (z_dim): C keeps its (D, N) shape, Wc (D, z, N); zero at init (== R1); writer loss still CorrNet only')
+r1, rz = pair(z_dim=8)
+cn = rz.corr_net
+ok(tuple(cn.Wc.shape) == (rz.D, 8, rz.N) and cn.E[-1].out_features == 8 and cn.G1.in_features == rz.N + 8,
+   f'Wc {tuple(cn.Wc.shape)}, E out {cn.E[-1].out_features}, G1 in {cn.G1.in_features}; CorrNet {sum(p.numel() for p in cn.parameters())} params')
+o1, oz = r1(x, N_OUT, perm=perm), rz(x, N_OUT, perm=perm)
+ok(rel(oz['pred'], o1['pred']) < 1e-5, f'at init (Wc == 0 => C == 0) == R1 ({rel(oz["pred"], o1["pred"]):.1e})')
+wake(rz)
+Cs = []
+fwd = cn.forward
+cn.forward = lambda h, e: Cs.append(fwd(h, e)) or Cs[-1]
+oz = rz(x, N_OUT, perm=perm)
+cn.forward = fwd
+ok(all(c.shape == (x.shape[0], rz.D, rz.N) for c in Cs) and rel(oz['pred'], o1['pred']) > 1e-3,
+   f'C shape {tuple(Cs[0].shape)} at every slot; memory active changes the forecast')
+rz.train(); rz.corr_aux = True; rz.zero_grad()
+rz(x, N_OUT, perm=perm); rz.corr_loss.backward()
+gp = grads_by_prefix(rz)
+ok(gp['corr_net'] > 0 and all(v == 0 for k, v in gp.items() if k != 'corr_net'), f'L_corr ALONE reaches CorrNet only {gp}')
+rz.eval()
+
 print('L  R1_RO_LN=1: the writer loss still reaches CorrNet only (readout LayerNorm parameters stop-gradient too)')
 r1, rm = pair(readout_ln=True)
 wake(rm)
