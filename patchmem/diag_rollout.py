@@ -43,8 +43,8 @@ class Rec:
         self.mem, self.calls, self.orig = mem, [], mem.forward
         mem.forward = self
 
-    def __call__(self, h, keys, vals):
-        inj, a, g = self.orig(h, keys, vals)
+    def __call__(self, h, keys, vals, mask=None):
+        inj, a, g = self.orig(h, keys, vals, mask)
         mn = self.mem
         with torch.no_grad():
             M = keys.shape[1]
