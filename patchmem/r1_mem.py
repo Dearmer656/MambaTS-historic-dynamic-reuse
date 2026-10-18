@@ -18,6 +18,7 @@ slots), read(h+) and carry h+; no slot is written. At init CorrNet's output laye
 Training variants (comment e18ad84b):
   roll_retrieve=False B2-H: retrieval at the history boundaries only; the rollout is R1's plain recurrence from h+_{T-1}
   qk_dim=r            low-rank retrieval score: W_Q, W_K: D*N -> nh*r (default r = group*N, full-state); same heads, same value groups
+  null=True           learnable null slot (value 0) in every head's softmax: retrieval can abstain when no past slot matches
   uniform=True        selection-free retrieval trained from scratch (no W_Q, W_K, tau): a = 1/(available slots); gate and values unchanged
   z_dim=z             GatedCorrNet code size: content = z @ Wc_d, Wc (D, z, N) (default 32); C keeps its (D, N) shape
   slot_keep=p < 1     B2-drop: during training each sample writes each history slot with probability p (per-sample slot dropout;
@@ -51,12 +52,12 @@ def _q(x, qs=(0.1, 0.5, 0.9)):
 
 class R1Mem(R1):
     def __init__(self, cfg, readout_ln=False, corr='gated', mem_group=4, corr_shuffle=False, value_detach=False, retrieve=True,
-                 roll_retrieve=True, slot_keep=1.0, qk_dim=None, z_dim=32, uniform=False):
+                 roll_retrieve=True, slot_keep=1.0, qk_dim=None, z_dim=32, uniform=False, null=False):
         super().__init__(cfg, readout_ln=readout_ln)
         res_dim = self.c * self.P
         assert corr == 'gated' or z_dim == 32, 'z_dim is a GatedCorrNet option'
         self.corr_net = GatedCorrNet(self.D, self.N, res_dim, z_dim=z_dim) if corr == 'gated' else CorrNet(corr, self.D, self.N, res_dim)
-        self.mem_net = StateMem(self.D, self.N, group=mem_group, qk_dim=qk_dim, uniform=uniform)
+        self.mem_net = StateMem(self.D, self.N, group=mem_group, qk_dim=qk_dim, uniform=uniform, null=null)
         self.corr_shuffle = corr_shuffle
         self.value_detach = value_detach
         self.retrieve = retrieve
@@ -94,6 +95,8 @@ class R1Mem(R1):
         st = self.mem_stats
         st.setdefault('g', []).append(g.mean().detach())
         st.setdefault('ratio', []).append((inj.flatten(1).norm(dim=1) / h_minus.flatten(1).norm(dim=1).clamp_min(1e-12)).mean().detach())
+        if self.mem_net.null:
+            st.setdefault('null_mass', []).append((1 - a.sum(-1)).mean().detach())
         if M >= 2:
             ent = -(a * a.clamp_min(1e-12).log()).sum(-1) / math.log(M)
             st.setdefault('ent_norm', []).append(ent.mean().detach())
@@ -117,6 +120,8 @@ class R1Mem(R1):
         r(p + 'gate_frac_lt_0.05', (g < 0.05).float().mean()); r(p + 'gate_frac_gt_0.95', (g > 0.95).float().mean())
         mx = a.max(-1)
         r(p + 'attn_max', mx.values.mean())
+        if self.mem_net.null:
+            r(p + 'null_mass', (1 - a.sum(-1)).mean())
         if M >= 2:                                                                       # entropy undefined (N/A) for M = 1: not recorded
             ent = -(a * a.clamp_min(1e-12).log()).sum(-1)                                 # (b, nh)
             r(p + 'attn_entropy', ent.mean()); r(p + 'attn_entropy_norm', (ent / math.log(M)).mean())

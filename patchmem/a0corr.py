@@ -24,14 +24,21 @@ class StateMem(nn.Module):
     No learned memory->state map W this round. audit: None | 'zero' (g = 0) | 'uniform' (a = 1/M) -- evaluation-only ablations.
     qk_dim: per-head q/k dimension, decoupled from the value channel grouping (default group*N, i.e. W_Q, W_K: D*N -> D*N; qk_dim = r
     gives W_Q, W_K: D*N -> nh*r, a low-rank score with the same heads and the same value groups).
+    null=True: one extra learnable "null" slot per head (key k0, logit bias b0, both zero at init) whose value is fixed at 0, so the softmax
+    can put mass on "no suitable past site" and the injection shrinks toward 0 when no slot matches (abstention that depends on the
+    match, unlike the query-only gate). a returned over the real slots only (rows sum to 1 - null mass).
     uniform=True: trained-without-selection control: no W_Q, W_K, tau; a = 1/(number of available slots) in every head (the slot mask,
     if any, removes dropped slots); the gate W_g and the per-head channel-group value aggregation are unchanged."""
-    def __init__(self, d_inner, d_state, group=None, tau0=1.0, gate_bias=-4.0, qk_dim=None, uniform=False):
+    def __init__(self, d_inner, d_state, group=None, tau0=1.0, gate_bias=-4.0, qk_dim=None, uniform=False, null=False):
         super().__init__()
         group = group or d_inner
         assert d_inner % group == 0, f'd_inner {d_inner} not divisible by group {group}'
         self.group, self.nh, self.dh = group, d_inner // group, qk_dim or group * d_state   # dh: per-head q/k dim
-        self.uniform = uniform
+        self.uniform, self.null = uniform, null
+        assert not (uniform and null), 'null slot needs a selective score'
+        if null:
+            self.k0 = nn.Parameter(torch.zeros(self.nh, self.dh))
+            self.b0 = nn.Parameter(torch.zeros(self.nh))
         if not uniform:
             self.Wq = nn.Linear(d_inner * d_state, self.nh * self.dh, bias=False)
             self.Wk = nn.Linear(d_inner * d_state, self.nh * self.dh, bias=False)
@@ -61,8 +68,14 @@ class StateMem(nn.Module):
             a = keys.new_full((b, self.nh, M), 1.0 / M)
         else:
             q = self.Wq(hq).reshape(b, self.nh, self.dh)
-            logit = torch.einsum('bhd,bmhd->bhm', q, keys) / (self.dh ** 0.5 * self.log_tau.exp())[None, :, None]
-            if mask is not None:
+            scale = (self.dh ** 0.5 * self.log_tau.exp())[None, :, None]
+            logit = torch.einsum('bhd,bmhd->bhm', q, keys) / scale
+            if self.null:                                                               # null slot always present, value 0
+                l0 = torch.einsum('bhd,hd->bh', q, self.k0)[..., None] / scale + self.b0[None, :, None]
+                if mask is not None:
+                    logit = logit.masked_fill(~mask[:, None, :], float('-inf'))
+                a = torch.softmax(torch.cat([logit, l0], -1), -1)[..., :M]
+            elif mask is not None:
                 anyv = mask.any(1)
                 mk = mask | ~anyv[:, None]                                              # all-dropped rows: dummy full mask, zeroed below
                 a = torch.softmax(logit.masked_fill(~mk[:, None, :], float('-inf')), -1) * anyv[:, None, None]

@@ -352,6 +352,46 @@ ok(all(abs(a[b, :, ~mk[b]].sum().item()) == 0 for a, mk in seen for b in range(a
    'with slot dropout: dropped slots get 0, the rest share 1/(kept), rows sum to 1 (0 if none kept)')
 ok(all(torch.isfinite(p.grad).all() for p in ru.parameters() if p.grad is not None) and ru.mem_net.Wg.weight.grad.abs().sum() > 0, 'finite grads, gate trained')
 
+print('O  null slot (null=True): value-0 slot in every head softmax; == R1 at init; null mass > 0; abstains when b0 is large; trains')
+r1, rn0 = pair(null=True)
+mn = rn0.mem_net
+ok(tuple(mn.k0.shape) == (mn.nh, mn.dh) and tuple(mn.b0.shape) == (mn.nh,), f'k0 {tuple(mn.k0.shape)}, b0 {tuple(mn.b0.shape)}')
+o1, on = r1(x, N_OUT, perm=perm), rn0(x, N_OUT, perm=perm)
+ok(rel(on['pred'], o1['pred']) < 1e-5, f'at init (C == 0) == R1 ({rel(on["pred"], o1["pred"]):.1e})')
+wake(rn0)
+seen = []
+mem_fwd = mn.forward
+def nspy(h, keys, vals, mask=None):
+    inj, a, g = mem_fwd(h, keys, vals, mask)
+    seen.append((a.detach(), keys.shape[1], mask)); return inj, a, g
+mn.forward = nspy
+on = rn0(x, N_OUT, perm=perm)
+ok(all((a.sum(-1) < 1 - 1e-6).all() and (a.sum(-1) > 0).all() for a, M, _ in seen), 'real-slot weights sum to 1 - null mass, 0 < sum < 1')
+with torch.no_grad():
+    mn.b0.fill_(50.)
+seen.clear()
+ob = rn0(x, N_OUT, perm=perm)
+ok(rel(ob['pred'], o1['pred']) < 1e-5 and all(a.abs().max() < 1e-12 for a, _, _ in seen), f'b0 large: all mass on null, forecast == R1 ({rel(ob["pred"], o1["pred"]):.1e})')
+with torch.no_grad():
+    mn.b0.zero_()
+_, rf = pair()
+rf.load_state_dict(rn0.state_dict(), strict=False)
+with torch.no_grad():
+    mn.b0.fill_(-50.)
+ok(rel(rn0(x, N_OUT, perm=perm)['pred'], rf(x, N_OUT, perm=perm)['pred']) < 1e-5, 'b0 very negative (and k0 = 0): == model without null slot')
+with torch.no_grad():
+    mn.b0.zero_()
+rn0.train(); rn0.slot_keep = 0.5; rn0.corr_aux = True; rn0.zero_grad(); seen.clear()
+torch.manual_seed(3)
+on = rn0(x, N_OUT, perm=perm)
+((on['pred'] - x[:, -N_OUT * P:]).square().mean() + rn0.corr_loss).backward()
+mn.forward = mem_fwd
+ok(all(a[b, :, ~mk[b]].abs().sum().item() == 0 for a, _, mk in seen if mk is not None for b in range(a.shape[0])) and
+   all(torch.isfinite(a).all() for a, _, _ in seen), 'with slot dropout: dropped slots get 0, all-dropped rows -> all mass on null, no NaN')
+ok(mn.b0.grad is not None and mn.b0.grad.abs().sum() > 0 and mn.k0.grad.abs().sum() > 0 and
+   all(torch.isfinite(p.grad).all() for p in rn0.parameters() if p.grad is not None), 'k0, b0 trained; finite grads')
+rn0.eval()
+
 print('L  R1_RO_LN=1: the writer loss still reaches CorrNet only (readout LayerNorm parameters stop-gradient too)')
 r1, rm = pair(readout_ln=True)
 wake(rm)
