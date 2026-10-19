@@ -62,6 +62,19 @@ def patch_retrieve(m, state):
 
     def f(h_minus, keys, vals, times=None, t_now=None, phase='hist', masks=None):
         mode = state['mode']
+        if mode.startswith('drop') or mode.startswith('stride'):                        # test-time slot subsets (training is p = 0.5 dropout)
+            b = h_minus.shape[0]
+            if mode.startswith('drop'):                                                 # dropP_seed: each slot kept w.p. P/100, per sample, consistent over calls
+                if state.get('tab') is None:
+                    gen = torch.Generator().manual_seed(int(mode.split('_')[1]) * 100003 + state['bi'])
+                    state['tab'] = torch.rand(b, 256, generator=gen).to(h_minus.device)
+                masks = [state['tab'][:, t] < int(mode[4:].split('_')[0]) / 100 for t in times]
+            else:                                                                       # strideK_R: keep slots with t % K == R
+                k, r = map(int, mode[6:].split('_'))
+                masks = [torch.full((b,), t % k == r, device=h_minus.device) for t in times]
+        if mode.startswith('win') and phase == 'roll':                                 # winM: the rollout reads only the M most recent slots
+            m_ = int(mode[3:])
+            keys, vals, times = keys[-m_:], vals[-m_:], times[-m_:]
         if mode == 'swap':
             vals = [v.roll(1, 0) for v in vals]
         elif mode == 'swapbank':
@@ -110,6 +123,8 @@ def run_cell(eA, eQ, flag, L, H, stride, Ks, rec_state, modes, fit=None):
     S = {}                                                                              # summed squared errors
     add = lambda k, v: S.__setitem__(k, S.get(k, 0.0) + float(v))
     fbs = {}                                                                            # least squares sums for beta: <b, r>, <b, b>
+    SK = {}                                                                             # per rollout patch k: summed squared error by method
+    addk = lambda k, e: SK.__setitem__(k, SK.get(k, 0.0) + e.reshape(e.shape[0], n_out, -1).square().sum((0, 2)).double().cpu())
     per = {k: [] for k in ('A1', 'Q8', 'zero', 'A1_lvl_abs', 'shift', 'A1_last1_lvl_abs')}
     corr_xy = []                                                                        # (level of d, level of Q8 hist error) pairs
     nel = 0
@@ -119,7 +134,7 @@ def run_cell(eA, eQ, flag, L, H, stride, Ks, rec_state, modes, fit=None):
         oA = mA(bx, n_out)
         preds = {}
         for md in modes:
-            rec_state['mode'] = md
+            rec_state['mode'] = md; rec_state['tab'] = None; rec_state['bi'] = s0
             mQ.set_audit(md if md in ('zero', 'uniform', 'perm') else None, 0)
             rec_state['rec'] = rec_state['attn'] if md == 'normal' else None
             o = mQ(bx, n_out)
@@ -133,9 +148,9 @@ def run_cell(eA, eQ, flag, L, H, stride, Ks, rec_state, modes, fit=None):
         b, c = pA.shape[0], pA.shape[-1]
         nel += pA.numel()
         sq = lambda p: (p - y).square()
-        add('A1', sq(pA).sum())
+        add('A1', sq(pA).sum()); addk('A1', pA - y)
         for md, p in preds.items():
-            add(md, sq(p).sum())
+            add(md, sq(p).sum()); addk(md, p - y)
         # 2. decomposition of the memory's correction d = normal - zero
         pZ, pN = preds['zero'], preds['normal']
         d = (pN - pZ).reshape(b, n_out, P, c)
@@ -160,7 +175,7 @@ def run_cell(eA, eQ, flag, L, H, stride, Ks, rec_state, modes, fit=None):
                     fbs.setdefault(key, [0.0, 0.0, 0.0])
                     fbs[key][0] += (bb * r).sum().item(); fbs[key][1] += bb.square().sum().item()
                     if fit is not None:                                                 # val-fitted beta applied here
-                        add(key, (r - fit[key] * bb).square().sum())
+                        add(key, (r - fit[key] * bb).square().sum()); addk(key, r - fit[key] * bb)
         eQh = hist_err(bx, histQ, P)
         corr_xy.append(torch.stack([lvl.flatten(), fb(eQh, 3, 'level').flatten()], 1).cpu())
         # 5. per-window scalars
@@ -173,6 +188,7 @@ def run_cell(eA, eQ, flag, L, H, stride, Ks, rec_state, modes, fit=None):
     out['cos_d_resid'] = S['cos_num'] / (S['d_sq'] * S['r_sq']) ** 0.5
     out['frac_win_improved'] = S['frac_win_improved'] / S['nwin']
     out['windows'] = len(ids)
+    out['patch_mse'] = {k: (v / (nel / n_out)).tolist() for k, v in SK.items()}
     beta = {k: v[0] / max(v[1], 1e-12) for k, v in fbs.items()}
     xy = torch.cat(corr_xy).double()
     out['corr_dlevel_vs_Q8histerr_level_K3'] = torch.corrcoef(xy.T)[0, 1].item()
@@ -184,6 +200,7 @@ def main():
     ap.add_argument('--data', required=True, choices=list(DATA)); ap.add_argument('--seed', type=int, default=3047)
     ap.add_argument('--grid', default='1440:336,384:96'); ap.add_argument('--stride', type=int, default=1)
     ap.add_argument('--K', default='1,3,0'); ap.add_argument('--out', default=None)
+    ap.add_argument('--modes', default=None, help='comma list overriding the default modes, e.g. normal,zero,drop50_0,stride2_0,stride2_1')
     ap.add_argument('--mem', default='Q8', choices=list(MEMARMS), help='memory checkpoint: Q8 (Q8+drop50) | U (trained uniform+drop50)')
     a = ap.parse_args()
     base, ck, dA, dQ = DATA[a.data]
@@ -195,6 +212,8 @@ def main():
     patch_retrieve(eQ.model, rec_state)
     Ks = [int(k) for k in a.K.split(',')]
     modes = ['normal', 'zero', 'uniform', 'perm', 'swap', 'swapbank'] if a.mem == 'Q8' else ['normal', 'zero', 'swap', 'swapbank']
+    if a.modes:
+        modes = a.modes.split(',')
     out = a.out or f'patchmem/logs/mech/{a.data}{MEMARMS[a.mem][0]}_s{a.seed}'
     os.makedirs(os.path.dirname(out), exist_ok=True)
     res = {}
@@ -214,6 +233,9 @@ def main():
         A = r['A1']
         print(f'[mech {a.data} s{a.seed}] L={L} H={H} windows {r["windows"]} | A1 {A:.4f} | ' +
               ' '.join(f'{k} {r[k]:.4f} ({100 * (A - r[k]) / A:+.1f}%)' for k in modes + ['zero+level', 'zero+level+profile']), flush=True)
+        for k in ('A1', 'normal', 'fb_A1_level_K1', 'fb_A1_profile_K3', 'fb_A1_profile_K0'):
+            if k in r['patch_mse']:
+                print(f'   per-patch mse {k:18s} ' + ' '.join(f'{v:.4f}' for v in r['patch_mse'][k]), flush=True)
         print(f'   cos(d, y-zero) {r["cos_d_resid"]:.3f} | windows improved {r["frac_win_improved"]:.3f} | corr(level d, Q8 hist err) '
               f'{r["corr_dlevel_vs_Q8histerr_level_K3"]:.3f} | roll gate {r["roll_gate"]:.3f} entropy {r["attn_entropy_norm"]:.3f} | '
               f'|inj|/|h-| {r["inj_over_h"]:.3f} C rms {r["C_rms"]:.4f} value coherence {r["value_coherence"]:.3f}', flush=True)
