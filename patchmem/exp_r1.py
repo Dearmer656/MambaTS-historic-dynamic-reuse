@@ -25,6 +25,9 @@ Env:
   R1_MEM_UNIFORM=1       selection-free retrieval trained from scratch: no W_Q / W_K / tau, a = 1/(available slots) (default 0)
   R1_MEM_NULL=1          learnable null slot (value 0) in the retrieval softmax: abstain when no slot matches (default 0)
   R1_MEM_SLOT_KEEP       B2-drop: training-time per-sample probability that a history slot is written (default 1 = all; eval: all)
+  R1_OBS=1               R1 + observation-space error memory (patchmem/r1_obsmem.py, R1Obs): values = the backbone's lookback errors,
+                         the retrieved correction is added to the forecast. Uses R1_MEM_GROUP, R1_MEM_QK_DIM (default 8),
+                         R1_MEM_SLOT_KEEP, R1_MEM_UNIFORM; R1_OBS_FEED=0 feeds the uncorrected backbone patch back (default 1: the forecast)
   R1_DIAG_EVERY          training diagnostics (JSONL) every N steps (default 100; 0 = off)
   R1_DIAG_VAL_BATCHES    eval batches per (L, H) with memory diagnostics at every validation (default 2)
   R1_AUDIT=0             skip the same-checkpoint inference audits after test (memory runs; default 1)
@@ -41,6 +44,7 @@ from data_provider.data_factory import data_provider
 from exp.exp_long_term_forecasting import Exp_Long_Term_Forecast
 from patchmem.r1_model import R1, atsp_order
 from patchmem.r1_mem import R1Mem
+from patchmem.r1_obsmem import R1Obs
 from patchmem.param_snapshot import log_model_parameter_stats
 from utils.tools import EarlyStopping, adjust_learning_rate
 
@@ -135,6 +139,12 @@ class Exp_R1(Exp_Long_Term_Forecast):
                   f'StateMem group {m.mem_net.group} heads {m.mem_net.nh} qk_dim {m.mem_net.dh} ({sum(p.numel() for p in m.mem_net.parameters())} params) | '
                   f'corr_shuffle {m.corr_shuffle} | value_detach {m.value_detach} (Pure-B) | retrieve {m.retrieve} | '
                   f'rollout retrieve {m.roll_retrieve} | train slot keep {m.slot_keep} | null slot {m.mem_net.null}', flush=True)
+        elif os.environ.get('R1_OBS', '0') == '1':
+            m = R1Obs(a, readout_ln=ro_ln, mem_group=int(os.environ.get('R1_MEM_GROUP', '4')),
+                      qk_dim=int(os.environ.get('R1_MEM_QK_DIM') or 8), slot_keep=float(os.environ.get('R1_MEM_SLOT_KEEP', '1')),
+                      uniform=os.environ.get('R1_MEM_UNIFORM', '0') == '1', feed=os.environ.get('R1_OBS_FEED', '1') == '1').float()
+            print(f'R1Obs: ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} uniform {m.obs_net.uniform} '
+                  f'({sum(p.numel() for p in m.obs_net.parameters())} params) | train slot keep {m.slot_keep} | feed forecast {m.feed}', flush=True)
         else:
             m = R1(a, readout_ln=ro_ln).float()
         nro = sum(p.numel() for p in m.readout.parameters())
@@ -339,7 +349,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
                 if not np.isfinite(lf[-1]):
                     raise FloatingPointError(f'non-finite loss at epoch {epoch + 1} iter {i + 1} (L={L}, H={nH * P})')
                 if (i + 1) % 100 == 0:
-                    ms = ' | mem ' + ' '.join(f'{k} {v:.3g}' for k, v in m.stats().items()) if is_mem else ''
+                    ms = ' | mem ' + ' '.join(f'{k} {v:.3g}' for k, v in m.stats().items()) if is_mem or isinstance(m, R1Obs) else ''
                     ms += f' corr_loss {corr.item():.5f}' if corr is not None else ''
                     print(f'\titers: {i + 1}, epoch: {epoch + 1} | L {L} H {nH * P} | future mse {fut.item():.5f} hist mse {hist.item():.5f}{ms}', flush=True)
                 if max_it and i + 1 >= max_it:
@@ -393,7 +403,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
                   f'{None if adj is None else adj.cpu().numpy().round(3)}', flush=True)
             self.jlog(dict(record='vpt', order=self.eval_order(), skipped=m.vpt_skipped, count_min=m.enc.count_matrix.min().item(),
                            adjacency=None if adj is None else adj.cpu().tolist()))
-        if isinstance(m, R1Mem) and os.environ.get('R1_AUDIT', '1') == '1':
+        if isinstance(m, (R1Mem, R1Obs)) and os.environ.get('R1_AUDIT', '1') == '1':
             self.audit(setting, grid)
 
     def audit(self, setting, grid):

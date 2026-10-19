@@ -1,0 +1,135 @@
+"""PAT-304 R1 + observation-space error memory (R1Obs). Baseline = R1 (patchmem/r1_model.py, unchanged backbone); the memory stores the
+backbone's own next-patch ERRORS in the observation space and adds a retrieved correction directly to the forecast (no state injection,
+no CorrNet). Motivation (patchmem/mech_eval.py): R1Mem's gain is sample-specific error feedback, and a non-learned feedback of the
+lookback errors (one val-fitted scalar) matches or beats it, so here the error itself is the value and the correction skips the state.
+
+History (teacher forced, plain R1 recurrence): boundary states h_t, next-patch predictions yh_t = read(h_t) for patch t+1.
+  slot t (t = 1..T-1): key  k_t = W_K sg h_t                          the state after patch t (the patch whose error is stored)
+                       value e_t = sg(x_t - yh_{t-1})                  error of the backbone's prediction of patch t, (C, P), RevIN-normalised,
+                                                                       ORIGINAL variable order (VPT draws a random scan order per sample)
+Rollout, future patch k (k = 0..n_out-1), query state h = h_{T-1} for k = 0, else the last layer's state after the fed-back patch:
+  a_h      = softmax_j(q_h . k_j,h / (sqrt(r) tau_h))  per head h (nh heads, low-rank q/k dim r), over ALL history slots (j <= T-1)
+  m_h      = sum_j a_h,j e_j                            (C, P) per head
+  delta_k  = g(h) * sum_h W[h] * m_h                    W (nh, C, P) per head, variable and position in the patch, ZERO at init;
+                                                        g = sigmoid(W_g sg h + b_g) (C, 1) per variable, W_g = 0, b_g = 0 at init
+  forecast = read(h) + delta_k                          (original order); fed back as the next patch (feed=True, default) or the backbone
+                                                        prediction read(h) is fed back (feed=False: backbone rollout identical to R1)
+At init W = 0 so delta = 0 and R1Obs == R1 exactly. No auxiliary loss: W, W_Q, W_K, tau, W_g are trained by the forecast loss only.
+History predictions are not corrected (lambda_hist = 0 in every arm), so the stored errors are always the plain backbone's.
+Training options: slot_keep p < 1 (per-sample slot dropout, as B2-drop), qk_dim r (default 8), uniform=True (a = 1/available slots,
+no W_Q / W_K / tau). Inference audits: None | 'zero' (delta = 0) | 'uniform' (a = 1/M) | 'perm' (values of the M slots permuted:
+key-error pairing broken)."""
+import torch
+import torch.nn as nn
+from patchmem.r1_model import R1
+
+
+class ObsMem(nn.Module):
+    def __init__(self, d_inner, d_state, c, P, group=4, qk_dim=8, tau0=1.0, uniform=False):
+        super().__init__()
+        assert d_inner % group == 0, f'd_inner {d_inner} not divisible by group {group}'
+        self.nh, self.dh, self.uniform = d_inner // group, qk_dim, uniform
+        if not uniform:
+            self.Wq = nn.Linear(d_inner * d_state, self.nh * qk_dim, bias=False)
+            self.Wk = nn.Linear(d_inner * d_state, self.nh * qk_dim, bias=False)
+            self.log_tau = nn.Parameter(torch.full((self.nh,), float(tau0)).log())
+        self.W = nn.Parameter(torch.zeros(self.nh, c, P))                               # per-head output map, zero: R1 at init
+        self.Wg = nn.Linear(d_inner * d_state, c)
+        nn.init.zeros_(self.Wg.weight); nn.init.zeros_(self.Wg.bias)
+        self.audit = None
+
+    def key(self, h):
+        if self.uniform:
+            return h.new_zeros(h.shape[0], self.nh, 0)
+        return self.Wk(h.detach().flatten(1)).reshape(h.shape[0], self.nh, self.dh)
+
+    def forward(self, h, keys, vals, mask=None):
+        """h (b, D, N) query state; keys (b, M, nh, dh); vals (b, M, C, P) errors; mask (b, M) bool or None (False = slot dropped).
+        Returns delta (b, C, P), a (b, nh, M), g (b, C, 1)."""
+        b, M = keys.shape[:2]
+        hq = h.detach().flatten(1)
+        if self.uniform or self.audit == 'uniform':
+            w = keys.new_ones(b, M) if mask is None else mask.to(keys.dtype)
+            a = (w / w.sum(1, keepdim=True).clamp_min(1.0))[:, None, :].expand(b, self.nh, M)
+        else:
+            q = self.Wq(hq).reshape(b, self.nh, self.dh)
+            logit = torch.einsum('bhd,bmhd->bhm', q, keys) / (self.dh ** 0.5 * self.log_tau.exp())[None, :, None]
+            if mask is None:
+                a = torch.softmax(logit, -1)
+            else:                                                                       # all-dropped rows -> a = 0 (no correction)
+                anyv = mask.any(1)
+                mk = mask | ~anyv[:, None]
+                a = torch.softmax(logit.masked_fill(~mk[:, None, :], float('-inf')), -1) * anyv[:, None, None]
+        m = torch.einsum('bhm,bmcp->bhcp', a, vals)
+        g = torch.sigmoid(self.Wg(hq)).unsqueeze(-1)
+        delta = g * (self.W[None] * m).sum(1)
+        if self.audit == 'zero':
+            delta = torch.zeros_like(delta)
+        return delta, a, g
+
+
+class R1Obs(R1):
+    def __init__(self, cfg, readout_ln=False, mem_group=4, qk_dim=8, slot_keep=1.0, uniform=False, feed=True):
+        super().__init__(cfg, readout_ln=readout_ln)
+        self.obs_net = ObsMem(self.D, self.N, self.c, self.P, group=mem_group, qk_dim=qk_dim, uniform=uniform)
+        self.slot_keep, self.feed = slot_keep, feed
+        self.audit, self.audit_gen = None, None
+        self.mem_stats = {}
+
+    def set_audit(self, mode=None, seed=0):
+        assert mode in (None, 'zero', 'uniform', 'perm'), mode
+        self.audit = mode
+        self.obs_net.audit = mode if mode in ('zero', 'uniform') else None
+        self.audit_gen = torch.Generator().manual_seed(seed) if mode == 'perm' else None
+
+    def stats(self):
+        return {k: torch.stack(v).mean().item() for k, v in self.mem_stats.items() if v}
+
+    def _correct(self, h, K, V, mask):
+        delta, a, g = self.obs_net(h, K, V, mask)
+        st = self.mem_stats
+        st.setdefault('g', []).append(g.mean().detach())
+        st.setdefault('delta_rms', []).append(delta.square().mean().sqrt().detach())
+        if K.shape[1] >= 2:
+            st.setdefault('ent_norm', []).append((-(a * a.clamp_min(1e-12).log()).sum(-1) / torch.log(torch.tensor(float(K.shape[1])))).mean().detach())
+        return delta
+
+    def forward(self, x, n_out, perm=None, trace=None):
+        """Same interface and pipeline as R1.forward; the rollout forecasts get the retrieved error correction."""
+        b, L, c = x.shape
+        P = self.P
+        assert L % P == 0 and c == self.c, (L, P, c, self.c)
+        T = L // P
+        self.mem_stats = {}
+        means = x.mean(1, keepdim=True).detach()
+        xc = x - means
+        stdev = torch.sqrt(torch.var(xc, dim=1, keepdim=True, unbiased=False) + 1e-5).detach()
+        xn = xc / stdev
+        perm = self.scan_order(b, x.device) if perm is None else perm
+        xp = xn.permute(0, 2, 1).reshape(b, c, T, P)
+        xo = xp.permute(0, 2, 1, 3)                                                     # (b, T, C, P) original order
+        xs = self.to_scan(xo, perm)
+        tok = self.embed(xs).reshape(b, T * c, -1)
+        bstates, states = self.history(tok)
+        yh = self.to_orig(self.read(bstates), perm)                                    # (b, T, C, P) original order
+        if T >= 2:
+            K = self.obs_net.key(bstates[:, 1:].flatten(0, 1)).unflatten(0, (b, T - 1))   # (b, T-1, nh, dh) slots t = 1..T-1
+            V = (xo[:, 1:] - yh[:, :-1]).detach()                                       # (b, T-1, C, P) e_t
+            mask = (torch.rand(b, T - 1, device=x.device) < self.slot_keep) if self.training and self.slot_keep < 1 else None
+            if self.audit == 'perm' and T - 1 >= 2:
+                V = V[:, torch.randperm(T - 1, generator=self.audit_gen).to(V.device)]
+        base = yh[:, -1]
+        outs = []
+        for k in range(n_out):
+            if k:
+                fb = outs[-1] if self.feed else base
+                states = self.step_time(self.embed(self.to_scan(fb.unsqueeze(1), perm)).squeeze(1), states)
+                base = self.to_orig(self.read(states[-1]).unsqueeze(1), perm).squeeze(1)
+            h = bstates[:, -1] if k == 0 else states[-1]
+            outs.append(base + self._correct(h, K, V, mask) if T >= 2 else base)
+        if trace is not None:
+            trace.update(bstates=bstates, h_last=bstates[:, -1])
+        den = lambda y: y * stdev.unsqueeze(1) + means.unsqueeze(1)
+        pred = den(torch.stack(outs, 1).transpose(-1, -2)).reshape(b, n_out * P, c)
+        hist = den(yh[:, :-1].transpose(-1, -2))
+        return dict(pred=pred, hist=hist, perm=perm)

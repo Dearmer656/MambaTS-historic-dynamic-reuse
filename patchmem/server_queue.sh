@@ -6,6 +6,8 @@
 #   ARM      A1  R1, lambda_hist 0
 #            Q8  Q8+drop50: R1Mem, R1_MEM_QK_DIM=8, R1_MEM_SLOT_KEEP=0.5
 #            U   uniform+drop50: R1Mem with selection-free (uniform) attention trained from scratch, R1_MEM_UNIFORM=1, R1_MEM_SLOT_KEEP=0.5
+#            O   observation-space error memory (patchmem/r1_obsmem.py): values = the backbone's lookback errors, the retrieved correction
+#                is added to the forecast; same retrieval recipe as Q8+drop50 (R1_OBS=1 R1_MEM_QK_DIM=8 R1_MEM_SLOT_KEEP=0.5), DES ...ObK0.5Q8...
 #            PAT-306 controls (ETTh2 only, same as patchmem/sanity_train.sh):
 #            T2  A1 with d_model 26 (315,873 params ~ Q8 315,400)                 -> gain from capacity?
 #            T3  Q8+drop50 with CorrNet residuals rolled across the batch (R1_CORR_SHUFFLE=1) -> gain from the sample's own information?
@@ -14,6 +16,8 @@
 # use the names of patchmem/sanity_train.sh (R1h0dm26s, R1MSK0.5Q8c1h0s, R1h0F720x96s, R1MK0.5Q8c1h0F720x96s).
 # Jobs run JOBS_PER_GPU at a time per GPU, GPUs taken from GPUS (default: all visible); each job goes to the least-loaded GPU.
 # usage (repo root, python env active): GPUS=0,1 JOBS_PER_GPU=2 bash patchmem/server_queue.sh [job list]
+#   e.g. the observation-space memory on all datasets: bash patchmem/server_queue.sh "E:O:3047 E:O:3048 E:O:3049 T:O:3047 T:O:3048 T:O:3049 W:O:3047 W:O:3048 W:O:3049"
+#   two queues running at once do not see each other's jobs: give them disjoint GPUS.
 #   logs: patchmem/logs/server/<D>_<arm>_s<seed>.txt, queue log patchmem/logs/server/queue.txt
 OUT=patchmem/logs/server; mkdir -p $OUT
 GPUS=${GPUS:-$(nvidia-smi --query-gpu=index --format=csv,noheader | paste -sd,)}
@@ -34,6 +38,7 @@ run() {   # $1 = gpu, $2 = job D:ARM:SEED
     A1)  env= ;;
     Q8)  env=$Q8 ;;
     U)   env="R1_MEM=1 R1_MEM_UNIFORM=1 R1_MEM_SLOT_KEEP=0.5" ;;
+    O)   env="R1_OBS=1 R1_MEM_QK_DIM=8 R1_MEM_SLOT_KEEP=0.5" ;;
     T2)  env="EXTRA=--d_model=26 DES=R1h0dm26s$s" ;;
     T3)  env="$Q8 R1_CORR_SHUFFLE=1" ;;
     T4a) env="$FIX DES=R1h0F720x96s$s" ;;

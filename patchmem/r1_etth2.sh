@@ -17,6 +17,8 @@
 SEED=${SEED:-3047}; LAM=${R1_LAMBDA_HIST:-0}
 export R1_LAMBDA_HIST=$LAM
 TAG=$([ "${R1_MEM:-0}" = 1 ] && echo M$([ "${R1_CORR_SHUFFLE:-0}" = 1 ] && echo S)$([ "${R1_MEM_VALUE_DETACH:-0}" = 1 ] && echo D)$([ "${R1_MEM_RETRIEVE:-1}" = 1 ] || echo X)$([ "${R1_MEM_ROLL_RETRIEVE:-1}" = 1 ] || echo N)$([ "${R1_MEM_UNIFORM:-0}" = 1 ] && echo U)$([ "${R1_MEM_SLOT_KEEP:-1}" = 1 ] || echo K${R1_MEM_SLOT_KEEP})$([ -z "${R1_MEM_QK_DIM}" ] || echo Q${R1_MEM_QK_DIM})$([ "${R1_CORR_ZDIM:-32}" = 32 ] || echo Z${R1_CORR_ZDIM})$([ "${R1_MEM_NULL:-0}" = 1 ] && echo O)c${R1_LAMBDA_CORR:-1})
+# R1_OBS=1 (observation-space error memory, patchmem/r1_obsmem.py): Ob + U (uniform) + K<p> + Q<r> + F0 (backbone patch fed back), e.g. ObK0.5Q8
+[ "${R1_OBS:-0}" = 1 ] && TAG=Ob$([ "${R1_MEM_UNIFORM:-0}" = 1 ] && echo U)$([ "${R1_MEM_SLOT_KEEP:-1}" = 1 ] || echo K${R1_MEM_SLOT_KEEP})Q${R1_MEM_QK_DIM:-8}$([ "${R1_OBS_FEED:-1}" = 1 ] || echo F0)
 PY=${PY:-python}
 $PY -u patchmem/run_r1.py --task_name long_term_forecast --is_training 1 --root_path ./dataset/ETT-small --data_path ETTh2.csv \
   --enc_in 7 --dec_in 7 --c_out 7 --model_id ETTh2_r1 --model MambaTS --data ETTh2 --features M --seed $SEED \
