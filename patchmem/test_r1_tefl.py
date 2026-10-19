@@ -62,7 +62,8 @@ for mode in ('native', 'faithful'):
         tf.feed = True
         tf.set_audit('zero'); pz = tf(x, n_out, perm=perm)['pred']; tf.set_audit(None)
         print(f'[{mode}] zero audit vs R1', mx(pz, p1)); assert mx(pz, p1) < 1e-5
-        tf.set_audit('perm'); pp = tf(x, n_out, perm=perm)['pred']; tf.set_audit(None)
+        don = tf(torch.randn_like(x).cumsum(1) * 0.1, n_out, perm=perm, ret_eps=True)['eps']   # errors of unrelated windows
+        tf.set_audit('perm'); pp = tf(x, n_out, perm=perm, eps_override=don)['pred']; tf.set_audit(None)
         assert mx(pp, pt) > 1e-4
     tf.W2.weight.data.zero_(); tf.train()
     y = torch.randn(4, n_out * P, c, device=dev)
@@ -72,4 +73,50 @@ for mode in ('native', 'faithful'):
     tf.zero_grad(); tf.W2.weight.data.normal_(0, 0.05)
     (tf(x, n_out, perm=perm)['pred'] - y).square().mean().backward()
     print(f'[{mode}] grad W2 != 0: W1 {tf.W1.weight.grad.norm().item():.3e}'); assert tf.W1.weight.grad.norm() > 0
+
+# hc=0 (T0 = O without retrieval): eps = every O slot value, right-aligned and zero-padded to Tmax-1 patches
+T, tmax = L // P, 30
+torch.manual_seed(0); t0m = R1Tefl(a, mode='native', hc=0, tmax=tmax).to(dev).eval()
+assert set(t0m.state_dict()) - set(r1.state_dict()) == {'W1.weight', 'W2.weight'} and t0m.din == (tmax - 1) * P
+with torch.no_grad():
+    o = t0m(x, n_out, perm=perm, ret_eps=True)
+    assert torch.equal(o['pred'], p1)
+    h = r1(x, n_out, perm=perm)['hist']
+    mu = x.mean(1, keepdim=True); sd = torch.sqrt(x.var(1, keepdim=True, unbiased=False) + 1e-5)
+    V = (x[:, P:].reshape(4, -1, P, c) - h) / sd.unsqueeze(1)                       # (b, T-1, P, C) = R1Obs values
+    ref = torch.cat([V.new_zeros(4, tmax - T, P, c), V], 1).permute(0, 3, 1, 2).reshape(4, c, -1)
+    print('[hc=0] eps vs all O slot values (right-aligned, zero-padded)', mx(o['eps'], ref)); assert mx(o['eps'], ref) < 1e-4
+    # padded batch (lens) == unpadded windows, eps included
+    lens = torch.tensor([L, L - 4 * P, L - 7 * P, L - 2 * P])
+    ob = t0m(x, n_out, perm=perm, ret_eps=True, lens=lens)
+    t0m.W2.weight.normal_(0, 0.05)
+    ob = t0m(x, n_out, perm=perm, ret_eps=True, lens=lens)
+    for i in range(4):
+        oi = t0m(x[i:i + 1, -int(lens[i]):], n_out, perm=perm[i:i + 1], ret_eps=True)
+        assert mx(ob['eps'][i:i + 1], oi['eps']) < 1e-4 and mx(ob['pred'][i:i + 1], oi['pred']) < 1e-3, i
+    print('[hc=0] padded batch == unpadded windows (eps, forecast)')
+    # extrapolation beyond Hmax = 7 patches
+    pl = t0m(x, 10, perm=perm)['pred']
+    t0m.feed = False
+    for ext in ('last', 'zero'):
+        t0m.extrap = ext
+        pe = t0m(x, 10, perm=perm, ret_eps=True)
+        d = t0m.W2(torch.relu(t0m.W1(pe['eps']))).reshape(4, c, 7, P)
+        d = torch.cat([d, (d[:, :, -1:] if ext == 'last' else torch.zeros_like(d[:, :, -1:])).expand(4, c, 3, P)], 2)
+        dd = (d.permute(0, 2, 3, 1) * sd.unsqueeze(1)).reshape(4, 10 * P, c)
+        e = mx(pe['pred'] - r1(x, 10, perm=perm)['pred'], dd); print(f'[hc=0] extrap {ext}: forecast - R1 - delta', e); assert e < 1e-4
+    t0m.feed = True; t0m.extrap = 'last'
+    # perm audit needs donor errors; with donors = own errors it equals the normal forecast
+    t0m.set_audit('perm')
+    try:
+        t0m(x, n_out, perm=perm); raise SystemExit('perm audit without eps_override must fail')
+    except AssertionError:
+        pass
+    own = t0m(x, n_out, perm=perm, ret_eps=True, eps_override=o['eps'])['pred']
+    t0m.set_audit(None)
+    assert mx(own, t0m(x, n_out, perm=perm)['pred']) < 1e-6
+    x3 = torch.randn_like(x).cumsum(1) * 0.1
+    don = t0m(x3, n_out, perm=perm, ret_eps=True)['eps']
+    assert mx(t0m(x, n_out, perm=perm, eps_override=don)['pred'], t0m(x, n_out, perm=perm)['pred']) > 1e-4
+    print('[hc=0] perm audit: requires donors, own donors == normal, distant donors change the forecast')
 print('OK')

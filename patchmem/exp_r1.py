@@ -33,7 +33,8 @@ Env:
                          R1_MEM_SLOT_KEEP, R1_MEM_UNIFORM; R1_OBS_FEED=0 feeds the uncorrected backbone patch back (default 1: the forecast)
   R1_TEFL=native|faithful  R1 + TEFL-style error feedback (patchmem/r1_tefl.py, R1Tefl, PAT-307): T0 = last Hc one-step lookback
                          errors, T1 = multi-step errors of R1's own rollout from t-Hc; y += ReLU(eps W1) W2 (W2 = 0 at init).
-                         R1_TEFL_HC (Hc in patches, default 2), R1_TEFL_RANK (default 64), R1_TEFL_FEED=0 feeds the backbone patch back
+                         R1_TEFL_HC (Hc in patches, default 2; 0 = all lookback one-step errors, native only), R1_TEFL_RANK (default 64),
+                         R1_TEFL_FEED=0 feeds the backbone patch back, R1_TEFL_EXTRAP last|zero beyond Hmax patches (default last)
   R1_DIAG_EVERY          training diagnostics (JSONL) every N steps (default 100; 0 = off)
   R1_DIAG_VAL_BATCHES    eval batches per (L, H) with memory diagnostics at every validation (default 2)
   R1_AUDIT=0             skip the same-checkpoint inference audits after test (memory runs; default 1)
@@ -155,8 +156,10 @@ class Exp_R1(Exp_Long_Term_Forecast):
         elif os.environ.get('R1_TEFL'):
             m = R1Tefl(a, readout_ln=ro_ln, mode=os.environ['R1_TEFL'], hc=int(os.environ.get('R1_TEFL_HC', '2')),
                        rank=int(os.environ.get('R1_TEFL_RANK', '64')), hmax=int(os.environ.get('R1_HMAX', '7')),
-                       feed=os.environ.get('R1_TEFL_FEED', '1') == '1').float()
-            print(f'R1Tefl: mode {m.mode} Hc {m.hc} patches rank {m.W1.out_features} Hmax {m.hmax} | '
+                       feed=os.environ.get('R1_TEFL_FEED', '1') == '1', tmax=int(os.environ.get('R1_LMAX', '1440')) // a.patch_len,
+                       extrap=os.environ.get('R1_TEFL_EXTRAP', 'last')).float()
+            print(f'R1Tefl: mode {m.mode} Hc {m.hc} patches (0 = all lookback, input {m.din}) rank {m.W1.out_features} Hmax {m.hmax} '
+                  f'extrap {m.extrap} | '
                   f'g params {m.W1.weight.numel() + m.W2.weight.numel()} | feed forecast {m.feed}', flush=True)
         else:
             m = R1(a, readout_ln=ro_ln).float()
@@ -221,7 +224,14 @@ class Exp_R1(Exp_Long_Term_Forecast):
                 use_diag = isinstance(m, R1Mem) and bi < diag_batches
                 if use_diag:
                     m.diag = True
-                pred = m(bx, H // P, trace=tr)['pred']
+                if isinstance(m, R1Tefl) and m.audit == 'perm':                       # errors of windows half the split away
+                    bd, _ = self._batch(ds, [(j + len(ds) // 2) % len(ds) for j in ids[s0:s0 + bs]])
+                    m.audit = None
+                    eps_d = m(bd.to(self.device), H // P, ret_eps=True)['eps']
+                    m.audit = 'perm'
+                    pred = m(bx, H // P, trace=tr, eps_override=eps_d)['pred']
+                else:
+                    pred = m(bx, H // P, trace=tr)['pred']
                 m.diag = False
                 err = pred - y
                 acc['mse'] += err.square().sum().item(); acc['mae'] += err.abs().sum().item(); acc['n'] += err.numel()
@@ -449,7 +459,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
         m = self.model
         g = _grid(os.environ['R1_AUDIT_GRID']) if os.environ.get('R1_AUDIT_GRID') else grid
         reps = int(os.environ.get('R1_AUDIT_PERM_REPS', '3'))
-        if isinstance(m, R1Tefl):                                                       # no attention; perm = eps rolled across the batch
+        if isinstance(m, R1Tefl):                                                       # no attention; perm = errors of distant windows
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('perm', 'perm', 0)]
         else:
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('uniform', 'uniform', 0)] + [(f'perm{s}', 'perm', s) for s in range(reps)]

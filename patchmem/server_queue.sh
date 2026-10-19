@@ -9,8 +9,8 @@
 #            O   observation-space error memory (patchmem/r1_obsmem.py): values = the backbone's lookback errors, the retrieved correction
 #                is added to the forecast; same retrieval recipe as Q8+drop50 (R1_OBS=1 R1_MEM_QK_DIM=8 R1_MEM_SLOT_KEEP=0.5), DES ...ObK0.5Q8...
 #            OU  O with uniform attention trained from scratch (R1_OBS=1 R1_MEM_UNIFORM=1 R1_MEM_SLOT_KEEP=0.5), DES ...ObUK0.5Q8...
-#            PAT-307 TEFL-style g (patchmem/r1_tefl.py), Hc = 2 patches: TF0 one-step lookback errors (DES ...TfnH2R64...),
-#                TF1 multi-step errors of R1's own rollout from t-Hc (DES ...TffH2R64...)
+#            PAT-307 TEFL-style g (patchmem/r1_tefl.py): TF0 = O without retrieval, ALL lookback one-step errors (the O slot values)
+#                -> ReLU(eps W1) W2 (DES ...TfnH0R64...); TF1 multi-step errors of R1's own rollout from t-2 patches (DES ...TffH2R64...)
 #            PAT-306 controls (ETTh2 only, same as patchmem/sanity_train.sh):
 #            T2  A1 with d_model 26 (315,873 params ~ Q8 315,400)                 -> gain from capacity?
 #            T3  Q8+drop50 with CorrNet residuals rolled across the batch (R1_CORR_SHUFFLE=1) -> gain from the sample's own information?
@@ -43,7 +43,7 @@ run() {   # $1 = gpu, $2 = job D:ARM:SEED
     U)   env="R1_MEM=1 R1_MEM_UNIFORM=1 R1_MEM_SLOT_KEEP=0.5" ;;
     O)   env="R1_OBS=1 R1_MEM_QK_DIM=8 R1_MEM_SLOT_KEEP=0.5" ;;
     OU)  env="R1_OBS=1 R1_MEM_UNIFORM=1 R1_MEM_SLOT_KEEP=0.5" ;;
-    TF0) env="R1_TEFL=native R1_TEFL_HC=2" ;;
+    TF0) env="R1_TEFL=native R1_TEFL_HC=0" ;;
     TF1) env="R1_TEFL=faithful R1_TEFL_HC=2" ;;
     T2)  env="EXTRA=--d_model=26 DES=R1h0dm26s$s" ;;
     T3)  env="$Q8 R1_CORR_SHUFFLE=1" ;;
