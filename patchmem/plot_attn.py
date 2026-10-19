@@ -5,7 +5,7 @@
   (d) per (window, head) normalised entropy H(a)/log M per k: median and 10-90% band (1 = uniform), effective slots on the right axis
 Future patch numbering: the recorded rollout retrieval calls serve future patches 2..H/P; the first future patch is read from the last
 history boundary state, whose retrieval happens in the history pass (not recorded here).
-usage (repo root): python patchmem/plot_attn.py [--cell 1440/336] [--data E,W,T] [--seed 3047] [--out patchmem/logs/mech/attn_1440_336.png]"""
+usage (repo root): python patchmem/plot_attn.py [--cell 1440/336] [--data E,W,T] [--seed 3047 | 3047,3048,3049] [--out patchmem/logs/mech/attn_1440_336.png]"""
 import argparse, json
 import numpy as np
 import matplotlib
@@ -18,12 +18,12 @@ NAME = {'E': 'ETTh2', 'W': 'Weather (local, 1000 it/epoch)', 'T': 'Traffic-32'}
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--cell', default='1440/336'); ap.add_argument('--data', default='E,W,T')
-    ap.add_argument('--seed', type=int, default=3047); ap.add_argument('--out', default=None)
+    ap.add_argument('--seed', default='3047', help='one seed or a comma list (one row per data x seed)'); ap.add_argument('--out', default=None)
     a = ap.parse_args()
-    ds = a.data.split(',')
-    fig, ax = plt.subplots(len(ds), 4, figsize=(21, 3.8 * len(ds)), squeeze=False)
-    for i, d in enumerate(ds):
-        r = json.load(open(f'patchmem/logs/mech/attn_{d}_s{a.seed}.json'))['grid'][a.cell]
+    rows = [(d, int(s)) for d in a.data.split(',') for s in a.seed.split(',')]
+    fig, ax = plt.subplots(len(rows), 4, figsize=(21, 3.8 * len(rows)), squeeze=False)
+    for i, (d, seed) in enumerate(rows):
+        r = json.load(open(f'patchmem/logs/mech/attn_{d}_s{seed}.json'))['grid'][a.cell]
         ks = sorted(r, key=int)
         cm = plt.cm.viridis(np.linspace(0, 0.9, len(ks)))
         M = r[ks[0]]['M']
@@ -36,7 +36,7 @@ def main():
             ax[i, j].axhline(1 / M, color='gray', ls='--', lw=1, label='uniform 1/M')
             ax[i, j].set_xlabel('slot lag (0 = most recent lookback patch)')
         ax[i, 0].set_ylabel('mean attention'); ax[i, 1].set_ylabel('top-1 fraction')
-        ax[i, 0].set_title(f'{NAME[d]}  L/H={a.cell}: mean attention by slot lag')
+        ax[i, 0].set_title(f'{NAME[d]} s{seed}  L/H={a.cell}: mean attention by slot lag')
         ax[i, 1].set_title('top-1 slot lag (per window, head)')
         ax[i, 0].legend(fontsize=7, ncol=2)
         ax[i, 2].axhline(1 / M, color='gray', ls='--', lw=1)
