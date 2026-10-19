@@ -460,7 +460,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
         g = _grid(os.environ['R1_AUDIT_GRID']) if os.environ.get('R1_AUDIT_GRID') else grid
         reps = int(os.environ.get('R1_AUDIT_PERM_REPS', '3'))
         if isinstance(m, R1Tefl):                                                       # no attention; perm = errors of distant windows
-            modes = [('normal', None, 0), ('zero', 'zero', 0), ('perm', 'perm', 0)]
+            modes = [('normal', None, 0), ('zero', 'zero', 0), ('perm', 'perm', 0)] + ([('recent2', 'recent', 0)] if m.hc == 0 else [])
         else:
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('uniform', 'uniform', 0)] + [(f'perm{s}', 'perm', s) for s in range(reps)]
         order = self.eval_order()

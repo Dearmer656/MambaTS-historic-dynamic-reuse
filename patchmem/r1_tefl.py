@@ -14,7 +14,8 @@ g, shared across variables: eps (C, Din) -> W1 (Din -> r) -> ReLU -> W2 (r -> Hm
 Rollout patch k gets the k-th P-block of g(eps); beyond the trained horizon (k >= Hmax) extrap='last' repeats the last block, 'zero'
 adds nothing. The corrected forecast is fed back (feed=True, as R1Obs) or the backbone patch (feed=False: backbone rollout identical
 to R1). Inference audits: None | 'zero' (delta = 0) | 'perm' (eps of a DISTANT window passed as eps_override: sample pairing broken;
-stride-1 batch neighbours are near-identical windows, so a within-batch roll would not break it)."""
+stride-1 batch neighbours are near-identical windows, so a within-batch roll would not break it) | 'recent' (hc=0 only: errors older
+than the last 2 patches zeroed: how much the forecast uses the distant history)."""
 import torch
 import torch.nn as nn
 from patchmem.r1_model import R1
@@ -33,7 +34,8 @@ class R1Tefl(R1):
         self.audit, self.mem_stats = None, {}
 
     def set_audit(self, mode=None, seed=0):
-        assert mode in (None, 'zero', 'perm'), mode
+        assert mode in (None, 'zero', 'perm', 'recent'), mode
+        assert mode != 'recent' or (self.mode == 'native' and self.hc == 0), 'recent audit needs hc=0'
         self.audit = mode
 
     def stats(self):
@@ -85,6 +87,8 @@ class R1Tefl(R1):
             assert eps_override is not None and eps_override.shape == eps.shape, 'perm audit needs eps_override from distant windows'
         if eps_override is not None:
             eps = eps_override.detach()
+        if self.audit == 'recent':                                                      # keep the last 2 patches only
+            eps = torch.cat([torch.zeros_like(eps[..., :-2 * P]), eps[..., -2 * P:]], -1)
         delta = self.W2(torch.relu(self.W1(eps))).reshape(b, c, self.hmax, P)          # (b, C, Hmax, P)
         if n_out > self.hmax:                                                           # beyond the trained horizon
             ext = delta[:, :, -1:] if self.extrap == 'last' else torch.zeros_like(delta[:, :, -1:])

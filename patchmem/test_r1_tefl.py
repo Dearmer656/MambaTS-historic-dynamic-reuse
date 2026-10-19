@@ -119,4 +119,8 @@ with torch.no_grad():
     don = t0m(x3, n_out, perm=perm, ret_eps=True)['eps']
     assert mx(t0m(x, n_out, perm=perm, eps_override=don)['pred'], t0m(x, n_out, perm=perm)['pred']) > 1e-4
     print('[hc=0] perm audit: requires donors, own donors == normal, distant donors change the forecast')
+    t0m.set_audit('recent'); pr = t0m(x, n_out, perm=perm)['pred']; t0m.set_audit(None)
+    e_r = o['eps'].clone(); e_r[..., :-2 * P] = 0
+    assert mx(pr, t0m(x, n_out, perm=perm, eps_override=e_r)['pred']) < 1e-6
+    print('[hc=0] recent audit == eps with all but the last 2 patches zeroed')
 print('OK')
