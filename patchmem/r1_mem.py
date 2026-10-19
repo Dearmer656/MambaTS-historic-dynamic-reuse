@@ -33,6 +33,9 @@ carried. x_{t+1} is inside the lookback: in-window auxiliary supervision (whole-
 Inference audits (same checkpoint, eval only): audit = None | 'zero' (gate 0) | 'uniform' (a = 1/M) | 'perm' (each retrieval reads the
 values of its M slots under a random permutation from audit_gen: same keys, same values and slot count, key-value pairing broken;
 identity when M = 1).
+Per-sample lookback (lens, see r1_model.py): padded boundaries keep h = 0 (dt = 0, and every slot they could read is masked), a slot
+is valid only from the sample's second valid boundary on (t >= t0 + 1, as t >= 1 unpadded), combined with the slot-keep mask; the
+writer loss is averaged over the valid (sample, t) pairs only.
 diag=True: the next forwards also record detailed writer / retrieval statistics in diag_rec (floats; slower, for logging batches)."""
 import math
 import torch
@@ -155,17 +158,19 @@ class R1Mem(R1):
             r('writer_L_before', lb.mean()); r('writer_L_after', la.mean()); r('writer_dL', (lb - la).mean())
             r('writer_frac_improved', (la < lb).float().mean())
 
-    def _last_full_mem(self, m, hn, xs):
+    def _last_full_mem(self, m, hn, xs, tm=None, t0=None):
         """Last layer over the history with the memory at every boundary. xs (b, T, C, P) normalised patches in scan order.
         Returns boundary states h+ (b, T, D, N) and the final h+; leaves the slot bank in self.bank for the rollout."""
         x, dt, A, B, C, D, z, bias = mamba_proj(m, hn)
         dt = F.softplus(dt + bias[None, :, None])
+        if tm is not None:
+            dt = dt * tm[:, None, :]
         dA = torch.exp(dt.unsqueeze(-1) * A[None, :, None, :])
         dBu = (dt * x).unsqueeze(-1) * B.transpose(1, 2).unsqueeze(1)
         h = x.new_zeros(x.shape[0], self.D, self.N)
-        caps, keys, vals, times, prev, aux = [], [], [], [], None, []
+        caps, keys, vals, times, prev, aux, auxw = [], [], [], [], None, [], []
         drop = self.training and self.slot_keep < 1
-        masks = [] if drop else None
+        masks = [] if (drop or t0 is not None) else None
         T = xs.shape[1]
         for s in range(x.shape[-1]):
             h = dA[:, :, s] * h + dBu[:, :, s]
@@ -182,46 +187,54 @@ class R1Mem(R1):
                 Cm = self.corr_net(h.detach(), e)
                 self.mem_stats.setdefault('C', []).append(Cm.square().mean().detach())
                 keys.append(self.mem_net.key(h_minus)); vals.append(Cm.detach() if self.value_detach else Cm); times.append(t)
-                if drop:
-                    masks.append(torch.rand(h.shape[0], device=h.device) < self.slot_keep)
+                if masks is not None:
+                    mk = torch.rand(h.shape[0], device=h.device) < self.slot_keep if drop else torch.ones(h.shape[0], dtype=torch.bool, device=h.device)
+                    masks.append(mk if t0 is None else mk & (t >= t0 + 1))
                 if self.corr_aux and self.training and t <= T - 2:                     # writer loss, temporary h+ + C
-                    aux.append((self.read_sg(h.detach() + Cm) - xs[:, t + 1]).square().mean())
+                    if t0 is None:
+                        aux.append((self.read_sg(h.detach() + Cm) - xs[:, t + 1]).square().mean())
+                    else:                                                               # valid (sample, t) pairs only
+                        lw = (self.read_sg(h.detach() + Cm) - xs[:, t + 1]).square().flatten(1).mean(1)
+                        w = (t >= t0 + 1).to(lw.dtype)
+                        aux.append((lw * w).sum()); auxw.append(w.sum())
                 if self.diag:
                     self._diag_writer(h.detach(), Cm, e, xs[:, t + 1] if t <= T - 2 else None)
             caps.append(h); prev = h
-        self.corr_loss = torch.stack(aux).mean() if aux else None
+        if not aux:
+            self.corr_loss = None
+        elif t0 is None:
+            self.corr_loss = torch.stack(aux).mean()
+        else:
+            self.corr_loss = torch.stack(aux).sum() / torch.stack(auxw).sum().clamp_min(1.0)
         self.bank = (keys, vals, times, masks)
         return torch.stack(caps, 1), h
 
-    def history(self, tok, xs):
+    def history(self, tok, xs, tm=None, t0=None):
         layers = self.enc.layers
         hidden, residual, states = tok, None, []
         for i, layer in enumerate(layers):
             hn, residual = self._norm(layer, hidden, residual)
             if i < len(layers) - 1:
-                hidden, last = self._mixer_full(layer.mixer, hn)
+                hidden, last = self._mixer_full(layer.mixer, hn, tm)
                 states.append(last)
             else:
-                bstates, last = self._last_full_mem(layer.mixer, hn, xs)
+                bstates, last = self._last_full_mem(layer.mixer, hn, xs, tm, t0)
                 states.append(last)
         return bstates, states
 
-    def forward(self, x, n_out, perm=None, trace=None):
+    def forward(self, x, n_out, perm=None, trace=None, lens=None):
         """Same interface and pipeline as R1.forward; differs only by the memory in history() and in the rollout."""
         b, L, c = x.shape
         P = self.P
         assert L % P == 0 and c == self.c, (L, P, c, self.c)
         T = L // P
         self.mem_stats = {}
-        means = x.mean(1, keepdim=True).detach()
-        xc = x - means
-        stdev = torch.sqrt(torch.var(xc, dim=1, keepdim=True, unbiased=False) + 1e-5).detach()
-        xn = xc / stdev
+        means, stdev, xn, t0, tm = self.revin(x, lens)
         perm = self.scan_order(b, x.device) if perm is None else perm
         xp = xn.permute(0, 2, 1).reshape(b, c, T, P)
         xs = self.to_scan(xp.permute(0, 2, 1, 3), perm)                                 # (b, T, C, P) scan order
         tok = self.embed(xs).reshape(b, T * c, -1)
-        bstates, states = self.history(tok, xs)
+        bstates, states = self.history(tok, xs, tm, t0)
         yh = self.to_orig(self.read(bstates), perm)
         outs = [yh[:, -1]]
         keys, vals, times, masks = self.bank

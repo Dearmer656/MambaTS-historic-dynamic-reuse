@@ -17,7 +17,8 @@ Rollout, future patch k (k = 0..n_out-1), query state h = h_{T-1} for k = 0, els
 At init W = 0 so delta = 0 and R1Obs == R1 exactly. No auxiliary loss: W, W_Q, W_K, tau, W_g are trained by the forecast loss only.
 History predictions are not corrected (lambda_hist = 0 in every arm), so the stored errors are always the plain backbone's.
 Training options: slot_keep p < 1 (per-sample slot dropout, as B2-drop), qk_dim r (default 8), uniform=True (a = 1/available slots,
-no W_Q / W_K / tau). Inference audits: None | 'zero' (delta = 0) | 'uniform' (a = 1/M) | 'perm' (values of the M slots permuted:
+no W_Q / W_K / tau). Per-sample lookback (lens, see r1_model.py): a slot is valid only from the sample's second valid patch on
+(t >= t0 + 1), combined with the slot-keep mask. Inference audits: None | 'zero' (delta = 0) | 'uniform' (a = 1/M) | 'perm' (values of the M slots permuted:
 key-error pairing broken)."""
 import torch
 import torch.nn as nn
@@ -94,28 +95,28 @@ class R1Obs(R1):
             st.setdefault('ent_norm', []).append((-(a * a.clamp_min(1e-12).log()).sum(-1) / torch.log(torch.tensor(float(K.shape[1])))).mean().detach())
         return delta
 
-    def forward(self, x, n_out, perm=None, trace=None):
+    def forward(self, x, n_out, perm=None, trace=None, lens=None):
         """Same interface and pipeline as R1.forward; the rollout forecasts get the retrieved error correction."""
         b, L, c = x.shape
         P = self.P
         assert L % P == 0 and c == self.c, (L, P, c, self.c)
         T = L // P
         self.mem_stats = {}
-        means = x.mean(1, keepdim=True).detach()
-        xc = x - means
-        stdev = torch.sqrt(torch.var(xc, dim=1, keepdim=True, unbiased=False) + 1e-5).detach()
-        xn = xc / stdev
+        means, stdev, xn, t0, tm = self.revin(x, lens)
         perm = self.scan_order(b, x.device) if perm is None else perm
         xp = xn.permute(0, 2, 1).reshape(b, c, T, P)
         xo = xp.permute(0, 2, 1, 3)                                                     # (b, T, C, P) original order
         xs = self.to_scan(xo, perm)
         tok = self.embed(xs).reshape(b, T * c, -1)
-        bstates, states = self.history(tok)
+        bstates, states = self.history(tok, tm)
         yh = self.to_orig(self.read(bstates), perm)                                    # (b, T, C, P) original order
         if T >= 2:
             K = self.obs_net.key(bstates[:, 1:].flatten(0, 1)).unflatten(0, (b, T - 1))   # (b, T-1, nh, dh) slots t = 1..T-1
             V = (xo[:, 1:] - yh[:, :-1]).detach()                                       # (b, T-1, C, P) e_t
             mask = (torch.rand(b, T - 1, device=x.device) < self.slot_keep) if self.training and self.slot_keep < 1 else None
+            if t0 is not None:                                                          # slot t = j + 1 valid iff t >= t0 + 1
+                ok = torch.arange(1, T, device=x.device)[None, :] >= (t0 + 1)[:, None]
+                mask = ok if mask is None else mask & ok
             if self.audit == 'perm' and T - 1 >= 2:
                 V = V[:, torch.randperm(T - 1, generator=self.audit_gen).to(V.device)]
         base = yh[:, -1]

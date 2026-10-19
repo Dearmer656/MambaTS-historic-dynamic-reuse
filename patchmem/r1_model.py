@@ -18,7 +18,13 @@ is not an ATSP cost term in this version (closed tour = later ablation).
 Lower layers run the official selective-scan kernel over the teacher-forced history for their token outputs; their final state
 (the rollout cache) is recomputed in closed form so the future loss back-propagates into the history scan (the kernel's last_state
 has no gradient). The last layer runs an explicit recurrence so its state is captured at every boundary. Rollout steps use the conv-off one-token step. The last layer's token outputs, norm_f and
-the official flatten head are unused (only the last layer's state is read)."""
+the official flatten head are unused (only the last layer's state is read).
+
+Per-sample lookback (lens, PAT-304 mixed-length batches): x (b, Lb, C) is right-aligned (every window ends at the forecast origin) and
+sample i uses only its last lens[i] steps. RevIN statistics are taken over the valid steps only, padded steps are zeroed, and every
+padded token gets SSM step dt = 0 after the softplus (dA = 1, dBu = 0): the state stays exactly zero through the padding, so each
+sample's states, history predictions and forecast equal those of the unpadded window (only valid tokens touch the state; the conv-off
+mixer has no other cross-token path). lens=None is the original code path, bit for bit."""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -96,14 +102,18 @@ class R1(nn.Module):
             self.ids_shuffle = atsp_order(self.vpt_adjacency(), self.enc.ATSP_solver, self.c)
         return torch.as_tensor(self.ids_shuffle, device=device).expand(b, -1)
 
-    def update_vpt_cost(self, loss_bhc):
+    def update_vpt_cost(self, loss_bhc, valid=None):
         """VPT cost accumulation from the per-element forecast loss (b, H, C) of the last training forward. Same definition as the
         original batch_update_state, with the per-sample cost broadcast sample-major (repeat_interleave) to match the transition
         indices. A batch whose std is undefined (b = 1) or ~0 carries no relative information and is skipped (counted in vpt_skipped)."""
         if not self.vpt:
             return
         enc = self.enc
-        cost = loss_bhc.detach().float().mean((1, 2))                                   # (b,) per-sample mean over (t, c)
+        if valid is None:
+            cost = loss_bhc.detach().float().mean((1, 2))                               # (b,) per-sample mean over (t, c)
+        else:                                                                           # valid (b, H): the sample's own horizon only
+            w = valid.to(torch.float32).unsqueeze(-1)
+            cost = (loss_bhc.detach().float() * w).sum((1, 2)) / (w.sum((1, 2)) * loss_bhc.shape[-1])
         sd = cost.std() if cost.numel() > 1 else cost.new_tensor(float('nan'))
         if not torch.isfinite(sd) or sd <= 1e-6 * cost.abs().mean() + 1e-12:
             self.vpt_skipped += 1
@@ -143,18 +153,31 @@ class R1(nn.Module):
         return torch.einsum('bdln,bdl,bnl->bdn', torch.exp(after.unsqueeze(-1) * A[None, :, None, :]), dt * x, B)
 
     @staticmethod
-    def _mixer_full(m, hn):
+    def _final_state_delta(x, delta, A, B):
+        """_final_state with the step size already after softplus (and masking): delta (b, d, l)."""
+        rc = delta.flip(-1).cumsum(-1).flip(-1)
+        after = torch.cat([rc[..., 1:], torch.zeros_like(rc[..., :1])], -1)
+        return torch.einsum('bdln,bdl,bnl->bdn', torch.exp(after.unsqueeze(-1) * A[None, :, None, :]), delta * x, B)
+
+    @staticmethod
+    def _mixer_full(m, hn, tm=None):
         """Official conv-off Mamba forward with the selective-scan kernel (token outputs for the next layer) plus the final SSM state.
         The kernel's return_last_state gets no gradient (mamba_ssm selective_scan_fn docstring), which would cut the
         history -> rollout-cache path, so the cache is recomputed differentiably from the same projections (same dropout sample)."""
         x, dt, A, B, C, D, z, bias = mamba_proj(m, hn)
+        if tm is not None:                                                              # padded tokens: dt = 0, state untouched
+            delta = F.softplus(dt + bias[None, :, None]) * tm[:, None, :]
+            y = selective_scan_fn(x, delta, A, B, C, D, z=z, delta_bias=None, delta_softplus=False)
+            return m.out_proj(y.transpose(1, 2)), R1._final_state_delta(x, delta, A, B)
         y = selective_scan_fn(x, dt, A, B, C, D, z=z, delta_bias=bias, delta_softplus=True)
         return m.out_proj(y.transpose(1, 2)), R1._final_state(x, dt, A, B, bias)
 
-    def _last_full(self, m, hn):
+    def _last_full(self, m, hn, tm=None):
         """Last layer over the history: explicit recurrence, state captured after every C tokens. Returns (b, T, D, N), final state."""
         x, dt, A, B, C, D, z, bias = mamba_proj(m, hn)
         dt = F.softplus(dt + bias[None, :, None])
+        if tm is not None:
+            dt = dt * tm[:, None, :]
         dA = torch.exp(dt.unsqueeze(-1) * A[None, :, None, :])
         dBu = (dt * x).unsqueeze(-1) * B.transpose(1, 2).unsqueeze(1)
         h = x.new_zeros(x.shape[0], self.D, self.N)
@@ -188,17 +211,18 @@ class R1(nn.Module):
                     states[i] = self._last_step(layer.mixer, hn, states[i])
         return states
 
-    def history(self, tok):
-        """Teacher-forced pass over the time-major history tokens (b, T*C, d_model). Returns boundary states (b, T, D, N) and per-layer states."""
+    def history(self, tok, tm=None):
+        """Teacher-forced pass over the time-major history tokens (b, T*C, d_model). Returns boundary states (b, T, D, N) and per-layer states.
+        tm (b, T*C) token validity (1 = valid, 0 = padding) or None."""
         layers = self.enc.layers
         hidden, residual, states = tok, None, []
         for i, layer in enumerate(layers):
             hn, residual = self._norm(layer, hidden, residual)
             if i < len(layers) - 1:
-                hidden, last = self._mixer_full(layer.mixer, hn)
+                hidden, last = self._mixer_full(layer.mixer, hn, tm)
                 states.append(last)
             else:
-                bstates, last = self._last_full(layer.mixer, hn)
+                bstates, last = self._last_full(layer.mixer, hn, tm)
                 states.append(last)
         return bstates, states
 
@@ -224,23 +248,44 @@ class R1(nn.Module):
     def embed(self, xs):
         return self.emb(xs)
 
-    def forward(self, x, n_out, perm=None, trace=None):
-        """x (b, L, C) dataset-scaled lookback, L a multiple of P. n_out future patches.
+    def revin(self, x, lens=None):
+        """RevIN of the lookback x (b, L, C). lens (b,) valid lengths of right-aligned windows or None (all valid). Returns means, stdev
+        (b, 1, C, detached), xn (b, L, C) normalised with padded steps zeroed, t0 (b,) first valid patch, tm (b, T*C) token validity
+        (t0 / tm None when lens is None)."""
+        b, L, c = x.shape
+        if lens is None:
+            means = x.mean(1, keepdim=True).detach()
+            xc = x - means
+            stdev = torch.sqrt(torch.var(xc, dim=1, keepdim=True, unbiased=False) + 1e-5).detach()
+            return means, stdev, xc / stdev, None, None
+        lens = lens.to(x.device)
+        assert bool((lens % self.P == 0).all()) and bool((lens > 0).all()) and bool((lens <= L).all()), lens
+        vt = (torch.arange(L, device=x.device)[None, :] >= (L - lens)[:, None]).to(x.dtype).unsqueeze(-1)   # (b, L, 1)
+        n = lens.to(x.dtype).view(b, 1, 1)
+        means = ((x * vt).sum(1, keepdim=True) / n).detach()
+        xc = (x - means) * vt
+        stdev = torch.sqrt(xc.square().sum(1, keepdim=True) / n + 1e-5).detach()
+        T = L // self.P
+        t0 = T - lens // self.P
+        tm = (torch.arange(T, device=x.device)[None, :] >= t0[:, None]).to(x.dtype).repeat_interleave(c, 1)
+        return means, stdev, xc / stdev, t0, tm
+
+    def forward(self, x, n_out, perm=None, trace=None, lens=None):
+        """x (b, L, C) dataset-scaled lookback, L a multiple of P. n_out future patches. lens (b,): per-sample lookback (right-aligned
+        windows, see the module doc) or None.
         Returns dict(pred (b, n_out*P, C) de-normalised forecast, hist (b, T-1, P, C) de-normalised next-patch predictions inside the
-        lookback (target x[:, P:]), perm (b, C)). trace (dict) receives the boundary states and the final history state."""
+        lookback (target x[:, P:]; with lens, entries j < t0 are padding), perm (b, C)). trace (dict) receives the boundary states and
+        the final history state."""
         b, L, c = x.shape
         P = self.P
         assert L % P == 0 and c == self.c, (L, P, c, self.c)
         T = L // P
-        means = x.mean(1, keepdim=True).detach()
-        xc = x - means
-        stdev = torch.sqrt(torch.var(xc, dim=1, keepdim=True, unbiased=False) + 1e-5).detach()
-        xn = xc / stdev
+        means, stdev, xn, t0, tm = self.revin(x, lens)
         perm = self.scan_order(b, x.device) if perm is None else perm
         xp = xn.permute(0, 2, 1).reshape(b, c, T, P)                                    # original variable order
         xs = self.to_scan(xp.permute(0, 2, 1, 3), perm)                                 # (b, T, C, P) scan order
         tok = self.embed(xs).reshape(b, T * c, -1)                                     # time-major: t0 (C tokens), t1, ...
-        bstates, states = self.history(tok)
+        bstates, states = self.history(tok, tm)
         yh = self.to_orig(self.read(bstates), perm)                                    # (b, T, C, P) original order
         outs = [yh[:, -1]]
         for _ in range(n_out - 1):

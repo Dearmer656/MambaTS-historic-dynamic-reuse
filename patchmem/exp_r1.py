@@ -3,6 +3,9 @@ evaluated on a fixed lookback x horizon grid. Official run.py / data / seed / se
 Env:
   R1_LMIN / R1_LMAX      training lookback range in time steps, multiples of patch_len (default 384 / 1440)
   R1_HMIN / R1_HMAX      training horizon range in patches (default 2 / 7, i.e. H96..H336 for P=48)
+  R1_MIX=1               per-sample random lookback / horizon inside every batch (default 0: one (L, H) per batch). Windows are
+                         right-aligned and padded to the batch maximum (exact, see r1_model.py); the future loss is each sample's mean
+                         over its own horizon, averaged over the batch (each sample weighs the same, as with one H per batch)
   R1_LAMBDA_HIST         weight of the in-window next-patch auxiliary loss at every history boundary (default 0)
   R1_RO_LN=1             LayerNorm on the readout input only (default off)
   R1_VAL_GRID            early-stopping grid 'L:H,...' (default 384:96,720:96,1440:96,384:336,720:336,1440:336), mean MSE
@@ -28,6 +31,9 @@ Env:
   R1_OBS=1               R1 + observation-space error memory (patchmem/r1_obsmem.py, R1Obs): values = the backbone's lookback errors,
                          the retrieved correction is added to the forecast. Uses R1_MEM_GROUP, R1_MEM_QK_DIM (default 8),
                          R1_MEM_SLOT_KEEP, R1_MEM_UNIFORM; R1_OBS_FEED=0 feeds the uncorrected backbone patch back (default 1: the forecast)
+  R1_TEFL=native|faithful  R1 + TEFL-style error feedback (patchmem/r1_tefl.py, R1Tefl, PAT-307): T0 = last Hc one-step lookback
+                         errors, T1 = multi-step errors of R1's own rollout from t-Hc; y += ReLU(eps W1) W2 (W2 = 0 at init).
+                         R1_TEFL_HC (Hc in patches, default 2), R1_TEFL_RANK (default 64), R1_TEFL_FEED=0 feeds the backbone patch back
   R1_DIAG_EVERY          training diagnostics (JSONL) every N steps (default 100; 0 = off)
   R1_DIAG_VAL_BATCHES    eval batches per (L, H) with memory diagnostics at every validation (default 2)
   R1_AUDIT=0             skip the same-checkpoint inference audits after test (memory runs; default 1)
@@ -45,6 +51,7 @@ from exp.exp_long_term_forecasting import Exp_Long_Term_Forecast
 from patchmem.r1_model import R1, atsp_order
 from patchmem.r1_mem import R1Mem
 from patchmem.r1_obsmem import R1Obs
+from patchmem.r1_tefl import R1Tefl
 from patchmem.param_snapshot import log_model_parameter_stats
 from utils.tools import EarlyStopping, adjust_learning_rate
 
@@ -145,6 +152,12 @@ class Exp_R1(Exp_Long_Term_Forecast):
                       uniform=os.environ.get('R1_MEM_UNIFORM', '0') == '1', feed=os.environ.get('R1_OBS_FEED', '1') == '1').float()
             print(f'R1Obs: ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} uniform {m.obs_net.uniform} '
                   f'({sum(p.numel() for p in m.obs_net.parameters())} params) | train slot keep {m.slot_keep} | feed forecast {m.feed}', flush=True)
+        elif os.environ.get('R1_TEFL'):
+            m = R1Tefl(a, readout_ln=ro_ln, mode=os.environ['R1_TEFL'], hc=int(os.environ.get('R1_TEFL_HC', '2')),
+                       rank=int(os.environ.get('R1_TEFL_RANK', '64')), hmax=int(os.environ.get('R1_HMAX', '7')),
+                       feed=os.environ.get('R1_TEFL_FEED', '1') == '1').float()
+            print(f'R1Tefl: mode {m.mode} Hc {m.hc} patches rank {m.W1.out_features} Hmax {m.hmax} | '
+                  f'g params {m.W1.weight.numel() + m.W2.weight.numel()} | feed forecast {m.feed}', flush=True)
         else:
             m = R1(a, readout_ln=ro_ln).float()
         nro = sum(p.numel() for p in m.readout.parameters())
@@ -249,7 +262,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
                       f'max {r.max():.4f}', flush=True)
         return res
 
-    def check_routing(self, x, nH, lam_c):
+    def check_routing(self, x, nH, lam_c, lens=None, hvalid=None):
         """Gradient routing on one batch, each loss backpropagated ALONE (L_future; L_corr when lambda_corr > 0). Run under fork_rng so
         the training random stream (dropout, VPT pi) is untouched; grads are cleared afterwards, no optimizer step."""
         m, P = self.model, self.model.P
@@ -260,14 +273,22 @@ class Exp_R1(Exp_Long_Term_Forecast):
                 if name == 'corr' and not lam_c > 0:
                     continue
                 m.zero_grad(set_to_none=True)
-                o = m(x[0], nH)
-                loss = (o['pred'] - x[1]).square().mean() if name == 'future' else m.corr_loss
+                o = m(x[0], nH, lens=lens)
+                loss = self._future_loss((o['pred'] - x[1]).square(), hvalid) if name == 'future' else m.corr_loss
                 if loss is None:
                     continue
                 loss.backward()
                 out[name] = grad_param_stats(m)
         m.zero_grad(set_to_none=True)
         return out
+
+    @staticmethod
+    def _future_loss(el, hvalid=None):
+        """el (b, H, C) squared errors; hvalid (b, H) bool or None. Mean over (H, C) per sample over its own horizon, then over samples."""
+        if hvalid is None:
+            return el.mean()
+        w = hvalid.to(el.dtype).unsqueeze(-1)
+        return ((el * w).sum((1, 2)) / (w.sum((1, 2)) * el.shape[-1])).mean()
 
     def train(self, setting):
         a, m = self.args, self.model
@@ -282,16 +303,17 @@ class Exp_R1(Exp_Long_Term_Forecast):
         diag_every = int(os.environ.get('R1_DIAG_EVERY', '100'))
         diag_val = int(os.environ.get('R1_DIAG_VAL_BATCHES', '2'))
         assert Lmin % P == 0 and Lmax % P == 0 and Lmin <= Lmax and 1 <= Hmin <= Hmax
+        mix = os.environ.get('R1_MIX', '0') == '1'
         val_grid = _grid(os.environ.get('R1_VAL_GRID', '384:96,720:96,1440:96,384:336,720:336,1440:336'))
         vstride = int(os.environ.get('R1_VAL_STRIDE', '4'))
         max_it = int(os.environ.get('R1_MAX_ITERS', '0'))
         tr_ds = self._ds('train', Lmax, Hmax * P)
         loader = DataLoader(tr_ds, batch_size=a.batch_size, shuffle=True, drop_last=True, num_workers=a.num_workers)
         print(f'R1 train: {len(tr_ds)} windows of {Lmax}+{Hmax * P} | lookback {Lmin}..{Lmax} step {P} | horizon {Hmin}..{Hmax} patches | '
-              f'lambda_hist {lam} | lambda_corr {lam_c} | val grid {val_grid} stride {vstride}', flush=True)
+              f'per-sample L/H {mix} | lambda_hist {lam} | lambda_corr {lam_c} | val grid {val_grid} stride {vstride}', flush=True)
         self.jlog(dict(record='config', setting=setting, model=type(m).__name__, lambda_hist=lam, lambda_corr=lam_c,
                        value_detach=getattr(m, 'value_detach', None), retrieve=getattr(m, 'retrieve', None),
-                       corr_shuffle=getattr(m, 'corr_shuffle', None), Lmin=Lmin, Lmax=Lmax, Hmin=Hmin, Hmax=Hmax, val_grid=val_grid,
+                       corr_shuffle=getattr(m, 'corr_shuffle', None), mix=mix, Lmin=Lmin, Lmax=Lmax, Hmin=Hmin, Hmax=Hmax, val_grid=val_grid,
                        seed=a.seed, batch_size=a.batch_size, lr=a.learning_rate, epochs=a.train_epochs))
         rng = np.random.default_rng(a.seed)
         path = os.path.join(a.checkpoints, setting)
@@ -307,23 +329,37 @@ class Exp_R1(Exp_Long_Term_Forecast):
             if torch.cuda.is_available():
                 torch.cuda.reset_peak_memory_stats()
             for i, (bx, by, _, _) in enumerate(loader):
-                L = int(rng.choice(np.arange(Lmin, Lmax + 1, P)))
-                nH = int(rng.integers(Hmin, Hmax + 1))
+                if mix:                                                                 # per-sample (L, H), padded to the batch max
+                    bsz = bx.shape[0]
+                    Ls = rng.choice(np.arange(Lmin, Lmax + 1, P), size=bsz)
+                    nHs = rng.integers(Hmin, Hmax + 1, size=bsz)
+                    L, nH = int(Ls.max()), int(nHs.max())
+                    lens = torch.as_tensor(Ls, device=self.device)
+                    hvalid = torch.arange(nH * P, device=self.device)[None, :] < torch.as_tensor(nHs * P, device=self.device)[:, None]
+                else:
+                    L = int(rng.choice(np.arange(Lmin, Lmax + 1, P)))
+                    nH = int(rng.integers(Hmin, Hmax + 1))
+                    lens = hvalid = None
                 x = bx[:, -L:].float().to(self.device)
                 y = by[:, -Hmax * P:][:, :nH * P].float().to(self.device)
                 if is_mem and i == 0:                                                   # per-epoch loss-by-loss gradient routing check
                     self.jlog(dict(record='routing', epoch=epoch + 1, step=step, L=L, H=nH * P,
-                                   value_detach=m.value_detach, retrieve=m.retrieve, groups=self.check_routing((x, y), nH, lam_c)))
+                                   value_detach=m.value_detach, retrieve=m.retrieve, groups=self.check_routing((x, y), nH, lam_c, lens, hvalid)))
                 do_diag = diag_every and (step + 1) % diag_every == 0
                 if is_mem and do_diag:
                     m.diag = True
                 opt.zero_grad()
-                out = m(x, nH)
+                out = m(x, nH) if lens is None else m(x, nH, lens=lens)
                 if is_mem:
                     m.diag = False
                 el = (out['pred'] - y).square()                                        # (b, H, C)
-                fut = el.mean()
-                hist = (out['hist'] - x[:, P:].reshape(x.shape[0], -1, P, m.c)).square().mean()
+                fut = self._future_loss(el, hvalid)
+                eh = (out['hist'] - x[:, P:].reshape(x.shape[0], -1, P, m.c)).square()   # (b, T-1, P, C)
+                if lens is None:
+                    hist = eh.mean()
+                else:                                                                   # history prediction j (of patch j+1) valid iff j >= t0
+                    hv = (torch.arange(L // P - 1, device=self.device)[None, :] >= (L - lens)[:, None] // P).to(eh.dtype)
+                    hist = ((eh.mean((2, 3)) * hv).sum(1) / hv.sum(1).clamp_min(1.0)).mean()
                 loss = fut + lam * hist
                 corr = m.corr_loss if lam_c > 0 else None                              # writer loss, trains CorrNet only
                 if corr is not None:
@@ -331,6 +367,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
                 loss.backward()
                 if do_diag:
                     rec = dict(record='train', epoch=epoch + 1, iter=i + 1, step=step + 1, L=L, H=nH * P,
+                               L_mean=float(lens.float().mean()) if lens is not None else L,
                                L_future=fut.item(), L_hist=hist.item(), L_corr=None if corr is None else corr.item(),
                                weighted=dict(future=fut.item(), hist=lam * hist.item(), corr=None if corr is None else lam_c * corr.item()),
                                steps_per_sec=(n_int + 1) / max(time.time() - t_int, 1e-9), grads=grad_param_stats(m))
@@ -341,7 +378,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
                     self.jlog(rec)
                     t_int, n_int = time.time(), -1
                 opt.step()
-                m.update_vpt_cost(el.detach())
+                m.update_vpt_cost(el.detach(), hvalid)
                 step += 1; n_int += 1
                 lf.append(fut.item()); lh.append(hist.item())
                 if corr is not None:
@@ -349,7 +386,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
                 if not np.isfinite(lf[-1]):
                     raise FloatingPointError(f'non-finite loss at epoch {epoch + 1} iter {i + 1} (L={L}, H={nH * P})')
                 if (i + 1) % 100 == 0:
-                    ms = ' | mem ' + ' '.join(f'{k} {v:.3g}' for k, v in m.stats().items()) if is_mem or isinstance(m, R1Obs) else ''
+                    ms = ' | mem ' + ' '.join(f'{k} {v:.3g}' for k, v in m.stats().items()) if is_mem or isinstance(m, (R1Obs, R1Tefl)) else ''
                     ms += f' corr_loss {corr.item():.5f}' if corr is not None else ''
                     print(f'\titers: {i + 1}, epoch: {epoch + 1} | L {L} H {nH * P} | future mse {fut.item():.5f} hist mse {hist.item():.5f}{ms}', flush=True)
                 if max_it and i + 1 >= max_it:
@@ -403,7 +440,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
                   f'{None if adj is None else adj.cpu().numpy().round(3)}', flush=True)
             self.jlog(dict(record='vpt', order=self.eval_order(), skipped=m.vpt_skipped, count_min=m.enc.count_matrix.min().item(),
                            adjacency=None if adj is None else adj.cpu().tolist()))
-        if isinstance(m, (R1Mem, R1Obs)) and os.environ.get('R1_AUDIT', '1') == '1':
+        if isinstance(m, (R1Mem, R1Obs, R1Tefl)) and os.environ.get('R1_AUDIT', '1') == '1':
             self.audit(setting, grid)
 
     def audit(self, setting, grid):
@@ -412,7 +449,10 @@ class Exp_R1(Exp_Long_Term_Forecast):
         m = self.model
         g = _grid(os.environ['R1_AUDIT_GRID']) if os.environ.get('R1_AUDIT_GRID') else grid
         reps = int(os.environ.get('R1_AUDIT_PERM_REPS', '3'))
-        modes = [('normal', None, 0), ('zero', 'zero', 0), ('uniform', 'uniform', 0)] + [(f'perm{s}', 'perm', s) for s in range(reps)]
+        if isinstance(m, R1Tefl):                                                       # no attention; perm = eps rolled across the batch
+            modes = [('normal', None, 0), ('zero', 'zero', 0), ('perm', 'perm', 0)]
+        else:
+            modes = [('normal', None, 0), ('zero', 'zero', 0), ('uniform', 'uniform', 0)] + [(f'perm{s}', 'perm', s) for s in range(reps)]
         order = self.eval_order()
         for flag in ('val', 'test'):
             out = {}
