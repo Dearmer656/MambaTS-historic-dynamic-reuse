@@ -30,7 +30,8 @@ Env:
   R1_MEM_SLOT_KEEP       B2-drop: training-time per-sample probability that a history slot is written (default 1 = all; eval: all)
   R1_OBS=1               R1 + observation-space error memory (patchmem/r1_obsmem.py, R1Obs): values = the backbone's lookback errors,
                          the retrieved correction is added to the forecast. Uses R1_MEM_GROUP, R1_MEM_QK_DIM (default 8),
-                         R1_MEM_SLOT_KEEP, R1_MEM_UNIFORM; R1_OBS_FEED=0 feeds the uncorrected backbone patch back (default 1: the forecast)
+                         R1_MEM_SLOT_KEEP, R1_MEM_UNIFORM; R1_OBS_FEED=0 feeds the uncorrected backbone patch back (default 1: the forecast);
+                         R1_OBS_PLAIN=1: one head, correction = gamma * retrieved errors (scalar gamma, no W / gate; RATL-style)
   R1_TEFL=native|faithful  R1 + TEFL-style error feedback (patchmem/r1_tefl.py, R1Tefl, PAT-307): T0 = last Hc one-step lookback
                          errors, T1 = multi-step errors of R1's own rollout from t-Hc; y += ReLU(eps W1) W2 (W2 = 0 at init).
                          R1_TEFL_HC (Hc in patches, default 2; 0 = all lookback one-step errors, native only), R1_TEFL_RANK (default 64),
@@ -150,8 +151,9 @@ class Exp_R1(Exp_Long_Term_Forecast):
         elif os.environ.get('R1_OBS', '0') == '1':
             m = R1Obs(a, readout_ln=ro_ln, mem_group=int(os.environ.get('R1_MEM_GROUP', '4')),
                       qk_dim=int(os.environ.get('R1_MEM_QK_DIM') or 8), slot_keep=float(os.environ.get('R1_MEM_SLOT_KEEP', '1')),
-                      uniform=os.environ.get('R1_MEM_UNIFORM', '0') == '1', feed=os.environ.get('R1_OBS_FEED', '1') == '1').float()
-            print(f'R1Obs: ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} uniform {m.obs_net.uniform} '
+                      uniform=os.environ.get('R1_MEM_UNIFORM', '0') == '1', feed=os.environ.get('R1_OBS_FEED', '1') == '1',
+                      plain=os.environ.get('R1_OBS_PLAIN', '0') == '1').float()
+            print(f'R1Obs: ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} uniform {m.obs_net.uniform} plain {m.obs_net.plain} '
                   f'({sum(p.numel() for p in m.obs_net.parameters())} params) | train slot keep {m.slot_keep} | feed forecast {m.feed}', flush=True)
         elif os.environ.get('R1_TEFL'):
             m = R1Tefl(a, readout_ln=ro_ln, mode=os.environ['R1_TEFL'], hc=int(os.environ.get('R1_TEFL_HC', '2')),

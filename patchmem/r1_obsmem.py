@@ -17,7 +17,8 @@ Rollout, future patch k (k = 0..n_out-1), query state h = h_{T-1} for k = 0, els
 At init W = 0 so delta = 0 and R1Obs == R1 exactly. No auxiliary loss: W, W_Q, W_K, tau, W_g are trained by the forecast loss only.
 History predictions are not corrected (lambda_hist = 0 in every arm), so the stored errors are always the plain backbone's.
 Training options: slot_keep p < 1 (per-sample slot dropout, as B2-drop), qk_dim r (default 8), uniform=True (a = 1/available slots,
-no W_Q / W_K / tau). Per-sample lookback (lens, see r1_model.py): a slot is valid only from the sample's second valid patch on
+no W_Q / W_K / tau), plain=True (PAT-307 O-plain, RATL-style: one head, delta = gamma * sum_j a_j e_j with a scalar gamma = 0 at init,
+no per-head W, no gate). Per-sample lookback (lens, see r1_model.py): a slot is valid only from the sample's second valid patch on
 (t >= t0 + 1), combined with the slot-keep mask. Inference audits: None | 'zero' (delta = 0) | 'uniform' (a = 1/M) | 'perm' (values of the M slots permuted:
 key-error pairing broken)."""
 import torch
@@ -26,17 +27,20 @@ from patchmem.r1_model import R1
 
 
 class ObsMem(nn.Module):
-    def __init__(self, d_inner, d_state, c, P, group=4, qk_dim=8, tau0=1.0, uniform=False):
+    def __init__(self, d_inner, d_state, c, P, group=4, qk_dim=8, tau0=1.0, uniform=False, plain=False):
         super().__init__()
         assert d_inner % group == 0, f'd_inner {d_inner} not divisible by group {group}'
-        self.nh, self.dh, self.uniform = d_inner // group, qk_dim, uniform
+        self.nh, self.dh, self.uniform, self.plain = 1 if plain else d_inner // group, qk_dim, uniform, plain
         if not uniform:
             self.Wq = nn.Linear(d_inner * d_state, self.nh * qk_dim, bias=False)
             self.Wk = nn.Linear(d_inner * d_state, self.nh * qk_dim, bias=False)
             self.log_tau = nn.Parameter(torch.full((self.nh,), float(tau0)).log())
-        self.W = nn.Parameter(torch.zeros(self.nh, c, P))                               # per-head output map, zero: R1 at init
-        self.Wg = nn.Linear(d_inner * d_state, c)
-        nn.init.zeros_(self.Wg.weight); nn.init.zeros_(self.Wg.bias)
+        if plain:                                                                       # scalar gamma (broadcast as W), no gate
+            self.W = nn.Parameter(torch.zeros(1, 1, 1))
+        else:
+            self.W = nn.Parameter(torch.zeros(self.nh, c, P))                           # per-head output map, zero: R1 at init
+            self.Wg = nn.Linear(d_inner * d_state, c)
+            nn.init.zeros_(self.Wg.weight); nn.init.zeros_(self.Wg.bias)
         self.audit = None
 
     def key(self, h):
@@ -62,7 +66,7 @@ class ObsMem(nn.Module):
                 mk = mask | ~anyv[:, None]
                 a = torch.softmax(logit.masked_fill(~mk[:, None, :], float('-inf')), -1) * anyv[:, None, None]
         m = torch.einsum('bhm,bmcp->bhcp', a, vals)
-        g = torch.sigmoid(self.Wg(hq)).unsqueeze(-1)
+        g = h.new_ones(b, 1, 1) if self.plain else torch.sigmoid(self.Wg(hq)).unsqueeze(-1)
         delta = g * (self.W[None] * m).sum(1)
         if self.audit == 'zero':
             delta = torch.zeros_like(delta)
@@ -70,9 +74,9 @@ class ObsMem(nn.Module):
 
 
 class R1Obs(R1):
-    def __init__(self, cfg, readout_ln=False, mem_group=4, qk_dim=8, slot_keep=1.0, uniform=False, feed=True):
+    def __init__(self, cfg, readout_ln=False, mem_group=4, qk_dim=8, slot_keep=1.0, uniform=False, feed=True, plain=False):
         super().__init__(cfg, readout_ln=readout_ln)
-        self.obs_net = ObsMem(self.D, self.N, self.c, self.P, group=mem_group, qk_dim=qk_dim, uniform=uniform)
+        self.obs_net = ObsMem(self.D, self.N, self.c, self.P, group=mem_group, qk_dim=qk_dim, uniform=uniform, plain=plain)
         self.slot_keep, self.feed = slot_keep, feed
         self.audit, self.audit_gen = None, None
         self.mem_stats = {}
