@@ -3,7 +3,8 @@ Variants (compare with patchmem/obs_recent_eval.py recentK at the same K):
   normal          all T-1 slots (the trained model)
   topK            per head, softmax restricted to the K slots with the largest logits (K = 1, 2, 4), renormalised
 Top-1 lag histogram of the normal model: lag = (T-1) - 1 - argmax slot index (lag 0 = the last lookback patch's error), binned
-0 | 1 | 2-3 | 4-7 | 8+, fraction over heads, rollout steps and windows.
+0 | 1 | 2-3 | 4-7 | 8+, fraction over heads, rollout steps and windows; lag_full: the top-1 fraction and the mean attention per
+single lag (index = lag in patches), to look for periodic peaks.
 Sanity: the re-implemented forward equals ObsMem.forward (first batch of every cell); topK with K = T-1 equals normal.
 usage (repo root, via sbatch): python patchmem/obs_topk_eval.py --data E|W --seed 3047 [--grid 384:96,...]"""
 import argparse, json, os, sys
@@ -40,6 +41,9 @@ def patch(net):
             for i, (lo, hi) in enumerate(BINS):
                 net.lag[i] += ((lag >= lo) & (lag <= hi)).sum().item()
             net.lag[-1] += lag.numel()
+            net.lag_full[:M] += torch.bincount(lag.flatten(), minlength=M).double().cpu()        # top-1 count per lag
+            net.mass_full[:M] += a.double().sum((0, 1)).flip(0).cpu()                         # attention mass per lag
+            net.n_full[:M] += a.shape[0] * a.shape[1]                                          # (b, nh) rows that have this lag
         m = torch.einsum('bhm,bmcp->bhcp', a, vals)
         g = torch.sigmoid(net.Wg(hq)).unsqueeze(-1)
         return g * (net.W[None] * m).sum(1), a, g
@@ -57,6 +61,7 @@ def run_cell(e, flag, L, H, bs=64):
     se = {v: 0.0 for v, _ in variants}
     nel = 0
     net.lag = [0] * (len(BINS) + 1)
+    net.lag_full, net.mass_full, net.n_full = (torch.zeros(T, dtype=torch.float64) for _ in range(3))
     for s0 in range(0, len(ids), bs):
         bx, by = e._batch(ds, ids[s0:s0 + bs])
         bx, y = bx.to(dev), by[:, -H:].to(dev)
@@ -76,26 +81,35 @@ def run_cell(e, flag, L, H, bs=64):
     mse = {v: se[v] / nel for v in se}
     assert abs(mse['allK'] - mse['normal']) < 1e-6 * max(mse['normal'], 1e-6), (mse['allK'], mse['normal'])
     lag = {f'{lo}-{hi}' if hi < 10 ** 9 else f'{lo}+': net.lag[i] / net.lag[-1] for i, (lo, hi) in enumerate(BINS)}
-    return mse, lag, len(ids)
+    full = dict(top1=(net.lag_full / net.lag_full.sum()).tolist(), mass=(net.mass_full / net.n_full.clamp_min(1)).tolist())
+    return mse, lag, full, len(ids)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--data', required=True, choices=['E', 'W']); ap.add_argument('--seed', type=int, default=3047)
+    ap.add_argument('--tag', default='', help='output file suffix (keeps earlier full-grid results)')
+    ap.add_argument('--p24', action='store_true', help='ETTh2 patch_len 24 checkpoints (patchmem/slurm/p24_job.sbatch)')
     ap.add_argument('--grid', default=','.join(f'{L}:{H}' for L in (384, 720, 1440) for H in (96, 192, 336)))
     a = ap.parse_args()
     base, ck, _, _ = DATA[a.data]
-    e = load(base, ck, DES_O[a.data].format(a.seed), a.seed, ENV_O)
+    if a.p24:
+        assert a.data == 'E'
+        base = base + ['--patch_len', '24', '--stride', '24']
+        e = load(base, ck, f'R1ObK0.5Q8P24h0s{a.seed}', a.seed, dict(ENV_O, R1_HMIN='4', R1_HMAX='14'))
+        assert e.model.P == 24
+    else:
+        e = load(base, ck, DES_O[a.data].format(a.seed), a.seed, ENV_O)
     patch(e.model.obs_net)
-    out = f'patchmem/logs/obs_topk/{a.data}_s{a.seed}.json'
+    out = f'patchmem/logs/obs_topk/{a.data}{"_P24" if a.p24 else ""}_s{a.seed}{a.tag}.json'
     os.makedirs(os.path.dirname(out), exist_ok=True)
     res = {}
     for g in a.grid.split(','):
         L, H = map(int, g.split(':'))
         res[f'{L}/{H}'] = {}
         for flag in ('val', 'test'):
-            mse, lag, n = run_cell(e, flag, L, H)
-            res[f'{L}/{H}'][flag] = dict(mse=mse, top1_lag=lag, windows=n)
+            mse, lag, full, n = run_cell(e, flag, L, H)
+            res[f'{L}/{H}'][flag] = dict(mse=mse, top1_lag=lag, lag_full=full, windows=n)
             print(f'[obs_topk {a.data} s{a.seed} {flag}] L={L} H={H} n={n} | ' + ' '.join(f'{v} {z:.4f}' for v, z in mse.items() if v != 'allK')
                   + ' | top1 lag ' + ' '.join(f'{k}:{z:.3f}' for k, z in lag.items()), flush=True)
             json.dump(dict(data=a.data, seed=a.seed, grid=res), open(out, 'w'), indent=1)
