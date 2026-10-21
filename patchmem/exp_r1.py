@@ -34,6 +34,8 @@ Env:
                          R1_OBS_VPATH=1: values (errors) transported by a state-driven Householder path, logits as O;
                          R1_OBS_PATH=1: PaTH-style logits q^T H_t..H_{j+1} k (per-head state-driven Householder, values untouched);
                          R1_OBS_PLAIN=1: one head, correction = gamma * retrieved errors (scalar gamma, no W / gate; RATL-style)
+  R1_OBS_MS=1            O-MS (patchmem/r1_msres.py): lead-matched retrieval of multi-step residuals of free-running rollouts from every
+                         lookback origin (K = R1_HMAX leads); R1_TEFL=ms: T0-MS, TEFL-style g on one origin's K lead errors
   R1_PATHRES=1           R1 + path-transported residual correction (patchmem/r1_pathres.py, R1PathRes, PAT-307): no attention, the
                          lookback errors are carried by a state-driven Householder path with a forget gate. R1_PATHRES_RANK (default 32),
                          R1_PATHRES_NOH=1 (H = I ablation), R1_MEM_SLOT_KEEP (default 1)
@@ -60,6 +62,7 @@ from patchmem.r1_mem import R1Mem
 from patchmem.r1_obsmem import R1Obs
 from patchmem.r1_tefl import R1Tefl
 from patchmem.r1_pathres import R1PathRes
+from patchmem.r1_msres import R1ObsMS, R1TeflMS
 from patchmem.param_snapshot import log_model_parameter_stats
 from utils.tools import EarlyStopping, adjust_learning_rate
 
@@ -154,6 +157,18 @@ class Exp_R1(Exp_Long_Term_Forecast):
                   f'StateMem group {m.mem_net.group} heads {m.mem_net.nh} qk_dim {m.mem_net.dh} ({sum(p.numel() for p in m.mem_net.parameters())} params) | '
                   f'corr_shuffle {m.corr_shuffle} | value_detach {m.value_detach} (Pure-B) | retrieve {m.retrieve} | '
                   f'rollout retrieve {m.roll_retrieve} | train slot keep {m.slot_keep} | null slot {m.mem_net.null}', flush=True)
+        elif os.environ.get('R1_OBS_MS', '0') == '1':
+            m = R1ObsMS(a, readout_ln=ro_ln, mem_group=int(os.environ.get('R1_MEM_GROUP', '4')),
+                        qk_dim=int(os.environ.get('R1_MEM_QK_DIM') or 8), slot_keep=float(os.environ.get('R1_MEM_SLOT_KEEP', '1')),
+                        feed=os.environ.get('R1_OBS_FEED', '1') == '1', kmax=int(os.environ.get('R1_HMAX', '7'))).float()
+            print(f'R1ObsMS: lead-matched multi-step residual retrieval, K {m.kmax} | ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} '
+                  f'({sum(p.numel() for p in m.obs_net.parameters())} params) | train slot keep {m.slot_keep} | feed forecast {m.feed}', flush=True)
+        elif os.environ.get('R1_TEFL') == 'ms':
+            m = R1TeflMS(a, readout_ln=ro_ln, rank=int(os.environ.get('R1_TEFL_RANK', '64')), hmax=int(os.environ.get('R1_HMAX', '7')),
+                         feed=os.environ.get('R1_TEFL_FEED', '1') == '1', tmax=int(os.environ.get('R1_LMAX', '1440')) // a.patch_len,
+                         extrap=os.environ.get('R1_TEFL_EXTRAP', 'last')).float()
+            print(f'R1TeflMS: eps = lead 1..{m.hmax} errors of origin T-1-{m.hmax} (input {m.din}) rank {m.W1.out_features} | '
+                  f'g params {m.W1.weight.numel() + m.W2.weight.numel()} | feed forecast {m.feed}', flush=True)
         elif os.environ.get('R1_PATHRES', '0') == '1':
             m = R1PathRes(a, readout_ln=ro_ln, rank=int(os.environ.get('R1_PATHRES_RANK', '32')),
                           noH=os.environ.get('R1_PATHRES_NOH', '0') == '1', slot_keep=float(os.environ.get('R1_MEM_SLOT_KEEP', '1')),
