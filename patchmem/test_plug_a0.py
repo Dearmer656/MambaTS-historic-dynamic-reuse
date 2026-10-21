@@ -56,7 +56,7 @@ with torch.no_grad():
         assert (d['y'][j].cpu() - x[tt:tt + H]).abs().max() == 0
 print('(2) cache == direct A0 forward (origins m = 0, 1, 2, 7); TEFL eps == residual of the forecast issued at t - H; targets = x[t:t+H]')
 # (3) plug-ins
-for arm in ('tefl', 'pos', 'ret', 'retfull'):
+for arm in ('tefl', 'pos', 'posfull', 'ret', 'retfull'):
     torch.manual_seed(0)
     pl = Plugin(arm, H, M, P, dz=C['test']['Z'].shape[-1]).to(dev)
     p0 = pl(d)
@@ -69,4 +69,9 @@ for arm in ('tefl', 'pos', 'ret', 'retfull'):
     pl.audit = 'zero'; pz = pl(d); pl.audit = None
     assert torch.equal(pz, d['yhat0']) and not torch.equal(pl(d), d['yhat0'])
     print(f'(3) {arm}: init == base, grad mass {g:.3e} > 0, zero audit == base'); assert g > 0
+    if arm in ('posfull', 'retfull'):                                                  # partial residuals must not reach the output
+        d2 = dict(d); keep = (torch.arange(1, M + 1, device=dev) >= H // P)[None, :, None, None]
+        d2['R'] = torch.where(keep, d['R'], torch.randn_like(d['R']))
+        assert torch.allclose(pl(d2), pl(d)), arm
+        print(f'    {arm}: output independent of the partial (m < m*) residuals')
 print('OK')

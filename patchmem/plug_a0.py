@@ -12,6 +12,7 @@ Arms (only the plug-in is trained; y' = yhat(t) + sd * delta):
   base    delta = 0                                              (reproduces A0)
   tefl    delta = ReLU(eps W1) W2, eps = R[m*] (H), per variable, shared; rank 64, W2 = 0   (TEFL's error module on frozen f)
   pos     delta[k] = sum_m beta[k, m] R[m, k] over observed (m, k), beta = 0      (position-addressed multi-origin, TEFL Eq.(1)-like)
+  posfull pos restricted to full residuals (m >= m*)                                    (freshness ablation of pos)
   ret     delta[k] = sum_h W[h, k] sum_m softmax_m(q_h(z_t) . k_h(z_m) | m observed at lead k) R[m, k]     (content-addressed, lead-aligned)
   retfull ret restricted to full residuals (m >= m*)                                                     (freshness ablation)
 usage: python patchmem/plug_a0.py --setting <A0 ckpt dir> --arm ret --seed 3047 --M 15 -- <run.py args of the A0 run>"""
@@ -104,7 +105,7 @@ class Plugin(nn.Module):
         if arm == 'tefl':
             self.W1 = nn.Linear(H, rank, bias=False)
             self.W2 = nn.Linear(rank, H, bias=False); nn.init.zeros_(self.W2.weight)
-        elif arm == 'pos':
+        elif arm in ('pos', 'posfull'):
             self.beta = nn.Parameter(torch.zeros(H, M))
         elif arm in ('ret', 'retfull'):
             self.nh, self.dk = nh, dk
@@ -122,8 +123,9 @@ class Plugin(nn.Module):
         elif self.arm == 'tefl':
             eps = R[:, self.mstar - 1].permute(0, 2, 1)                                  # (b, C, H): origin m* (index m*-1), all observed
             delta = self.W2(torch.relu(self.W1(eps))).permute(0, 2, 1)
-        elif self.arm == 'pos':
-            delta = torch.einsum('km,bmkc->bkc', self.beta, R * obs[..., None])
+        elif self.arm in ('pos', 'posfull'):
+            use = obs if self.arm == 'pos' else obs & (torch.arange(1, M + 1, device=R.device) >= self.mstar)[None, :, None]
+            delta = torch.einsum('km,bmkc->bkc', self.beta, R * use[..., None])
         else:
             avail = obs if self.arm == 'ret' else obs & (torch.arange(1, M + 1, device=R.device) >= self.mstar)[None, :, None]
             q = self.Wq(d['z0']).view(b, C, self.nh, self.dk)                            # (b, C, nh, dk)
