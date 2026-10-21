@@ -19,7 +19,10 @@ History predictions are not corrected (lambda_hist = 0 in every arm), so the sto
 Training options: slot_keep p < 1 (per-sample slot dropout, as B2-drop), qk_dim r (default 8), uniform=True (a = 1/available slots,
 no W_Q / W_K / tau), path=True (PAT-307 O-PaTH: PaTH-style logits q_t^T H_t ... H_{j+1} k_j, per-head Householder
 H_s = I - beta_s w_s w_s^T in the q/k space with w_s = normalize(W_w sg h_s), beta_s = 2 sigmoid(W_b sg h_s); values untouched;
-the path continues through the rollout states; audit 'noH' = H = I at inference), plain=True (PAT-307 O-plain, RATL-style: one head, delta = gamma * sum_j a_j e_j with a scalar gamma = 0 at init,
+the path continues through the rollout states; audit 'noH' = H = I at inference), vpath=True (PAT-307 O-PathV, the intended
+design: logits = q_t . k_j as O, VALUES transported along the path: m_h = sum_j a_hj H_t ... H_{j+1} e_j with one state-driven
+Householder H_s = I - beta_s w_s w_s^T in the error space (C*P), w_s = normalize(W_wv sg h_s), beta_s = 2 sigmoid(W_bv sg h_s);
+W / gate as O; continues through the rollout; audit 'noH' = H = I = O exactly), plain=True (PAT-307 O-plain, RATL-style: one head, delta = gamma * sum_j a_j e_j with a scalar gamma = 0 at init,
 no per-head W, no gate). Per-sample lookback (lens, see r1_model.py): a slot is valid only from the sample's second valid patch on
 (t >= t0 + 1), combined with the slot-keep mask. Inference audits: None | 'zero' (delta = 0) | 'uniform' (a = 1/M) | 'perm' (values of the M slots permuted:
 key-error pairing broken)."""
@@ -30,12 +33,15 @@ from patchmem.r1_model import R1
 
 
 class ObsMem(nn.Module):
-    def __init__(self, d_inner, d_state, c, P, group=4, qk_dim=8, tau0=1.0, uniform=False, plain=False, path=False):
+    def __init__(self, d_inner, d_state, c, P, group=4, qk_dim=8, tau0=1.0, uniform=False, plain=False, path=False, vpath=False):
         super().__init__()
         assert d_inner % group == 0, f'd_inner {d_inner} not divisible by group {group}'
         self.nh, self.dh, self.uniform, self.plain = 1 if plain else d_inner // group, qk_dim, uniform, plain
         assert not (path and uniform), 'path needs q/k'
-        self.path = path
+        self.path, self.vpath = path, vpath
+        if vpath:
+            self.Wwv = nn.Linear(d_inner * d_state, c * P, bias=False)
+            self.Wbv = nn.Linear(d_inner * d_state, 1)
         if path:
             self.Ww = nn.Linear(d_inner * d_state, self.nh * qk_dim, bias=False)
             self.Wb = nn.Linear(d_inner * d_state, self.nh)
@@ -60,6 +66,17 @@ class ObsMem(nn.Module):
         beta = 2 * torch.sigmoid(self.Wb(z))                                            # (b, nh)
         proj = torch.einsum('bmhd,bhd->bmh', K, w)
         return K - (beta[:, None, :] * proj).unsqueeze(-1) * w[:, None]
+
+    def transport_v(self, h, V):
+        """Apply the Householder H(h) in the error space to stored values V (b, M, C, P); identity without vpath or under 'noH'."""
+        if not self.vpath or self.audit == 'noH':
+            return V
+        z = h.detach().flatten(1)
+        w = F.normalize(self.Wwv(z), dim=-1)                                            # (b, C*P)
+        beta = 2 * torch.sigmoid(self.Wbv(z))                                           # (b, 1)
+        Vf = V.flatten(2)
+        Vf = Vf - (beta * torch.einsum('bmd,bd->bm', Vf, w)).unsqueeze(-1) * w[:, None]
+        return Vf.reshape(V.shape)
 
     def key(self, h):
         if self.uniform:
@@ -92,9 +109,11 @@ class ObsMem(nn.Module):
 
 
 class R1Obs(R1):
-    def __init__(self, cfg, readout_ln=False, mem_group=4, qk_dim=8, slot_keep=1.0, uniform=False, feed=True, plain=False, path=False):
+    def __init__(self, cfg, readout_ln=False, mem_group=4, qk_dim=8, slot_keep=1.0, uniform=False, feed=True, plain=False, path=False,
+                 vpath=False):
         super().__init__(cfg, readout_ln=readout_ln)
-        self.obs_net = ObsMem(self.D, self.N, self.c, self.P, group=mem_group, qk_dim=qk_dim, uniform=uniform, plain=plain, path=path)
+        self.obs_net = ObsMem(self.D, self.N, self.c, self.P, group=mem_group, qk_dim=qk_dim, uniform=uniform, plain=plain, path=path,
+                              vpath=vpath)
         self.slot_keep, self.feed = slot_keep, feed
         self.audit, self.audit_gen = None, None
         self.mem_stats = {}
@@ -146,6 +165,11 @@ class R1Obs(R1):
                 mask = ok if mask is None else mask & ok
             if self.audit == 'perm' and T - 1 >= 2:
                 V = V[:, torch.randperm(T - 1, generator=self.audit_gen).to(V.device)]
+            if self.obs_net.vpath:                                                      # values along the path (after the perm audit)
+                Vt = V[:, :1]
+                for i in range(1, T - 1):
+                    Vt = torch.cat([self.obs_net.transport_v(bstates[:, i + 1], Vt), V[:, i:i + 1]], 1)
+                V = Vt                                                                  # V[:, j] = H_{T-1} ... H_{j+1} e_j
         base = yh[:, -1]
         outs = []
         for k in range(n_out):
@@ -155,6 +179,8 @@ class R1Obs(R1):
                 base = self.to_orig(self.read(states[-1]).unsqueeze(1), perm).squeeze(1)
                 if T >= 2 and self.obs_net.path:                                        # the path continues through the rollout
                     K = self.obs_net.transport(states[-1], K)
+                if T >= 2 and self.obs_net.vpath:
+                    V = self.obs_net.transport_v(states[-1], V)
             h = bstates[:, -1] if k == 0 else states[-1]
             outs.append(base + self._correct(h, K, V, mask) if T >= 2 else base)
         if trace is not None:

@@ -31,6 +31,7 @@ Env:
   R1_OBS=1               R1 + observation-space error memory (patchmem/r1_obsmem.py, R1Obs): values = the backbone's lookback errors,
                          the retrieved correction is added to the forecast. Uses R1_MEM_GROUP, R1_MEM_QK_DIM (default 8),
                          R1_MEM_SLOT_KEEP, R1_MEM_UNIFORM; R1_OBS_FEED=0 feeds the uncorrected backbone patch back (default 1: the forecast);
+                         R1_OBS_VPATH=1: values (errors) transported by a state-driven Householder path, logits as O;
                          R1_OBS_PATH=1: PaTH-style logits q^T H_t..H_{j+1} k (per-head state-driven Householder, values untouched);
                          R1_OBS_PLAIN=1: one head, correction = gamma * retrieved errors (scalar gamma, no W / gate; RATL-style)
   R1_PATHRES=1           R1 + path-transported residual correction (patchmem/r1_pathres.py, R1PathRes, PAT-307): no attention, the
@@ -163,8 +164,9 @@ class Exp_R1(Exp_Long_Term_Forecast):
             m = R1Obs(a, readout_ln=ro_ln, mem_group=int(os.environ.get('R1_MEM_GROUP', '4')),
                       qk_dim=int(os.environ.get('R1_MEM_QK_DIM') or 8), slot_keep=float(os.environ.get('R1_MEM_SLOT_KEEP', '1')),
                       uniform=os.environ.get('R1_MEM_UNIFORM', '0') == '1', feed=os.environ.get('R1_OBS_FEED', '1') == '1',
-                      plain=os.environ.get('R1_OBS_PLAIN', '0') == '1', path=os.environ.get('R1_OBS_PATH', '0') == '1').float()
-            print(f'R1Obs: ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} uniform {m.obs_net.uniform} plain {m.obs_net.plain} path {m.obs_net.path} '
+                      plain=os.environ.get('R1_OBS_PLAIN', '0') == '1', path=os.environ.get('R1_OBS_PATH', '0') == '1',
+                      vpath=os.environ.get('R1_OBS_VPATH', '0') == '1').float()
+            print(f'R1Obs: ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} uniform {m.obs_net.uniform} plain {m.obs_net.plain} path {m.obs_net.path} vpath {m.obs_net.vpath} '
                   f'({sum(p.numel() for p in m.obs_net.parameters())} params) | train slot keep {m.slot_keep} | feed forecast {m.feed}', flush=True)
         elif os.environ.get('R1_TEFL'):
             m = R1Tefl(a, readout_ln=ro_ln, mode=os.environ['R1_TEFL'], hc=int(os.environ.get('R1_TEFL_HC', '2')),
@@ -476,7 +478,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('perm', 'perm', 0)] + ([('recent2', 'recent', 0)] if m.hc == 0 else [])
         else:
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('uniform', 'uniform', 0)] + [(f'perm{s}', 'perm', s) for s in range(reps)]
-            if getattr(m.obs_net, 'path', False):                                       # O-PaTH: path removed at inference
+            if getattr(m.obs_net, 'path', False) or getattr(m.obs_net, 'vpath', False):                                       # O-PaTH: path removed at inference
                 modes.append(('noH', 'noH', 0))
         order = self.eval_order()
         for flag in ('val', 'test'):
