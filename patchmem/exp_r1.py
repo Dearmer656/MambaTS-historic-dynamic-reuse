@@ -32,6 +32,9 @@ Env:
                          the retrieved correction is added to the forecast. Uses R1_MEM_GROUP, R1_MEM_QK_DIM (default 8),
                          R1_MEM_SLOT_KEEP, R1_MEM_UNIFORM; R1_OBS_FEED=0 feeds the uncorrected backbone patch back (default 1: the forecast);
                          R1_OBS_PLAIN=1: one head, correction = gamma * retrieved errors (scalar gamma, no W / gate; RATL-style)
+  R1_PATHRES=1           R1 + path-transported residual correction (patchmem/r1_pathres.py, R1PathRes, PAT-307): no attention, the
+                         lookback errors are carried by a state-driven Householder path with a forget gate. R1_PATHRES_RANK (default 32),
+                         R1_PATHRES_NOH=1 (H = I ablation), R1_MEM_SLOT_KEEP (default 1)
   R1_TEFL=native|faithful  R1 + TEFL-style error feedback (patchmem/r1_tefl.py, R1Tefl, PAT-307): T0 = last Hc one-step lookback
                          errors, T1 = multi-step errors of R1's own rollout from t-Hc; y += ReLU(eps W1) W2 (W2 = 0 at init).
                          R1_TEFL_HC (Hc in patches, default 2; 0 = all lookback one-step errors, native only), R1_TEFL_RANK (default 64),
@@ -54,6 +57,7 @@ from patchmem.r1_model import R1, atsp_order
 from patchmem.r1_mem import R1Mem
 from patchmem.r1_obsmem import R1Obs
 from patchmem.r1_tefl import R1Tefl
+from patchmem.r1_pathres import R1PathRes
 from patchmem.param_snapshot import log_model_parameter_stats
 from utils.tools import EarlyStopping, adjust_learning_rate
 
@@ -148,6 +152,12 @@ class Exp_R1(Exp_Long_Term_Forecast):
                   f'StateMem group {m.mem_net.group} heads {m.mem_net.nh} qk_dim {m.mem_net.dh} ({sum(p.numel() for p in m.mem_net.parameters())} params) | '
                   f'corr_shuffle {m.corr_shuffle} | value_detach {m.value_detach} (Pure-B) | retrieve {m.retrieve} | '
                   f'rollout retrieve {m.roll_retrieve} | train slot keep {m.slot_keep} | null slot {m.mem_net.null}', flush=True)
+        elif os.environ.get('R1_PATHRES', '0') == '1':
+            m = R1PathRes(a, readout_ln=ro_ln, rank=int(os.environ.get('R1_PATHRES_RANK', '32')),
+                          noH=os.environ.get('R1_PATHRES_NOH', '0') == '1', slot_keep=float(os.environ.get('R1_MEM_SLOT_KEEP', '1')),
+                          feed=os.environ.get('R1_OBS_FEED', '1') == '1').float()
+            print(f'R1PathRes: rank {m.obs_net.r} noH {m.obs_net.noH} ({sum(p.numel() for p in m.obs_net.parameters())} params) | '
+                  f'train slot keep {m.slot_keep} | feed forecast {m.feed}', flush=True)
         elif os.environ.get('R1_OBS', '0') == '1':
             m = R1Obs(a, readout_ln=ro_ln, mem_group=int(os.environ.get('R1_MEM_GROUP', '4')),
                       qk_dim=int(os.environ.get('R1_MEM_QK_DIM') or 8), slot_keep=float(os.environ.get('R1_MEM_SLOT_KEEP', '1')),

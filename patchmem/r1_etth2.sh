@@ -20,6 +20,8 @@ TAG=$([ "${R1_MEM:-0}" = 1 ] && echo M$([ "${R1_CORR_SHUFFLE:-0}" = 1 ] && echo 
 # R1_OBS=1 (observation-space error memory, patchmem/r1_obsmem.py): Ob + U (uniform) + K<p> + Q<r> + F0 (backbone patch fed back), e.g. ObK0.5Q8
 [ "${R1_OBS:-0}" = 1 ] && TAG=Ob$([ "${R1_MEM_UNIFORM:-0}" = 1 ] && echo U)$([ "${R1_MEM_SLOT_KEEP:-1}" = 1 ] || echo K${R1_MEM_SLOT_KEEP})Q${R1_MEM_QK_DIM:-8}$([ "${R1_OBS_FEED:-1}" = 1 ] || echo F0)$([ "${R1_OBS_PLAIN:-0}" = 1 ] && echo Pl)
 # R1_TEFL=native|faithful (TEFL-style error feedback, patchmem/r1_tefl.py, PAT-307): Tf + n|f + H<Hc> + R<rank> + F0, e.g. TfnH2R64
+# R1_PATHRES=1 (path-transported residuals, patchmem/r1_pathres.py, PAT-307): Pr + I (H = I) + R<rank> + K<p>, e.g. PrR32
+[ "${R1_PATHRES:-0}" = 1 ] && TAG=Pr$([ "${R1_PATHRES_NOH:-0}" = 1 ] && echo I)R${R1_PATHRES_RANK:-32}$([ "${R1_MEM_SLOT_KEEP:-1}" = 1 ] || echo K${R1_MEM_SLOT_KEEP})
 [ -n "${R1_TEFL}" ] && TAG=Tf${R1_TEFL:0:1}H${R1_TEFL_HC:-2}R${R1_TEFL_RANK:-64}$([ "${R1_TEFL_FEED:-1}" = 1 ] || echo F0)
 # R1_MIX=1 (per-sample random lookback / horizon in every batch): suffix mx, e.g. R1WMK0.5Q8c1mxh0s3047
 [ "${R1_MIX:-0}" = 1 ] && TAG=${TAG}mx
