@@ -8,7 +8,9 @@ embedded and carried by a state-driven Householder path with a forget gate; the 
                    forecast = read(h_k) + delta_k, fed back (feed=True).
 noH=True: H = I (lam-gated sum of errors only, i.e. learned exponential smoothing of the errors) -- the path ablation.
 Audits (R1Obs interface): 'zero' (delta = 0) | 'uniform' (H = I at inference: path removed, same weights) | 'perm' (slot values permuted).
-Slot keep p < 1: training-time per-sample dropout of slots (u_t = 0), as R1Obs."""
+Slot keep p < 1: training-time per-sample INVERTED slot dropout: a kept slot's u_t is scaled by 1/p, a dropped one is 0, so that
+E[c_train] = c_test (c is linear in u given the states; the softmax renormalisation of R1Obs needs no such scaling). Slots that are
+invalid by the per-sample lookback (t0) are zeroed without rescaling (they do not exist at test either)."""
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -70,12 +72,12 @@ class R1PathRes(R1Obs):
             if self.audit == 'perm' and T - 1 >= 2:
                 V = V[:, torch.randperm(T - 1, generator=self.audit_gen).to(V.device)]
             U = net.We(V.flatten(2))                                                    # (b, T-1, r)
-            keep = (torch.rand(b, T - 1, device=x.device) < self.slot_keep) if self.training and self.slot_keep < 1 else None
-            if t0 is not None:
+            if self.training and self.slot_keep < 1:                                    # inverted dropout: kept slots x 1/p
+                drop = (torch.rand(b, T - 1, device=x.device) < self.slot_keep).to(U.dtype) / self.slot_keep
+                U = U * drop.unsqueeze(-1)
+            if t0 is not None:                                                          # validity mask: not rescaled
                 ok = torch.arange(1, T, device=x.device)[None, :] >= (t0 + 1)[:, None]
-                keep = ok if keep is None else keep & ok
-            if keep is not None:
-                U = U * keep.unsqueeze(-1).to(U.dtype)
+                U = U * ok.unsqueeze(-1).to(U.dtype)
             K, B, Lm = net.coef(bstates[:, 1:])                                         # transitions by the slot states h_t
             for t in range(T - 1):
                 cv = net.step(cv, K[:, t], B[:, t], Lm[:, t]) + U[:, t]

@@ -61,3 +61,31 @@ for n in ('Wo.weight', 'We.weight', 'Wk.weight', 'Wb.weight', 'Wl.weight'):
     print('grad', n, None if g is None else g.norm().item()); assert g is not None and g.norm() > 0
 print('params', sum(p.numel() for p in net.parameters()), 'stats', pr.stats())
 print('OK')
+
+# (5) inverted slot dropout: E[c_train] == c_test (Monte Carlo over masks, same weights), t0-invalid slots are not rescaled
+torch.manual_seed(1)
+pd = R1PathRes(a, slot_keep=0.5).to(dev)
+pd.load_state_dict(pr.state_dict())
+captured = {}
+f0 = pd.obs_net.Wo.forward
+def cap(cv):
+    captured.setdefault('c', []).append(cv.detach().clone()); return f0(cv)
+pd.obs_net.Wo.forward = cap
+xs = torch.randn(2, 720, 7, device=dev)
+with torch.no_grad():
+    pd.eval(); pm = pd.scan_order(2, dev)                                       # fixed scan order (VPT draws one per call in training)
+    captured.clear(); pd(xs, 1, perm=pm); c_test = captured['c'][0]
+    pd.training = True; acc = torch.zeros_like(c_test); n = 4000              # top-level flag only: backbone dropout stays off
+    for _ in range(n):
+        captured.clear(); pd(xs, 1, perm=pm); acc += captured['c'][0]
+    pd.eval()
+rel = ((acc / n - c_test).norm() / c_test.norm()).item()
+print('inverted dropout: |E[c_train] - c_test| / |c_test| =', rel); assert rel < 0.05, rel                                       # Monte Carlo noise ~0.02; without 1/p the gap is 1 - p = 0.5
+# t0 mask: with keep = 1 in train mode, a per-sample lookback gives exactly the eval result (no 1/p factor on validity)
+pd.slot_keep = 1.0
+lens = torch.tensor([720, 384], device=dev)
+with torch.no_grad():
+    pd.training = True; captured.clear(); pd(xs, 1, perm=pm, lens=lens); ct = captured['c'][0]
+    pd.eval(); captured.clear(); pd(xs, 1, perm=pm, lens=lens); ce = captured['c'][0]
+print('t0 mask train == eval (keep 1)', (ct - ce).abs().max().item()); assert (ct - ce).abs().max() < 1e-5
+print('OK dropout')
