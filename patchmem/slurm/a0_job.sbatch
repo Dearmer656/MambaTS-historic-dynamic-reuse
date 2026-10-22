@@ -14,7 +14,7 @@ export PYTHONPATH=/project/nlp-work5/hongyu-s/state_path_attn/_pylib:$PYTHONPATH
 export PATH=/cl/work5/hongyu-s/conda/envs/mamba_iso/bin:$PATH
 D=$1; H=$2; s=$3; L=${4:-720}
 case $D in
-  ETTh2) if [ "$H" = 96 ]; then X="--e_layers 5 --d_model 16 --batch_size 8 --learning_rate 0.001"; elif [ "$H" = 192 ]; then X="--e_layers 3 --d_model 16 --batch_size 16 --learning_rate 0.001"; else X="--e_layers 2 --d_model 32 --batch_size 32 --learning_rate 0.0005"; fi
+  ETTh2) if [ "$H" = 96 ]; then X="--e_layers 5 --d_model 16 --batch_size 8 --learning_rate 0.001"; elif [ "$H" = 192 ]; then X="--e_layers 3 --d_model 16 --batch_size 16 --learning_rate 0.001"; elif [ "$H" = 336 ]; then X="--e_layers 2 --d_model 32 --batch_size 32 --learning_rate 0.0005"; else X="--e_layers 1 --d_model 128 --batch_size 16 --learning_rate 0.0005"; fi
      A="--root_path ./dataset/ETT-small --data_path ETTh2.csv --enc_in 7 --dec_in 7 --c_out 7 --model_id ETTh2_${L}_$H --data ETTh2 --n_heads 16 --dropout 0.3 $X" ;;
   ETTm2) A="--root_path ./dataset/ETT-small --data_path ETTm2.csv --enc_in 7 --dec_in 7 --c_out 7 --model_id ETTm2_${L}_$H --data ETTm2 --e_layers 3 --n_heads 16 --d_model 16 --dropout 0.3 --batch_size 16 --learning_rate 0.001" ;;
   W) if [ "$H" = 96 ]; then X="--e_layers 3 --dropout 0.2 --batch_size 8 --learning_rate 0.0005"; elif [ "$H" = 192 ]; then X="--e_layers 2 --dropout 0.3 --batch_size 16 --learning_rate 0.001"; else X="--e_layers 2 --dropout 0.3 --batch_size 8 --learning_rate 0.001"; fi
