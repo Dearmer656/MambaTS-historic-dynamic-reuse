@@ -138,3 +138,9 @@ dmypy.json
 /checkpoints/
 /test_results/
 checkpoint.pth
+
+# PAT-307 local
+checkpoints/
+test_results/
+pat_logs/slurm_*.txt
+result_long_term_forecast.txt
