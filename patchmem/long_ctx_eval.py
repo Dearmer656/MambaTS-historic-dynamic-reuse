@@ -18,10 +18,11 @@ from patchmem.mech_eval import DATA
 from patchmem.naive_fb_eval import load
 from patchmem.obs_recent_eval import patch as patch_recent
 
-DES = {'E': dict(A1='R1h0s{}', O='R1ObK0.5Q8h0s{}', TF0='R1TfnH0R64h0s{}', TF0r='R1TfnH2R64h0s{}'),
+DES = {'E': dict(A1='R1h0s{}', O='R1ObK0.5Q8h0s{}', TF0='R1TfnH0R64h0s{}', TF0r='R1TfnH2R64h0s{}', EP='R1ObK0.5Q8PVh0s{}'),
        'W': dict(A1='R1Wh0s{}', O='R1WObK0.5Q8h0s{}', TF0='R1WTfnH0R64h0s{}')}
 ENV = dict(A1={}, O={'R1_OBS': '1', 'R1_MEM_QK_DIM': '8', 'R1_MEM_SLOT_KEEP': '0.5'},
-           TF0={'R1_TEFL': 'native', 'R1_TEFL_HC': '0'}, TF0r={'R1_TEFL': 'native', 'R1_TEFL_HC': '2'})
+           TF0={'R1_TEFL': 'native', 'R1_TEFL_HC': '0'}, TF0r={'R1_TEFL': 'native', 'R1_TEFL_HC': '2'},
+           EP={'R1_OBS': '1', 'R1_OBS_VPATH': '1', 'R1_MEM_QK_DIM': '8', 'R1_MEM_SLOT_KEEP': '0.5'})
 CLEAR = ('R1_TEFL', 'R1_TEFL_HC', 'R1_TEFL_RANK', 'R1_TEFL_FEED', 'R1_TEFL_EXTRAP')
 NSLOT = 29                                                                              # training Tmax - 1
 
@@ -87,11 +88,11 @@ def main():
     ap.add_argument('--data', required=True, choices=['E', 'W']); ap.add_argument('--seed', type=int, default=3047)
     ap.add_argument('--arms', default=None)
     ap.add_argument('--grid', default=','.join(f'{L}:{H}' for L in (1440, 2160, 2880) for H in (96, 336, 720)))
-    ap.add_argument('--bs', type=int, default=32)
+    ap.add_argument('--bs', type=int, default=32); ap.add_argument('--out', default=None)
     a = ap.parse_args()
-    arms = a.arms.split(',') if a.arms else list(DES[a.data])
+    arms = a.arms.split(',') if a.arms else [k for k in DES[a.data] if k != 'EP']
     base, ck, _, _ = DATA[a.data]
-    out = f'patchmem/logs/long_ctx/{a.data}_s{a.seed}.json'
+    out = a.out or f'patchmem/logs/long_ctx/{a.data}_s{a.seed}.json'
     os.makedirs(os.path.dirname(out), exist_ok=True)
     res = json.load(open(out)) if os.path.exists(out) else {}
     for arm in arms:
