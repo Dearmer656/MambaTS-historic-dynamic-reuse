@@ -4,13 +4,16 @@
 3 the lookback errors: E[:, c, n-1] == (x_n - out0_{token n-1}) / sd, recomputed from the unmodified Timer-XL forward
 4 t0r == base at init (W2 = 0); one Adam step gives W2 a gradient and changes the forecast; audit 'zero' == base
 5 feed-back: with W2 != 0 the step-1 backbone input is the CORRECTED step-0 forecast
-6 window counts == the official loader's len for test (H 96..720); H = 720 uses 8 steps truncated to 720; hc = 0 path; backbone gets no grad"""
+6 window counts == the official loader's len for test (H 96..720); H = 720 uses 8 steps truncated to 720; hc = 0 path; backbone gets no grad
+7 backbone_attention: the recomputed last-layer weights reproduce that layer's actual output (A V W_o == captured output)
+8 bbattn weights: origin rows, lookback columns only (j <= N-2, all variables), renormalised; value of key (c', j) == U e_{c', j+1}
+9 ret / bbattn: == base at init, train, zero audit == base, uniform audit != trained, needs-capture comes from the same pass"""
 import re, sys
 from pathlib import Path
 import torch
 from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT))
-from pat_fb.fb_timerxl import (L, P, Feedback, bb_forward, evaluate, load_backbone, lookback_errors, rollout, split_x, windows)
+from pat_fb.fb_timerxl import (CFG, L, P, Feedback, backbone_attention, bb_forward, evaluate, load_backbone, lookback_errors, rollout, split_x, windows)
 
 setting, log = sys.argv[1], sys.argv[2]
 D = 'E1' if 'ETTh1' in setting else ('Wc' if 'cos' in setting else 'W')
@@ -45,7 +48,7 @@ for H in (96, 336):
 
 # 3 errors
 with torch.no_grad():
-    out0, E, sd = lookback_errors(bb, x)
+    out0, E, sd, _ = lookback_errors(bb, x)
     full = official(x)
     for n in range(1, L // P):
         e = (x[:, n * P:(n + 1) * P] - full[:, (n - 1) * P:n * P]) / sd                    # (b, P, C)
@@ -73,7 +76,7 @@ with torch.no_grad():
     nn_ = torch.nn
     nn_.init.normal_(fb.W2.weight, std=0.05)
     p = rollout(bb, fb, x, 2)
-    out0, E, sd = lookback_errors(bb, x)
+    out0, E, sd, _ = lookback_errors(bb, x)
     d = fb.delta(E)
     c0 = out0[:, -P:] + d[:, :, 0].transpose(1, 2) * sd
     assert torch.allclose(p[:, :P], c0, atol=1e-6)
@@ -102,4 +105,53 @@ assert f0.W1.in_features == (L // P - 1) * P
 loss = (rollout(bb, f0, xt, 8) - yt).square().mean(); loss.backward()
 assert f0.W1.weight.grad.abs().sum() > 0 and all(p.grad is None for p in bb.parameters())
 print('6 ok: test window counts / targets == official loader, H720 = 8 steps truncated, hc=0 path, backbone gets no grad')
+
+# 7 recomputed attention reproduces the last layer
+cap = {}
+al = bb.blocks.attn_layers[-1].attention
+h = al.register_forward_hook(lambda mod, args, kw, out: cap.update(x=args[0], kw=kw, out=out[0]), with_kwargs=True)
+with torch.no_grad():
+    bb_forward(bb, x[:8])
+h.remove()
+with torch.no_grad():
+    A = backbone_attention(al, cap['x'], cap['kw']['n_vars'], cap['kw']['n_tokens'])
+    Bq, S, _ = cap['x'].shape
+    v = al.value_projection(cap['x']).view(Bq, S, al.n_heads, -1)
+    rec = al.out_projection(torch.einsum('bhls,bshd->blhd', A, v).reshape(Bq, S, -1))
+assert torch.allclose(rec, cap['out'], atol=1e-4), (rec - cap['out']).abs().max()
+assert torch.allclose(A.sum(-1), torch.ones_like(A.sum(-1)), atol=1e-5)
+print(f'7 ok: recomputed attention reproduces the layer output (max err {(rec - cap["out"]).abs().max():.2e})')
+
+# 8 bbattn selection rows / columns / values
+fbb = Feedback('bbattn', rank=8).to(dev)
+with torch.no_grad():
+    out0, E, sd, ctx = lookback_errors(bb, x[:8], fbb.needs)
+    a = fbb.weights(E, ctx)
+    c, N = E.shape[1], L // P
+    assert a.shape == (8, 8, c, c * (N - 1)) and torch.allclose(a.sum(-1), torch.ones_like(a.sum(-1)), atol=1e-5)
+    Af = ctx['A']
+    for ci in range(c):
+        row = Af[:, :, ci * N + N - 1]
+        keep = torch.cat([row[:, :, cj * N:cj * N + N - 1] for cj in range(c)], -1)
+        assert torch.allclose(a[:, :, ci], keep / keep.sum(-1, keepdim=True), atol=1e-6)
+    vv = fbb.U(E).reshape(8, -1, 8)
+    assert torch.allclose(vv[:, 1 * (N - 1) + 3], fbb.U(E[:, 1, 3]))                       # key (c'=1, j=3) -> e_{1, 4}
+    assert torch.allclose(E[:, 1, 3], ((x[:8, 4 * P:5 * P, 1] - out0[:, 3 * P:4 * P, 1]) / sd[:, 0, 1:2]), atol=1e-6)
+print('8 ok: bbattn rows/columns/renormalisation, key (c\', j) -> e_{c\', j+1}')
+
+# 9 ret / bbattn behaviour
+for arm in ('ret', 'bbattn'):
+    f = Feedback(arm, rank=8, d_model=CFG[D]['d_model']).to(dev)
+    with torch.no_grad():
+        assert torch.equal(rollout(bb, f, x[:8], 3), rollout(bb, base, x[:8], 3))
+    opt = torch.optim.Adam(f.parameters(), lr=1e-2)
+    for _ in range(3):
+        loss = (rollout(bb, f, xt, 8) - yt).square().mean(); opt.zero_grad(); loss.backward(); opt.step()
+    assert all(p.grad is None for p in bb.parameters())
+    with torch.no_grad():
+        pn = rollout(bb, f, x[:8], 3)
+        assert not torch.equal(pn, rollout(bb, base, x[:8], 3))
+        f.audit = 'zero'; assert torch.equal(rollout(bb, f, x[:8], 3), rollout(bb, base, x[:8], 3))
+        f.audit = 'uniform'; assert not torch.allclose(rollout(bb, f, x[:8], 3), pn); f.audit = None
+    print(f'9 ok: {arm} == base at init, trains (backbone no grad), zero audit == base, uniform audit differs')
 print('ALL OK')
