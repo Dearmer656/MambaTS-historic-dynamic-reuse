@@ -19,7 +19,7 @@ from patchmem.naive_fb_eval import load
 from patchmem.obs_recent_eval import patch as patch_recent
 
 DES = {'E': dict(A1='R1h0s{}', O='R1ObK0.5Q8h0s{}', TF0='R1TfnH0R64h0s{}', TF0r='R1TfnH2R64h0s{}', EP='R1ObK0.5Q8PVh0s{}'),
-       'W': dict(A1='R1Wh0s{}', O='R1WObK0.5Q8h0s{}', TF0='R1WTfnH0R64h0s{}')}
+       'W': dict(A1='R1Wh0s{}', O='R1WObK0.5Q8h0s{}', TF0='R1WTfnH0R64h0s{}', EP='R1WObK0.5Q8PVh0s{}')}
 ENV = dict(A1={}, O={'R1_OBS': '1', 'R1_MEM_QK_DIM': '8', 'R1_MEM_SLOT_KEEP': '0.5'},
            TF0={'R1_TEFL': 'native', 'R1_TEFL_HC': '0'}, TF0r={'R1_TEFL': 'native', 'R1_TEFL_HC': '2'},
            EP={'R1_OBS': '1', 'R1_OBS_VPATH': '1', 'R1_MEM_QK_DIM': '8', 'R1_MEM_SLOT_KEEP': '0.5'})
