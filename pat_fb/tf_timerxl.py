@@ -18,6 +18,8 @@ the path through the state of the window's new last token, v <- H(z_last(k)) v (
 stay, query = W_Q z_last(k).
 Arms: ctrl | errpath | o (H = I: the path ablation) | t0r (TEFL-style: delta_i = W2 ReLU(W1 [e_{i-1}, e_i]), zeros where absent; in the
 rollout the origin's [e_{N-2}, e_{N-1}] for every step). W2 = 0: every arm == ctrl at init. Module lr = 10x the backbone lr (fixed ratio).
+Error dropout (--keep p < 1, training only; user 2026-10-23, against the in-sample-error generalisation gap): per sample, variable and
+lookback slot, the error e_{j+1} is kept with probability p and scaled by 1/p (inverted dropout: E[train input] = the test input), else 0.
 Audits: zero | noH (errpath, H = I at inference) | uniform (o / errpath: a = 1 / #observed slots).
 usage: python pat_fb/tf_timerxl.py --data E1|W --arm errpath --rank 8 --seed 2021"""
 import argparse, json, os, sys, time
@@ -33,10 +35,11 @@ from pat_fb.joint_timerxl import LR, build_backbone, forward_states
 
 
 class Module(nn.Module):
-    def __init__(self, arm, d_model, rank=8, nh=4, dk=8):
+    def __init__(self, arm, d_model, rank=8, nh=4, dk=8, keep=1.0):
         super().__init__()
         assert arm in ('ctrl', 't0r', 'o', 'errpath'), arm
-        self.arm, self.r, self.nh, self.dk, self.audit = arm, rank, nh, dk, None
+        assert 0 < keep <= 1, keep
+        self.arm, self.r, self.nh, self.dk, self.keep, self.audit = arm, rank, nh, dk, keep, None
         if arm == 't0r':
             self.W1 = nn.Linear(2 * P, rank, bias=False)
         if arm in ('o', 'errpath'):
@@ -105,6 +108,8 @@ def tf_pass(bb, mod, x):
     if mod.arm == 'ctrl' or mod.audit == 'zero':
         return out, sd0, None
     E = ((x[:, P:] - out[:, :-P]) / sd0).reshape(b, L // P - 1, P, c).permute(0, 3, 1, 2).detach()
+    if mod.training and mod.keep < 1:                                                       # inverted slot dropout on the errors
+        E = E * ((torch.rand(E.shape[:3], device=E.device) < mod.keep).to(E.dtype) / mod.keep).unsqueeze(-1)
     D, mem = mod.teacher_forced(E, Z)                                                       # (b, C, N-1, P)
     corr = torch.cat([torch.zeros_like(D[:, :, :1]), D], 2).permute(0, 2, 3, 1).reshape(b, L, c) * sd0   # position 0 uncorrected
     return out + corr, sd0, mem
@@ -151,11 +156,12 @@ def main():
     ap.add_argument('--rank', type=int, default=8); ap.add_argument('--seed', type=int, default=2021)
     ap.add_argument('--epochs', type=int, default=10); ap.add_argument('--patience', type=int, default=3)
     ap.add_argument('--bs', type=int, default=32); ap.add_argument('--mod_lr_mult', type=float, default=10.0); ap.add_argument('--out', default=None)
+    ap.add_argument('--keep', type=float, default=1.0, help='error (slot) keep probability in training, inverted dropout')
     a = ap.parse_args()
     dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.manual_seed(a.seed); np.random.seed(a.seed)
     bb = build_backbone(a.data).to(dev)
-    mod = Module(a.arm, CFG[a.data]['d_model'], rank=a.rank).to(dev)
+    mod = Module(a.arm, CFG[a.data]['d_model'], rank=a.rank, keep=a.keep).to(dev)
     xs = {f: split_x(a.data, f) for f in ('train', 'val', 'test')}
     lr = LR[a.data]
     groups = [dict(params=list(bb.parameters()), lr=lr, base=lr)]
@@ -163,7 +169,7 @@ def main():
         groups.append(dict(params=list(mod.parameters()), lr=lr * a.mod_lr_mult, base=lr * a.mod_lr_mult))
     opt = torch.optim.Adam(groups)
     ntr = len(xs['train']) - L - P + 1                                                      # the official train windows
-    tag = a.arm + ('' if a.arm == 'ctrl' else f'_r{a.rank}')
+    tag = a.arm + ('' if a.arm == 'ctrl' else f'_r{a.rank}') + (f'_k{a.keep:g}' if a.keep < 1 else '')
     npar = sum(p.numel() for p in mod.parameters())
     print(f'[tf] {a.data} arm {tag} | module params {npar} | train windows {ntr} | lr {lr} (module x{a.mod_lr_mult}) | official recipe', flush=True)
     path = os.path.join(ROOT, 'checkpoints', 'pat311_tf', f'{a.data}_{tag}_s{a.seed}.pth')
@@ -192,7 +198,7 @@ def main():
             g['lr'] = g['base'] * (0.1 ** (ep + 1))
     ck = torch.load(path, map_location=dev)
     bb.load_state_dict(ck['bb']); mod.load_state_dict(ck['mod']); bb.eval(); mod.eval()
-    res = dict(data=a.data, arm=a.arm, rank=a.rank, seed=a.seed, params=npar, best_val=best, test={})
+    res = dict(data=a.data, arm=a.arm, rank=a.rank, keep=a.keep, seed=a.seed, params=npar, best_val=best, test={})
     audits = {'t0r': ('zero',), 'o': ('zero', 'uniform'), 'errpath': ('zero', 'noH', 'uniform')}.get(a.arm, ())
     for H in HS:
         mse, mae = evaluate(bb, mod, xs['test'], H, dev)

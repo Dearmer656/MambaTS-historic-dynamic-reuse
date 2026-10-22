@@ -6,7 +6,8 @@
 5 position 0 is not corrected; position i's correction lands on its own forecast (patch i+1)
 6 rollout: the memory is the lookback errors only; at step k the values are H(z_last(k)) ... H(z_last(1)) of the origin values, keys fixed
 7 t0r position i reads [e_{i-1}, e_i]; noH == o with the same weights
-8 one training step: backbone and every module weight get gradients"""
+8 one training step: backbone and every module weight get gradients
+9 error dropout: off at eval (keep < 1 module == keep 1 module, same weights); in training E[input] == the errors (Monte Carlo)"""
 import sys
 from math import sqrt
 from pathlib import Path
@@ -129,4 +130,26 @@ assert any(p_.grad is not None and p_.grad.abs().sum() > 0 for p_ in bb.paramete
 for n_ in ('W2', 'W1', 'U', 'Wq', 'Wk', 'Ww', 'Wb'):
     assert getattr(mod, n_).weight.grad is not None and getattr(mod, n_).weight.grad.abs().sum() > 0, n_
 print('8 ok: backbone and every module weight get gradients from L_tf')
+
+# 9 error dropout
+from pat_fb import tf_timerxl as T
+mk = Module('t0r', dm, keep=0.5).to(dev); mk.load_state_dict(t.state_dict())
+bb.eval()                                                                                   # test 8 left the backbone in train mode
+with torch.no_grad():
+    mk.eval(); t.eval()
+    assert torch.equal(rollout(bb, mk, x, 8), rollout(bb, t, x, 8))
+    seen = []
+    orig = mk.teacher_forced
+    mk.teacher_forced = lambda E_, Z_: (seen.append(E_), orig(E_, Z_))[1]
+    mk.train()
+    for _ in range(400):
+        tf_pass(bb, mk, x[:4])
+    mk.teacher_forced = orig
+    Em = torch.stack(seen).mean(0)
+    out4, sd4, Z4 = forward_states(bb, x[:4])
+    E4 = ((x[:4, P:] - out4[:, :-P]) / sd4).reshape(4, N - 1, P, -1).permute(0, 3, 1, 2)
+    rel = ((Em - E4).norm() / E4.norm()).item()
+    zero_frac = torch.stack([(s_.abs().sum(-1) == 0).float().mean() for s_ in seen]).mean().item()
+    assert rel < 0.1 and abs(zero_frac - 0.5) < 0.02, (rel, zero_frac)
+print(f'9 ok: dropout off at eval; train E[input] == errors (rel err {rel:.3f}), dropped slot fraction {zero_frac:.3f}')
 print('ALL OK')

@@ -1,5 +1,5 @@
 #!/bin/bash
-# PAT-311 Timer-XL (official recipe) + error feedback. usage: sbatch pat_slurm/tf.sbatch E1|W SEED ARM [RANK]   ARM: ctrl|errpath|o|t0r
+# PAT-311 Timer-XL (official recipe) + error feedback. usage: sbatch pat_slurm/tf.sbatch E1|W SEED ARM [RANK] [KEEP]   ARM: ctrl|errpath|o|t0r
 #SBATCH --job-name=pat311_tf
 #SBATCH --output=pat_logs/slurm_%j.txt
 #SBATCH --partition=gpu_long
@@ -10,6 +10,6 @@
 cd /project/nlp-work5/hongyu-s/state_path_attn/OpenLTM
 export PYTHONPATH=/project/nlp-work5/hongyu-s/state_path_attn/_pylib:$PYTHONPATH
 export PATH=/cl/work5/hongyu-s/conda/envs/mamba_iso/bin:$PATH
-D=$1; s=$2; ARM=$3; R=${4:-8}
+D=$1; s=$2; ARM=$3; R=${4:-8}; K=${5:-1}
 echo "commit $(git rev-parse --short HEAD) tf $D seed $s arm $ARM r $R"
-python -u pat_fb/tf_timerxl.py --data $D --arm $ARM --rank $R --seed $s > pat_logs/tf_${D}_${ARM}_r${R}_s$s.txt 2>&1
+python -u pat_fb/tf_timerxl.py --data $D --arm $ARM --rank $R --seed $s --keep $K > pat_logs/tf_${D}_${ARM}_r${R}_k${K}_s$s.txt 2>&1
