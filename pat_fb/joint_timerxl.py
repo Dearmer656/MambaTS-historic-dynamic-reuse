@@ -169,12 +169,28 @@ def val_roll(bb, mod, xs, dev, bs=64):
     return tot / n
 
 
+@torch.no_grad()
+def val_last(bb, xs, dev, bs=64):
+    """The official early-stopping loss (exp_forecast.vali with valid_last): MSE of the last token's next-patch forecast on every val
+    window with a P-step future (= the H = 96 one-step forecast), averaged over batches weighted by batch size."""
+    n = len(xs) - L - P + 1
+    tot = 0.0
+    for i0 in range(0, n, bs):
+        x, y = windows(xs, list(range(i0, min(i0 + bs, n))), P, dev)
+        tot += (bb_forward(bb, x)[0][:, -P:] - y).square().mean().item() * x.shape[0]
+    return tot / n
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--data', required=True, choices=['E1', 'W']); ap.add_argument('--arm', default='errpath')
     ap.add_argument('--rank', type=int, default=8); ap.add_argument('--seed', type=int, default=2021)
     ap.add_argument('--epochs', type=int, default=10); ap.add_argument('--patience', type=int, default=3)
     ap.add_argument('--bs', type=int, default=32); ap.add_argument('--mod_lr_mult', type=float, default=10.0); ap.add_argument('--out', default=None)
+    ap.add_argument('--no_roll', action='store_true', help='recipe bisect (ctrl only): L = L_tf only, the official train windows (96-step future)')
+    ap.add_argument('--sel', default='roll', choices=['roll', 'last'], help="early stop on val L_roll, or on the official valid_last loss "
+                    "(teacher-forced last-token MSE on the official val windows)")
+    ap.add_argument('--tag', default='')
     a = ap.parse_args()
     dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.manual_seed(a.seed); np.random.seed(a.seed)
@@ -186,12 +202,13 @@ def main():
     if list(mod.parameters()):
         groups.append(dict(params=list(mod.parameters()), lr=lr * a.mod_lr_mult, base=lr * a.mod_lr_mult))
     opt = torch.optim.Adam(groups)
-    Hf = HMAX * P
+    assert not a.no_roll or a.arm == 'ctrl', '--no_roll is a ctrl-only recipe bisect'
+    Hf = P if a.no_roll else HMAX * P
     ntr = len(xs['train']) - L - Hf + 1
-    tag = a.arm + ('' if a.arm == 'ctrl' else f'_r{a.rank}')
+    tag = a.arm + ('' if a.arm == 'ctrl' else f'_r{a.rank}') + a.tag
     npar = sum(p.numel() for p in mod.parameters())
     print(f'[joint] {a.data} arm {tag} | module params {npar} | backbone params {sum(p.numel() for p in bb.parameters())} | train windows {ntr} '
-          f'| lr {lr} (module x{a.mod_lr_mult}) | loss = L_tf + mean_H L_roll(H)', flush=True)
+          f'| lr {lr} (module x{a.mod_lr_mult}) | loss = L_tf' + ('' if a.no_roll else ' + mean_H L_roll(H)') + f' | select {a.sel}', flush=True)
     path = os.path.join(ROOT, 'checkpoints', 'pat311_joint', f'{a.data}_{tag}_s{a.seed}.pth')
     os.makedirs(os.path.dirname(path), exist_ok=True)
     best, bad = float('inf'), 0
@@ -200,14 +217,18 @@ def main():
         bb.train(); mod.train(); t0 = time.time(); ltf, lro = [], []
         for idx in np.array_split(rng.permutation(ntr), max(ntr // a.bs, 1)):
             x, y = windows(xs['train'], idx.tolist(), Hf, dev)
-            out, pred = run(bb, mod, x, HMAX)
+            if a.no_roll:
+                out = forward_states(bb, x)[0]
+                l_ro = torch.zeros((), device=dev)
+            else:
+                out, pred = run(bb, mod, x, HMAX)
+                l_ro = roll_loss(pred, y)
             l_tf = (out - torch.cat([x[:, P:], y[:, :P]], 1)).square().mean()
-            l_ro = roll_loss(pred, y)
             opt.zero_grad(); (l_tf + l_ro).backward(); opt.step()
             ltf.append(l_tf.item()); lro.append(l_ro.item())
         bb.eval(); mod.eval()
-        v = val_roll(bb, mod, xs['val'], dev)
-        print(f'[joint] epoch {ep + 1} {time.time() - t0:.0f}s | train L_tf {np.mean(ltf):.5f} L_roll {np.mean(lro):.5f} | val L_roll {v:.5f}', flush=True)
+        v = val_roll(bb, mod, xs['val'], dev) if a.sel == 'roll' else val_last(bb, xs['val'], dev)
+        print(f'[joint] epoch {ep + 1} {time.time() - t0:.0f}s | train L_tf {np.mean(ltf):.5f} L_roll {np.mean(lro):.5f} | val {a.sel} {v:.5f}', flush=True)
         if v < best:
             best, bad = v, 0
             torch.save(dict(bb=bb.state_dict(), mod=mod.state_dict()), path)
