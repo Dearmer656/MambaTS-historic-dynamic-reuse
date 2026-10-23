@@ -22,7 +22,9 @@ H_s = I - beta_s w_s w_s^T in the q/k space with w_s = normalize(W_w sg h_s), be
 the path continues through the rollout states; audit 'noH' = H = I at inference), vpath=True (PAT-307 O-PathV, the intended
 design: logits = q_t . k_j as O, VALUES transported along the path: m_h = sum_j a_hj H_t ... H_{j+1} e_j with one state-driven
 Householder H_s = I - beta_s w_s w_s^T in the error space (C*P), w_s = normalize(W_wv sg h_s), beta_s = 2 sigmoid(W_bv sg h_s);
-W / gate as O; continues through the rollout; audit 'noH' = H = I = O exactly), plain=True (PAT-307 O-plain, RATL-style: one head, delta = gamma * sum_j a_j e_j with a scalar gamma = 0 at init,
+W / gate as O; continues through the rollout; audit 'noH' = H = I = O exactly), vshare=True (with vpath: the Householder acts in the
+P-dim patch space and the SAME reflection is applied to every variable's error, w_s = normalize(W_wv sg h_s) in R^P; no mixing across
+variables, W_wv d_inner*d_state -> P instead of -> C*P, as TEFL's variable-shared g), plain=True (PAT-307 O-plain, RATL-style: one head, delta = gamma * sum_j a_j e_j with a scalar gamma = 0 at init,
 no per-head W, no gate). Per-sample lookback (lens, see r1_model.py): a slot is valid only from the sample's second valid patch on
 (t >= t0 + 1), combined with the slot-keep mask. Inference audits: None | 'zero' (delta = 0) | 'uniform' (a = 1/M) | 'perm' (values of the M slots permuted:
 key-error pairing broken)."""
@@ -33,14 +35,16 @@ from patchmem.r1_model import R1
 
 
 class ObsMem(nn.Module):
-    def __init__(self, d_inner, d_state, c, P, group=4, qk_dim=8, tau0=1.0, uniform=False, plain=False, path=False, vpath=False):
+    def __init__(self, d_inner, d_state, c, P, group=4, qk_dim=8, tau0=1.0, uniform=False, plain=False, path=False, vpath=False,
+                 vshare=False):
         super().__init__()
+        assert not vshare or vpath, 'vshare needs vpath'
         assert d_inner % group == 0, f'd_inner {d_inner} not divisible by group {group}'
         self.nh, self.dh, self.uniform, self.plain = 1 if plain else d_inner // group, qk_dim, uniform, plain
         assert not (path and uniform), 'path needs q/k'
-        self.path, self.vpath = path, vpath
+        self.path, self.vpath, self.vshare = path, vpath, vshare
         if vpath:
-            self.Wwv = nn.Linear(d_inner * d_state, c * P, bias=False)
+            self.Wwv = nn.Linear(d_inner * d_state, P if vshare else c * P, bias=False)
             self.Wbv = nn.Linear(d_inner * d_state, 1)
         if path:
             self.Ww = nn.Linear(d_inner * d_state, self.nh * qk_dim, bias=False)
@@ -68,12 +72,16 @@ class ObsMem(nn.Module):
         return K - (beta[:, None, :] * proj).unsqueeze(-1) * w[:, None]
 
     def transport_v(self, h, V):
-        """Apply the Householder H(h) in the error space to stored values V (b, M, C, P); identity without vpath or under 'noH'."""
+        """Apply the Householder H(h) in the error space to stored values V (b, M, C, P); identity without vpath or under 'noH'.
+        vshare: H acts on the P-dim patch of every variable with the same w (b, P)."""
         if not self.vpath or self.audit == 'noH':
             return V
         z = h.detach().flatten(1)
-        w = F.normalize(self.Wwv(z), dim=-1)                                            # (b, C*P)
+        w = F.normalize(self.Wwv(z), dim=-1)                                            # (b, C*P), vshare (b, P)
         beta = 2 * torch.sigmoid(self.Wbv(z))                                           # (b, 1)
+        if self.vshare:
+            proj = torch.einsum('bmcp,bp->bmc', V, w)
+            return V - (beta[:, :, None] * proj).unsqueeze(-1) * w[:, None, None, :]
         Vf = V.flatten(2)
         Vf = Vf - (beta * torch.einsum('bmd,bd->bm', Vf, w)).unsqueeze(-1) * w[:, None]
         return Vf.reshape(V.shape)
@@ -110,10 +118,10 @@ class ObsMem(nn.Module):
 
 class R1Obs(R1):
     def __init__(self, cfg, readout_ln=False, mem_group=4, qk_dim=8, slot_keep=1.0, uniform=False, feed=True, plain=False, path=False,
-                 vpath=False):
+                 vpath=False, vshare=False):
         super().__init__(cfg, readout_ln=readout_ln)
         self.obs_net = ObsMem(self.D, self.N, self.c, self.P, group=mem_group, qk_dim=qk_dim, uniform=uniform, plain=plain, path=path,
-                              vpath=vpath)
+                              vpath=vpath, vshare=vshare)
         self.slot_keep, self.feed = slot_keep, feed
         self.audit, self.audit_gen = None, None
         self.mem_stats = {}
