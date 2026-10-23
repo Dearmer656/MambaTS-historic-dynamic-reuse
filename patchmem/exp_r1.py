@@ -36,6 +36,7 @@ Env:
                          R1_OBS_VPATH=1: values (errors) transported by a state-driven Householder path, logits as O;
                          R1_OBS_PATH=1: PaTH-style logits q^T H_t..H_{j+1} k (per-head state-driven Householder, values untouched);
                          R1_OBS_VSHARE=1 (with R1_OBS_VPATH=1): the error path shared across variables (Householder in the P-dim patch space)
+                         R1_OBS_VSRC=e (with R1_OBS_VPATH=1): ErrPath-e, the value Householder driven by the newly written error, H = I in the rollout
                          R1_OBS_PLAIN=1: one head, correction = gamma * retrieved errors (scalar gamma, no W / gate; RATL-style)
   R1_OBS_MS=1            O-MS (patchmem/r1_msres.py): lead-matched retrieval of multi-step residuals of free-running rollouts from every
                          lookback origin (K = R1_HMAX leads); R1_TEFL=ms: T0-MS, TEFL-style g on one origin's K lead errors
@@ -183,8 +184,9 @@ class Exp_R1(Exp_Long_Term_Forecast):
                       qk_dim=int(os.environ.get('R1_MEM_QK_DIM') or 8), slot_keep=float(os.environ.get('R1_MEM_SLOT_KEEP', '1')),
                       uniform=os.environ.get('R1_MEM_UNIFORM', '0') == '1', feed=os.environ.get('R1_OBS_FEED', '1') == '1',
                       plain=os.environ.get('R1_OBS_PLAIN', '0') == '1', path=os.environ.get('R1_OBS_PATH', '0') == '1',
-                      vpath=os.environ.get('R1_OBS_VPATH', '0') == '1', vshare=os.environ.get('R1_OBS_VSHARE', '0') == '1').float()
-            print(f'R1Obs: ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} uniform {m.obs_net.uniform} plain {m.obs_net.plain} path {m.obs_net.path} vpath {m.obs_net.vpath} vshare {m.obs_net.vshare} '
+                      vpath=os.environ.get('R1_OBS_VPATH', '0') == '1', vshare=os.environ.get('R1_OBS_VSHARE', '0') == '1',
+                      vsrc=os.environ.get('R1_OBS_VSRC', 'h')).float()
+            print(f'R1Obs: ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} uniform {m.obs_net.uniform} plain {m.obs_net.plain} path {m.obs_net.path} vpath {m.obs_net.vpath} vshare {m.obs_net.vshare} vsrc {m.obs_net.vsrc} '
                   f'({sum(p.numel() for p in m.obs_net.parameters())} params) | train slot keep {m.slot_keep} | feed forecast {m.feed}', flush=True)
         elif os.environ.get('R1_TEFL'):
             m = R1Tefl(a, readout_ln=ro_ln, mode=os.environ['R1_TEFL'], hc=int(os.environ.get('R1_TEFL_HC', '2')),

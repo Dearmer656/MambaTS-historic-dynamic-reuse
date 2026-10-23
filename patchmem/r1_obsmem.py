@@ -24,7 +24,11 @@ design: logits = q_t . k_j as O, VALUES transported along the path: m_h = sum_j 
 Householder H_s = I - beta_s w_s w_s^T in the error space (C*P), w_s = normalize(W_wv sg h_s), beta_s = 2 sigmoid(W_bv sg h_s);
 W / gate as O; continues through the rollout; audit 'noH' = H = I = O exactly), vshare=True (with vpath: the Householder acts in the
 P-dim patch space and the SAME reflection is applied to every variable's error, w_s = normalize(W_wv sg h_s) in R^P; no mixing across
-variables, W_wv d_inner*d_state -> P instead of -> C*P, as TEFL's variable-shared g), plain=True (PAT-307 O-plain, RATL-style: one head, delta = gamma * sum_j a_j e_j with a scalar gamma = 0 at init,
+variables, W_wv d_inner*d_state -> P instead of -> C*P, as TEFL's variable-shared g), vsrc='e' (with vpath, PAT-307 ErrPath-e: the
+Householder is driven by the ERROR that joins the memory, not by the state: when slot i's error e_i is written, the older values are
+transported by H(e_i) = I - beta_i w_i w_i^T, w_i = normalize(W_wv e_i), beta_i = 2 sigmoid(W_bv e_i) in the C*P error space, so
+V[:, j] = H(e_{T-1}) ... H(e_{j+1}) e_j; a slot dropped by the slot-keep / lookback mask does not transport (H = I); no new errors are
+observed in the rollout, so H = I there), plain=True (PAT-307 O-plain, RATL-style: one head, delta = gamma * sum_j a_j e_j with a scalar gamma = 0 at init,
 no per-head W, no gate). Per-sample lookback (lens, see r1_model.py): a slot is valid only from the sample's second valid patch on
 (t >= t0 + 1), combined with the slot-keep mask. Inference audits: None | 'zero' (delta = 0) | 'uniform' (a = 1/M) | 'perm' (values of the M slots permuted:
 key-error pairing broken)."""
@@ -36,14 +40,18 @@ from patchmem.r1_model import R1
 
 class ObsMem(nn.Module):
     def __init__(self, d_inner, d_state, c, P, group=4, qk_dim=8, tau0=1.0, uniform=False, plain=False, path=False, vpath=False,
-                 vshare=False):
+                 vshare=False, vsrc='h'):
         super().__init__()
         assert not vshare or vpath, 'vshare needs vpath'
+        assert vsrc in ('h', 'e') and (vsrc == 'h' or (vpath and not vshare)), (vsrc, vpath, vshare)
         assert d_inner % group == 0, f'd_inner {d_inner} not divisible by group {group}'
         self.nh, self.dh, self.uniform, self.plain = 1 if plain else d_inner // group, qk_dim, uniform, plain
         assert not (path and uniform), 'path needs q/k'
-        self.path, self.vpath, self.vshare = path, vpath, vshare
-        if vpath:
+        self.path, self.vpath, self.vshare, self.vsrc = path, vpath, vshare, vsrc
+        if vpath and vsrc == 'e':                                                       # error-driven: C*P -> C*P direction
+            self.Wwv = nn.Linear(c * P, c * P, bias=False)
+            self.Wbv = nn.Linear(c * P, 1)
+        elif vpath:
             self.Wwv = nn.Linear(d_inner * d_state, P if vshare else c * P, bias=False)
             self.Wbv = nn.Linear(d_inner * d_state, 1)
         if path:
@@ -86,6 +94,21 @@ class ObsMem(nn.Module):
         Vf = Vf - (beta * torch.einsum('bmd,bd->bm', Vf, w)).unsqueeze(-1) * w[:, None]
         return Vf.reshape(V.shape)
 
+    def transport_e(self, e, V, keep=None):
+        """ErrPath-e: apply H(e) = I - beta w w^T, w = normalize(W_wv e), beta = 2 sigmoid(W_bv e), driven by the newly written error
+        e (b, C, P), to the older values V (b, M, C, P) in the C*P space; keep (b,) bool: samples whose slot was not written get H = I.
+        Identity under audit 'noH'."""
+        if self.audit == 'noH':
+            return V
+        z = e.detach().flatten(1)
+        w = F.normalize(self.Wwv(z), dim=-1)                                            # (b, C*P)
+        beta = 2 * torch.sigmoid(self.Wbv(z))                                           # (b, 1)
+        if keep is not None:
+            beta = beta * keep.to(beta.dtype)[:, None]
+        Vf = V.flatten(2)
+        Vf = Vf - (beta * torch.einsum('bmd,bd->bm', Vf, w)).unsqueeze(-1) * w[:, None]
+        return Vf.reshape(V.shape)
+
     def key(self, h):
         if self.uniform:
             return h.new_zeros(h.shape[0], self.nh, 0)
@@ -118,10 +141,10 @@ class ObsMem(nn.Module):
 
 class R1Obs(R1):
     def __init__(self, cfg, readout_ln=False, mem_group=4, qk_dim=8, slot_keep=1.0, uniform=False, feed=True, plain=False, path=False,
-                 vpath=False, vshare=False):
+                 vpath=False, vshare=False, vsrc='h'):
         super().__init__(cfg, readout_ln=readout_ln)
         self.obs_net = ObsMem(self.D, self.N, self.c, self.P, group=mem_group, qk_dim=qk_dim, uniform=uniform, plain=plain, path=path,
-                              vpath=vpath, vshare=vshare)
+                              vpath=vpath, vshare=vshare, vsrc=vsrc)
         self.slot_keep, self.feed = slot_keep, feed
         self.audit, self.audit_gen = None, None
         self.mem_stats = {}
@@ -176,7 +199,10 @@ class R1Obs(R1):
             if self.obs_net.vpath:                                                      # values along the path (after the perm audit)
                 Vt = V[:, :1]
                 for i in range(1, T - 1):
-                    Vt = torch.cat([self.obs_net.transport_v(bstates[:, i + 1], Vt), V[:, i:i + 1]], 1)
+                    if self.obs_net.vsrc == 'e':                                        # slot i's error drives H, then joins
+                        Vt = torch.cat([self.obs_net.transport_e(V[:, i], Vt, None if mask is None else mask[:, i]), V[:, i:i + 1]], 1)
+                    else:
+                        Vt = torch.cat([self.obs_net.transport_v(bstates[:, i + 1], Vt), V[:, i:i + 1]], 1)
                 V = Vt                                                                  # V[:, j] = H_{T-1} ... H_{j+1} e_j
         base = yh[:, -1]
         outs = []
@@ -187,7 +213,7 @@ class R1Obs(R1):
                 base = self.to_orig(self.read(states[-1]).unsqueeze(1), perm).squeeze(1)
                 if T >= 2 and self.obs_net.path:                                        # the path continues through the rollout
                     K = self.obs_net.transport(states[-1], K)
-                if T >= 2 and self.obs_net.vpath:
+                if T >= 2 and self.obs_net.vpath and self.obs_net.vsrc == 'h':          # vsrc 'e': no new error, H = I
                     V = self.obs_net.transport_v(states[-1], V)
             h = bstates[:, -1] if k == 0 else states[-1]
             outs.append(base + self._correct(h, K, V, mask) if T >= 2 else base)

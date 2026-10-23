@@ -1,7 +1,7 @@
 #!/bin/bash
 # PAT-307 frozen R1: the backbone of the trained plain R1 (A1, same seed) is loaded and frozen (eval mode, fixed eval scan order, no VPT
 # cost update); only the correction module is trained, same variable-length recipe / early stopping / test grid as the joint arms.
-# usage: sbatch patchmem/slurm/frz_job.sbatch E|W ARM SEED   ARM: O|EP|T0|T0r
+# usage: sbatch patchmem/slurm/frz_job.sbatch E|W ARM SEED   ARM: O|EP|EPe|T0|T0r
 #SBATCH --job-name=pat307_frz
 #SBATCH --output=patchmem/logs/server/slurm_%j.txt
 #SBATCH --partition=gpu_long
@@ -17,6 +17,7 @@ export SEED=$s
 case $ARM in
   O) export R1_OBS=1 R1_MEM_QK_DIM=8 R1_MEM_SLOT_KEEP=0.5 ;;
   EP) export R1_OBS=1 R1_OBS_VPATH=1 R1_MEM_QK_DIM=8 R1_MEM_SLOT_KEEP=0.5 ;;
+  EPe) export R1_OBS=1 R1_OBS_VPATH=1 R1_OBS_VSRC=e R1_MEM_QK_DIM=8 R1_MEM_SLOT_KEEP=0.5 ;;
   T0) export R1_TEFL=native R1_TEFL_HC=0 R1_TEFL_RANK=64 ;;
   T0r) export R1_TEFL=native R1_TEFL_HC=2 R1_TEFL_RANK=64 ;;
   *) echo "unknown arm $ARM"; exit 1 ;;
