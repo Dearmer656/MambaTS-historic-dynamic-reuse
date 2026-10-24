@@ -29,7 +29,7 @@ ErrPath-shared = O-ErrPath with the Householder path in the P-dim patch space, t
 ### Task 6 (current, updated 2026-10-25): TEFL compiled into ICL, short H
 
 
-**2026-10-25 update:** stop the old task 6 run. New default = stages 5 / 6: Weather H96 then H192, arms a1 / tefl / hyb x 3 seeds
+**2026-10-25 update (2):** ALL laptop task 6 runs stopped; the Weather a1 / tefl / hyb check runs on the server (job 7481). Nothing to run here.
 (`git pull origin laptop && bash laptop/run_tefl_icl.sh`). Reason: on ETTh2 H96 hyb beat TEFL 3/3 seeds; this checks it on Weather.
 
 ```bash
