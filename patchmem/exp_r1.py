@@ -53,8 +53,8 @@ Env:
   R1_DIAG_VAL_BATCHES    eval batches per (L, H) with memory diagnostics at every validation (default 2)
   R1_TEFL=ms R1_ICL=id|tied|qk|hyb  R1TeflICL (patchmem/r1_tefl_icl.py): T0-MS with W2 replaced ('id', 'tied', 'qk') or corrected ('hyb')
                          by the one-step-GD map of a linear attention over in-window demos (error of origin j -> error of origin j+K);
-                         R1_ICL_ETA0 (eta init, default 0), R1_ICL_ETA_FIX=1 (eta not trained), R1_ICL_KH=1 ('id' only: error length
-                         K = the forecast's H instead of Hmax). Extra audits icloff / iclperm<s>
+                         R1_ICL_ETA0 (eta init, default 0), R1_ICL_ETA_FIX=1 (eta not trained), R1_ICL_KH=1 (error length K = the
+                         forecast's H instead of Hmax, zero-padded; R1_ICL=hyb R1_ICL_ETA0=0 R1_ICL_ETA_FIX=1 = plain TEFL-KH). Extra audits icloff / iclperm<s>
   R1_EVAL_FROM           test-only runs (--is_training 0): load this checkpoint (strict=False, missing keys keep their init) instead of
                          the setting's own (offline arms on a trained A1 / T0-MS checkpoint)
   R1_AUDIT=0             skip the same-checkpoint inference audits after test (memory runs; default 1)

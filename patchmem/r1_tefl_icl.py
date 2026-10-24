@@ -11,8 +11,10 @@ free-running rollout from j, current window's RevIN, multistep_residuals). Demon
 One GD step from W = 0 on the demos in feature space phi: W_impl = sum_j v_j phi(k_j)^T, delta_icl = W_impl phi(q) (= linear attention).
 Step size normalised so the term is bounded by max |v_j| and scale free: delta_icl = eta_k sum_j v_j <phi(k_j), phi(q)> /
 (|phi(q)| sum_j |phi(k_j)|) (one demo with k = q gives eta * v).
-  variant 'id'  : phi = identity (no learned map; the offline zero-parameter arm, eta fixed 1). k_follow=True: K = the forecast's
-                  H in patches (min(n_out, Hmax)) instead of Hmax (TEFL's error length = H; n = T-2K demos, e.g. L720 H96: 11)
+  variant 'id'  : phi = identity (no learned map; the offline zero-parameter arm, eta fixed 1)
+k_follow=True (any variant): K = the forecast's H in patches (min(n_out, Hmax)) instead of Hmax (TEFL's error length = H; n = T-2K
+demos, e.g. L720 H96: 11). eps and the demo errors are zero-padded on leads K+1..Hmax so W1 keeps its input size; training samples H,
+so one model covers every H. 'hyb' with eta fixed at 0 is plain TEFL with this input (TEFL-KH).
   variant 'tied': phi = ReLU(W1 .), W2 frozen at 0 (TEFL with W2 replaced by W_impl; same W1 as TEFL)
   variant 'qk'  : q = Wq eps, k = Wk k_j (independent low-rank linear maps, rank = TEFL rank), W1 / W2 unused
   variant 'hyb' : delta = W2 phi(q) + eta_k sum_j (v_j - W2 phi(k_j)) <phi(k_j), phi(q)> / (...): one GD step on the demos starting
@@ -45,7 +47,6 @@ class R1TeflICL(R1TeflMS):
     def __init__(self, cfg, variant='tied', eta0=0.0, eta_learn=True, k_follow=False, **kw):
         super().__init__(cfg, **kw)
         assert variant in ('id', 'tied', 'qk', 'hyb'), variant
-        assert not k_follow or variant == 'id', 'K = H only for the map-free id arm (learned maps have a fixed input size)'
         self.variant, self.k_follow, self.n_out = variant, k_follow, None
         r = self.W1.out_features
         if variant == 'qk':
@@ -79,8 +80,11 @@ class R1TeflICL(R1TeflMS):
         tok = self.embed(self.to_scan(xo, perm)).reshape(b, T * c, -1)
         E, avail = multistep_residuals(self, tok, xo, perm, tm, t0, K)                 # (b, T-1, K, C, P), (b, T-1, K)
         eps, self.demo = demos(E, avail, K)
-        if K < self.hmax:                                                                # zero-pad to din (W1 / W2 unused by 'id')
-            eps = torch.cat([eps, eps.new_zeros(b, c, (self.hmax - K) * P)], -1)
+        if K < self.hmax:                                                                # zero-pad leads K+1..Hmax: W1 input size fixed
+            pad = lambda e: torch.cat([e, e.new_zeros(*e.shape[:-1], (self.hmax - K) * P)], -1)
+            eps = pad(eps)
+            if self.demo is not None:
+                self.demo.update(k=pad(self.demo['k']), v=pad(self.demo['v']))
         return eps
 
     def phi(self, e, role):
@@ -97,8 +101,7 @@ class R1TeflICL(R1TeflMS):
         if D is None or self.audit == 'icloff':
             return delta
         b, c, hmax, P = delta.shape
-        KP = D['k'].shape[-1]                                                            # K*P (< din when k_follow)
-        q = self.phi(eps[..., :KP], 'q')                                                 # (b, C, r)
+        q = self.phi(eps, 'q')                                                           # (b, C, r) (zero padding: same dot / norm for 'id')
         k = self.phi(D['k'], 'k')                                                        # (b, n, C, r)
         v = D['v']                                                                       # (b, n, C, K*P)
         if self.variant == 'hyb':
@@ -110,6 +113,4 @@ class R1TeflICL(R1TeflMS):
         s = (k * q[:, None]).sum(-1) * m                                                 # (b, n, C)
         den = q.norm(dim=-1) * (k.norm(dim=-1) * m).sum(1) + 1e-6                       # (b, C)
         icl = (s[..., None] * v).sum(1) / den[..., None]                                 # (b, C, K*P)
-        if KP < hmax * P:
-            icl = torch.cat([icl, icl.new_zeros(b, c, hmax * P - KP)], -1)
         return delta + icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]
