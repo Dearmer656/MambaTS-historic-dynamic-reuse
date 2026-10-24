@@ -107,7 +107,21 @@ def test_k_follow_padding_invariant():
     assert D['k'].shape[1] == 15 - 4                                                                 # L720 H96: 11 demos
 
 
+def test_ridge_matches_primal():
+    s, d, e = stub('ridge', n=4, K=3)
+    s.demo['mask'][0, 2:] = False
+    out = R1TeflICL.extra_delta(s, d, e, None).reshape(e.shape)
+    import patchmem.r1_tefl_icl as m_
+    for bi in range(e.shape[0]):
+        for ci in range(e.shape[1]):
+            mk = s.demo['mask'][bi]
+            K, V = s.demo['k'][bi, mk, ci], s.demo['v'][bi, mk, ci]
+            W = torch.linalg.solve(K.T @ K + m_.RIDGE_LAM * torch.eye(K.shape[1]), K.T @ V)
+            assert torch.allclose(out[bi, ci], e[bi, ci] @ W, atol=1e-4)
+
+
 if __name__ == '__main__':
+    test_ridge_matches_primal()
     test_k_follow_padding_invariant()
     test_demos_no_leak_and_query(); test_id_one_demo_equal_key_returns_value(); test_formula_bounded_and_mask()
     test_hyb_starts_from_w2_and_offs(); test_iclperm_keeps_values_set_and_grads_finite(); print('ok')
