@@ -51,7 +51,7 @@ Env:
                          R1_TEFL_FEED=0 feeds the backbone patch back, R1_TEFL_EXTRAP last|zero beyond Hmax patches (default last)
   R1_DIAG_EVERY          training diagnostics (JSONL) every N steps (default 100; 0 = off)
   R1_DIAG_VAL_BATCHES    eval batches per (L, H) with memory diagnostics at every validation (default 2)
-  R1_TEFL=ms R1_ICL=id|tied|qk|hyb  R1TeflICL (patchmem/r1_tefl_icl.py): T0-MS with W2 replaced ('id', 'tied', 'qk') or corrected ('hyb')
+  R1_TEFL=ms R1_ICL=id|tied|qk|hyb|ridge|hybridge  R1TeflICL (patchmem/r1_tefl_icl.py): T0-MS with W2 replaced ('id', 'tied', 'qk') or corrected ('hyb')
                          by the one-step-GD map of a linear attention over in-window demos (error of origin j -> error of origin j+K);
                          R1_ICL_ETA0 (eta init, default 0), R1_ICL_ETA_FIX=1 (eta not trained), R1_ICL_KH=1 (error length K = the
                          forecast's H instead of Hmax, zero-padded; R1_ICL_KEY=ced: EFC anti-diagonal keys, id / ridge only; R1_ICL_RLAM=s (ridge lam = s mean|k|^2;
