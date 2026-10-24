@@ -211,3 +211,4 @@ Updating learning rate to 3.125e-05
 	iters: 100, epoch: 7 | L 1296 H 96 | future mse 1.91506 hist mse 0.46733 | mem delta_rms 0.373 eps_rms 1.38
 	iters: 200, epoch: 7 | L 864 H 96 | future mse 0.26627 hist mse 0.52941 | mem delta_rms 0.511 eps_rms 0.962
 	iters: 300, epoch: 7 | L 912 H 96 | future mse 0.46526 hist mse 0.30677 | mem delta_rms 0.314 eps_rms 1.16
+	iters: 400, epoch: 7 | L 432 H 96 | future mse 0.25397 hist mse 0.23161 | mem delta_rms 0.368 eps_rms 0.906
