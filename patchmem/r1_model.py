@@ -90,7 +90,7 @@ class R1(nn.Module):
 
     def scan_order(self, b, device):
         """(b, C) scan order pi: pi[:, k] = original variable scanned at position k."""
-        if self.vpt and self.training:
+        if self.vpt and self.training and not getattr(self, 'fixed_scan', False):   # fixed_scan: frozen backbone, deployed order
             self.ids_shuffle = None                                                     # as the original: re-solve at the next eval
             perm = torch.rand(b, self.c, device=device).argsort(1)
             ids_ = torch.cat([perm[:, :1], perm], 1)                                    # start tuple (pi_1, pi_1), then pi_k -> pi_k+1

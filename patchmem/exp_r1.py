@@ -15,6 +15,8 @@ Env:
   R1_EVAL_PERM           fixed evaluation scan order 'v0,v1,...' (overrides the ATSP order; matched-pi comparisons across models)
   R1_ATSP_SEED           numpy seed of the evaluation ATSP solve (default 0): the eval order is a deterministic function of the adjacency
   R1_MAX_ITERS           stop each training epoch after this many iterations (smoke runs; default 0 = full epoch)
+  R1_FREEZE_FROM         checkpoint of a trained plain R1 (A1): the backbone is loaded from it and frozen (no gradient, eval mode =
+                         no dropout, VPT cost not updated); only the correction module (obs_net / TEFL W1, W2) is trained (PAT-307 frozen-R1)
   R1_MEM=1               R1 + state-level retrieval memory (patchmem/r1_mem.py, R1Mem); default 0 = plain R1 baseline
   R1_CORR                CorrNet variant for the memory values: gated (default, GatedCorrNet: C(h, e=0) = 0) | shared | shared_id | channel
   R1_MEM_GROUP           StateMem channels per softmax head (default 4)
@@ -34,6 +36,9 @@ Env:
                          R1_OBS_VPATH=1: values (errors) transported by a state-driven Householder path, logits as O;
                          R1_OBS_PATH=1: PaTH-style logits q^T H_t..H_{j+1} k (per-head state-driven Householder, values untouched);
                          R1_OBS_VSHARE=1 (with R1_OBS_VPATH=1): the error path shared across variables (Householder in the P-dim patch space)
+                         R1_OBS_VSRC=e (with R1_OBS_VPATH=1): ErrPath-e, the value Householder driven by the newly written error, H = I in the rollout
+                         R1_OBS_VSRC=x: ErrPath-x, H driven by the observed patch (the fed-back patch in the rollout)
+                         R1_OBS_FORGET=1: FoX-style forget gate on the logits driven by the written error (audit 'noF' removes it)
                          R1_OBS_PLAIN=1: one head, correction = gamma * retrieved errors (scalar gamma, no W / gate; RATL-style)
   R1_OBS_MS=1            O-MS (patchmem/r1_msres.py): lead-matched retrieval of multi-step residuals of free-running rollouts from every
                          lookback origin (K = R1_HMAX leads); R1_TEFL=ms: T0-MS, TEFL-style g on one origin's K lead errors
@@ -181,8 +186,9 @@ class Exp_R1(Exp_Long_Term_Forecast):
                       qk_dim=int(os.environ.get('R1_MEM_QK_DIM') or 8), slot_keep=float(os.environ.get('R1_MEM_SLOT_KEEP', '1')),
                       uniform=os.environ.get('R1_MEM_UNIFORM', '0') == '1', feed=os.environ.get('R1_OBS_FEED', '1') == '1',
                       plain=os.environ.get('R1_OBS_PLAIN', '0') == '1', path=os.environ.get('R1_OBS_PATH', '0') == '1',
-                      vpath=os.environ.get('R1_OBS_VPATH', '0') == '1', vshare=os.environ.get('R1_OBS_VSHARE', '0') == '1').float()
-            print(f'R1Obs: ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} uniform {m.obs_net.uniform} plain {m.obs_net.plain} path {m.obs_net.path} vpath {m.obs_net.vpath} vshare {m.obs_net.vshare} '
+                      vpath=os.environ.get('R1_OBS_VPATH', '0') == '1', vshare=os.environ.get('R1_OBS_VSHARE', '0') == '1',
+                      vsrc=os.environ.get('R1_OBS_VSRC', 'h'), forget=os.environ.get('R1_OBS_FORGET', '0') == '1').float()
+            print(f'R1Obs: ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} uniform {m.obs_net.uniform} plain {m.obs_net.plain} path {m.obs_net.path} vpath {m.obs_net.vpath} vshare {m.obs_net.vshare} vsrc {m.obs_net.vsrc} forget {m.obs_net.forget} '
                   f'({sum(p.numel() for p in m.obs_net.parameters())} params) | train slot keep {m.slot_keep} | feed forecast {m.feed}', flush=True)
         elif os.environ.get('R1_TEFL'):
             m = R1Tefl(a, readout_ln=ro_ln, mode=os.environ['R1_TEFL'], hc=int(os.environ.get('R1_TEFL_HC', '2')),
@@ -194,6 +200,18 @@ class Exp_R1(Exp_Long_Term_Forecast):
                   f'g params {m.W1.weight.numel() + m.W2.weight.numel()} | feed forecast {m.feed}', flush=True)
         else:
             m = R1(a, readout_ln=ro_ln).float()
+        self.frozen = None
+        if os.environ.get('R1_FREEZE_FROM'):
+            ck = os.environ['R1_FREEZE_FROM']
+            res = m.load_state_dict(torch.load(ck, map_location='cpu'), strict=False)
+            mod = ('obs_net.', 'W1.', 'W2.')
+            assert not res.unexpected_keys, res.unexpected_keys
+            assert res.missing_keys and all(k.startswith(mod) for k in res.missing_keys), res.missing_keys
+            for n_, p_ in m.named_parameters():
+                p_.requires_grad_(n_.startswith(mod))
+            self.frozen = dict(ckpt=ck, train_children=sorted({k.split('.')[0] for k in res.missing_keys}))
+            print(f'[frozen] backbone loaded from {ck} and frozen | trained children {self.frozen["train_children"]} '
+                  f'({sum(p_.numel() for p_ in m.parameters() if p_.requires_grad)} params)', flush=True)
         nro = sum(p.numel() for p in m.readout.parameters())
         print(f'R1: d_inner {m.D} d_state {m.N} vars {m.c} patch {m.P} | readout {m.D * m.N} -> {m.c * m.P} ({nro} params) | '
               f'readout LN {m.ro_ln is not None} | VPT {m.vpt} ({a.ATSP_solver}) | trainable {sum(p.numel() for p in m.parameters() if p.requires_grad)}',
@@ -359,11 +377,20 @@ class Exp_R1(Exp_Long_Term_Forecast):
         rng = np.random.default_rng(a.seed)
         path = os.path.join(a.checkpoints, setting)
         os.makedirs(path, exist_ok=True)
-        opt = torch.optim.Adam(m.parameters(), lr=a.learning_rate)
+        opt = torch.optim.Adam([p_ for p_ in m.parameters() if p_.requires_grad], lr=a.learning_rate)
+        if self.frozen:                                                                 # the frozen backbone scans in its deployed (eval) order
+            self._fix_eval_order(); m.fixed_scan = True
+            order0 = self.eval_order()
+            print(f'[frozen] training scan order fixed to the eval order {order0}', flush=True)
+            frozen_ref = {k: v.detach().clone() for k, v in m.state_dict().items() if not k.startswith(('obs_net.', 'W1.', 'W2.'))}
         early = EarlyStopping(patience=a.patience, verbose=True)
         step, best_epoch, best_step = 0, None, None
         for epoch in range(a.train_epochs):
             m.train()
+            if self.frozen:                                                             # backbone in eval mode (no dropout)
+                for n_, ch in m.named_children():
+                    if n_ not in self.frozen['train_children']:
+                        ch.eval()
             t0 = time.time()
             lf, lh, lc = [], [], []
             t_int, n_int = time.time(), 0
@@ -419,7 +446,8 @@ class Exp_R1(Exp_Long_Term_Forecast):
                     self.jlog(rec)
                     t_int, n_int = time.time(), -1
                 opt.step()
-                m.update_vpt_cost(el.detach(), hvalid)
+                if not self.frozen:
+                    m.update_vpt_cost(el.detach(), hvalid)
                 step += 1; n_int += 1
                 lf.append(fut.item()); lh.append(hist.item())
                 if corr is not None:
@@ -448,7 +476,16 @@ class Exp_R1(Exp_Long_Term_Forecast):
                 break
             adjust_learning_rate(opt, epoch + 1, a)
         ck = os.path.join(path, 'checkpoint.pth')
+        if self.frozen:
+            sd = m.state_dict()
+            assert all(torch.equal(sd[k], v) for k, v in frozen_ref.items()), 'frozen backbone changed during training'
+            assert self.eval_order() == order0, (self.eval_order(), order0)
         m.load_state_dict(torch.load(ck))
+        if self.frozen:
+            sd = m.state_dict()
+            same = all(torch.equal(sd[k], v) for k, v in frozen_ref.items())
+            print(f'[frozen] backbone unchanged after training: {same} ({len(frozen_ref)} tensors)', flush=True)
+            assert same, 'frozen backbone changed'
         print(f'[R1 best] epoch {best_epoch} step {best_step} of {step} steps', flush=True)
         self.jlog(dict(record='best', best_epoch=best_epoch, best_step=best_step, total_steps=step))
         self.snapshot('checkpoint_loaded', checkpoint=ck, source='train: early-stopping best', best_epoch=best_epoch, best_step=best_step,
@@ -496,6 +533,8 @@ class Exp_R1(Exp_Long_Term_Forecast):
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('uniform', 'uniform', 0)] + [(f'perm{s}', 'perm', s) for s in range(reps)]
             if getattr(m.obs_net, 'path', False) or getattr(m.obs_net, 'vpath', False):                                       # O-PaTH: path removed at inference
                 modes.append(('noH', 'noH', 0))
+            if getattr(m.obs_net, 'forget', False):
+                modes.append(('noF', 'noF', 0))
         order = self.eval_order()
         for flag in ('val', 'test'):
             out = {}
