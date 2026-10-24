@@ -6,7 +6,7 @@
 cd "$(dirname "$0")/.."
 OUT=patchmem/logs/laptop
 mkdir -p $OUT
-push() { git add -f $OUT/icl_close_* && git commit -m "laptop results: icl_close $1" && git push origin laptop && echo "pushed ($1)"; }
+push() { git add -f $OUT/icl_close_* && git commit -m "laptop results: icl_close $1" && git pull --rebase --autostash origin laptop && git push origin laptop && echo "pushed ($1)"; }
 echo "commit $(git rev-parse --short HEAD) icl_close smoke ($(date))"
 if ! python -u patchmem/icl_close.py --data E --smoke --out $OUT > $OUT/icl_close_smoke.txt 2>&1; then
   echo "SMOKE FAILED, see $OUT/icl_close_smoke.txt"; tail -20 $OUT/icl_close_smoke.txt; push "smoke FAILED"; exit 1

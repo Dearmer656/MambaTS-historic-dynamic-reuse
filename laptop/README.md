@@ -26,6 +26,19 @@ Any data/seed: `bash laptop/run_errpath_shared.sh E|W SEED`. Settings are identi
 
 ErrPath-shared = O-ErrPath with the Householder path in the P-dim patch space, the same reflection for every variable (no cross-variable mixing; `R1_OBS_VSHARE=1`). See Linear PAT-307 / PAT-312.
 
+### Task 5 (current, assigned 2026-10-24, runs in parallel with task 4): tefl_att joint training
+
+```bash
+git pull origin laptop && conda activate mambats
+bash laptop/run_tefl_att.sh       # smoke test, then ETTh2 (3 seeds x pos / qk), then Weather; pushes after each dataset and on failure
+```
+
+Joint training (backbone + TEFL + attention) of R1TeflAtt (`patchmem/tefl_att.py`): TEFL plus an attention read of the model's own
+past full-horizon forecast errors (memory bank refreshed every epoch), arms 'pos' (learned look-back window) and 'qk' (+ low-rank
+Wq/Wk). T0r recipe. The T0r / TF0 checkpoints of the same seeds are evaluated by the same code as the baseline.
+Interrupted? Run the same command again: finished (seed, arm) runs are skipped (an interrupted run restarts from scratch).
+Both task scripts pull before pushing; if a push is still rejected, run `git pull --rebase origin laptop && git push origin laptop`.
+
 ### Task 4 (current, assigned 2026-10-24): icl_close — results pushed automatically
 
 ```bash
