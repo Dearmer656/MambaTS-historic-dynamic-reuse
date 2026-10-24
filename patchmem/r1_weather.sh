@@ -1,5 +1,6 @@
 #!/bin/bash
 # PAT-304 R1 on Weather: one model trained on random lookback 384..1440 / horizon 96..336, tested on the 3x3 grid.
+# EXTRA: run.py arguments appended last (they override the ones above), e.g. EXTRA="--is_training 0" (missing before 2026-10-25).
 # Same backbone recipe as the official Weather H=96 script and the existing weather A0/mem runs (e_layers 3, d_model 32, d_ff 512,
 # dropout 0.2, lr 5e-4, batch 8, 10 epochs, patience 3, VPT_mode 1 + SA). Mirrors patchmem/r1_etth2.sh.
 # --seq_len/--pred_len only name the setting; the lengths actually used come from R1_* (patchmem/exp_r1.py).
@@ -30,4 +31,4 @@ $PY -u patchmem/run_r1.py --task_name long_term_forecast --is_training 1 --root_
   --enc_in 21 --dec_in 21 --c_out 21 --model_id weather_r1 --model MambaTS --data custom --features M --seed $SEED \
   --seq_len 1440 --label_len 48 --pred_len 336 --e_layers 3 --d_layers 2 --factor 1 --des ${DES:-R1W${TAG}h${LAM}s${SEED}} --itr 1 \
   --n_heads 16 --d_model 32 --d_ff 512 --dropout 0.2 --patch_len 48 --stride 48 --VPT_mode 1 --ATSP_solver SA \
-  --train_epochs ${EPOCHS:-10} --patience 3 --batch_size 8 --learning_rate 0.0005
+  --train_epochs ${EPOCHS:-10} --patience 3 --batch_size 8 --learning_rate 0.0005 ${EXTRA}

@@ -61,6 +61,7 @@ def stream(E, H, first, nv, calibrate=True):
     are corrected (and reported); statistics use every matured origin with a complete CED."""
     N, _, C = E.shape
     Eh = E[:, :H]
+    assert not torch.isnan(Eh).any(), 'stream input must have full targets (NaN would poison S / Tm)'
     D, valid = ced(E, H)
     rows_D = D.permute(0, 2, 1)                                                          # (N, C, H): one row per variable
     rows_E = Eh.permute(0, 2, 1)
