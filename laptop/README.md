@@ -26,21 +26,23 @@ Any data/seed: `bash laptop/run_errpath_shared.sh E|W SEED`. Settings are identi
 
 ErrPath-shared = O-ErrPath with the Householder path in the P-dim patch space, the same reflection for every variable (no cross-variable mixing; `R1_OBS_VSHARE=1`). See Linear PAT-307 / PAT-312.
 
-### Task 6 (current, assigned 2026-10-24, can run in parallel with task 5): TEFL compiled into ICL
+### Task 6 (current, updated 2026-10-25): TEFL compiled into ICL, short H
 
 ```bash
 git pull origin laptop && conda activate mambats
-bash laptop/run_tefl_icl.sh       # stages 0 smoke, 1 offline, 2 frozen A1, 3 ETTh2 joint, 4 Weather; pushes after every stage and on failure
-bash laptop/run_tefl_icl.sh "1 2" # only some stages
+bash laptop/run_tefl_icl.sh       # 0 smoke, 1 offline (no training), 2 ETTh2 H96, 3 Weather H96, 4 Weather H192; pushes after every stage / seed
+bash laptop/run_tefl_icl.sh "2"   # only some stages
 ```
 
 R1TeflICL (`patchmem/r1_tefl_icl.py`). TEFL = T0-MS: eps = the full-horizon error of the forecast issued one horizon ago,
-delta = W2 ReLU(W1 eps). ICL: W2 replaced (or corrected) by the one-step-GD map of a linear attention over demos inside the
-lookback (key = error of the forecast from origin j, value = error of the forecast from origin j+K):
-`id` (no learned map, eta 1, test-only), `tied` (Wq = Wk = W1 with ReLU, W2 implicit), `qk` (separate low-rank Wq, Wk), `hyb`
-(TEFL's trained W2 + one GD step on the demos). Stage 1 needs no training (A1 / T0-MS checkpoints in `checkpoints/`); stage 2 trains
-only the low-rank map on a frozen A1 backbone (TEFL vs tied). Every ICL run also reports `icloff` (term removed) and `iclperm`
-(values shuffled across the demos). Logs: `patchmem/logs/laptop/icl6_*`. A finished run is skipped on a rerun.
+delta = W2 ReLU(W1 eps). ICL: W2 replaced (or corrected) by the one-step-GD map of a linear attention over demos inside the lookback
+(key = error of the forecast from origin j, value = error of the forecast from origin j+K). The number of demos is T - 2K, so at
+H = 336 there is almost no history to attend to (L720: 1 demo, L384: none); the trained arms therefore use a fixed short H
+(training, val and test at H = 96 or 192). Arms per (data, H, seed): `a1` (plain R1 trained at that H), `tefl`, `tied`
+(Wq = Wk = W1 with ReLU, W2 implicit), `hyb` (TEFL's W2 + one ICL step), `teflFz` / `tiedFz` (A1 backbone frozen, only the low-rank
+map trained). Every ICL run also reports `icloff` (term removed) and `iclperm` (values shuffled across the demos).
+Logs: `patchmem/logs/laptop/icl6_*`. A finished run is skipped on a rerun. Task 5 (tefl_att) is NO-GO on ETTh2; its Weather part can be
+stopped to free the GPU.
 
 ### Task 5 (assigned 2026-10-24, runs in parallel with task 4): tefl_att joint training
 
