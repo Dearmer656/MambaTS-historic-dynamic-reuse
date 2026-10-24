@@ -35,7 +35,7 @@ def test_demos_no_leak_and_query():
 
 def stub(variant, n=4, C=2, K=3, P=4, r=5, b=3):
     din = K * P
-    s = SimpleNamespace(variant=variant, audit=None, hmax=K, icl_gen=torch.Generator().manual_seed(0),
+    s = SimpleNamespace(variant=variant, audit=None, hmax=K, ridge_rel=None, nshrink=0.0, icl_gen=torch.Generator().manual_seed(0),
                         W1=nn.Linear(din, r, bias=False), W2=nn.Linear(r, din, bias=False),
                         Wq=nn.Linear(din, r, bias=False), Wk=nn.Linear(din, r, bias=False), eta=nn.Parameter(torch.ones(K)))
     s.phi = lambda e, role: R1TeflICL.phi(s, e, role)
@@ -141,7 +141,55 @@ def test_demos_ced_anti_diagonal():
     assert demos_ced(*fake_E(T=2 * K, K=K), K)[1] is None
 
 
+def test_ridge_rel_matches_primal():
+    """ridge_rel = s: lam = s * mean |k_j|^2 over valid demos."""
+    s, d, e = stub('ridge', n=4, K=3)
+    s.ridge_rel = 10.0
+    s.demo['mask'][0, 2:] = False
+    out = R1TeflICL.extra_delta(s, d, e, None).reshape(e.shape)
+    for bi in range(e.shape[0]):
+        for ci in range(e.shape[1]):
+            mk = s.demo['mask'][bi]
+            K, V = s.demo['k'][bi, mk, ci], s.demo['v'][bi, mk, ci]
+            lam = 10.0 * K.square().sum(-1).mean()
+            W = torch.linalg.solve(K.T @ K + lam * torch.eye(K.shape[1]), K.T @ V)
+            assert torch.allclose(out[bi, ci], e[bi, ci] @ W, atol=1e-4)
+
+
+def test_hybridge_prior_anchored():
+    """hybridge: delta (= TEFL's W2 phi(q), computed by the caller) + (W - W2) phi(q), W = primal argmin sum |v - W phi|^2 +
+    lam |W - W2|^2; lam -> inf and icloff leave delta (TEFL)."""
+    s, d, e = stub('hybridge', n=4, K=3)
+    s.ridge_rel = 1.0
+    s.demo['mask'][1, 3:] = False
+    out = R1TeflICL.extra_delta(s, d, e, None).reshape(e.shape)
+    W2 = s.W2.weight.detach()                                                                        # (din, r)
+    with torch.no_grad():
+        for bi in range(e.shape[0]):
+            for ci in range(e.shape[1]):
+                mk = s.demo['mask'][bi]
+                Ph = torch.relu(s.W1(s.demo['k'][bi, mk, ci])); V = s.demo['v'][bi, mk, ci]; pq = torch.relu(s.W1(e[bi, ci]))
+                lam = Ph.square().sum(-1).mean()
+                W = torch.linalg.solve(Ph.T @ Ph + lam * torch.eye(Ph.shape[1]), Ph.T @ V + lam * W2.T).T   # (din, r)
+                assert torch.allclose(out[bi, ci] - d.reshape(e.shape)[bi, ci], (W - W2) @ pq, atol=1e-4)
+        s.ridge_rel = 1e8
+        out = R1TeflICL.extra_delta(s, d, e, None)
+        assert torch.allclose(out, d, atol=1e-4)
+    s.audit = 'icloff'
+    assert torch.equal(R1TeflICL.extra_delta(s, d, e, None), d)
+
+
+def test_nshrink():
+    s, d, e = stub('id', n=4, K=3)
+    s.demo['mask'][0, 1:] = False                                                                    # sample 0: 1 demo, others 4
+    base = R1TeflICL.extra_delta(s, d, e, None)
+    s.nshrink = 8.0
+    out = R1TeflICL.extra_delta(s, d, e, None)
+    assert torch.allclose(out[0], base[0] / 9, atol=1e-6) and torch.allclose(out[1], base[1] * 4 / 12, atol=1e-6)
+
+
 if __name__ == '__main__':
+    test_ridge_rel_matches_primal(); test_hybridge_prior_anchored(); test_nshrink()
     test_demos_ced_anti_diagonal()
     test_ridge_matches_primal()
     test_k_follow_padding_invariant()

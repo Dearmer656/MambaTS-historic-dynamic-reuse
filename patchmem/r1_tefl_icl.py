@@ -25,6 +25,12 @@ key='ced' ('id' / 'ridge' only; the 2x2 vs EFC-CET: row vs anti-diagonal feature
   origin o is EFC's causal error diagonal inside the lookback, D_o[l] = E[:, o-l, lead l] (l = 1..K: the K earlier origins' errors on
   the same patch o), value v_o = E[:, o] (leads 1..K, targets o+1..o+K), o = K..T-1-K (n = T-2K, as 'row'); query D_{T-1} (errors of
   origins T-1-l on the last observed patch T-1). The default key='row' is k_j = E[:, j] above.
+Shrinkage (2026-10-25, fixed before results):
+  ridge_rel = s: ridge lam = s * mean_j |k_j|^2 over the valid demos (per sample / variable) instead of the absolute RIDGE_LAM;
+                 s in {1, 10, 100, 1000} traces closed-form ridge (small s) -> scaled one-step GD (large s); unset = old lam 1.
+  variant 'hybridge': ridge anchored at TEFL's W2 in phi = ReLU(W1 .) space: W = argmin sum |v_j - W phi_j|^2 + lam |W - W2|^2, i.e.
+                 delta = W2 phi(q) + phi(q) Phi^T (Phi Phi^T + lam I)^-1 (V - Phi W2^T) (lam -> inf: TEFL), lam as ridge_rel.
+  nshrink = c (GD variants): eta_eff = eta * n / (n + c), n = valid demos of the sample (1 demo: 1/(1+c); c = 8).
 Variables share the maps (as TEFL). eta (Hmax,) is learned (init eta0; eta0 = 0 -> the model is R1 / T0-MS at init) or fixed.
 Errors are detached (stop-gradient, as T0-MS). If the query origin is invalid (padded sample), every demo origin (< query origin) is
 too, so the ICL term is 0. Inference audits (on top of R1Tefl's zero / perm; 'perm' swaps only the query for a distant window's,
@@ -67,9 +73,11 @@ def demos_ced(E, avail, K):
 
 
 class R1TeflICL(R1TeflMS):
-    def __init__(self, cfg, variant='tied', eta0=0.0, eta_learn=True, k_follow=False, key='row', **kw):
+    def __init__(self, cfg, variant='tied', eta0=0.0, eta_learn=True, k_follow=False, key='row', ridge_rel=None, nshrink=0.0, **kw):
         super().__init__(cfg, **kw)
-        assert variant in ('id', 'tied', 'qk', 'hyb', 'ridge'), variant
+        assert variant in ('id', 'tied', 'qk', 'hyb', 'ridge', 'hybridge'), variant
+        assert variant != 'hybridge' or ridge_rel is not None, 'hybridge needs ridge_rel'
+        self.ridge_rel, self.nshrink = ridge_rel, nshrink
         assert key == 'row' or (key == 'ced' and variant in ('id', 'ridge')), (key, variant)   # ced changes eps: no TEFL map on it
         self.variant, self.k_follow, self.key, self.n_out = variant, k_follow, key, None
         r = self.W1.out_features
@@ -120,7 +128,7 @@ class R1TeflICL(R1TeflMS):
 
     def extra_delta(self, delta, eps, stdev):
         D = self.demo
-        if self.variant != 'hyb':                                                        # W2 term off (also after loading a T0-MS W2)
+        if self.variant not in ('hyb', 'hybridge'):                                      # W2 term off (also after loading a T0-MS W2)
             delta = torch.zeros_like(delta)
         if D is None or self.audit == 'icloff':
             return delta
@@ -128,19 +136,27 @@ class R1TeflICL(R1TeflMS):
         q = self.phi(eps, 'q')                                                           # (b, C, r) (zero padding: same dot / norm for 'id')
         k = self.phi(D['k'], 'k')                                                        # (b, n, C, r)
         v = D['v']                                                                       # (b, n, C, K*P)
-        if self.variant == 'hyb':
+        if self.variant in ('hyb', 'hybridge'):
             v = v - self.W2(k)                                                           # residual of the TEFL map on the demos
         if self.audit == 'iclperm':                                                      # eval windows are unpadded: every demo valid
             assert bool(D['mask'].all()), 'iclperm assumes no masked demos'
             v = v[:, torch.randperm(v.shape[1], generator=self.icl_gen).to(v.device)]
         m = D['mask'][:, :, None].to(q.dtype)                                            # (b, n, 1)
-        if self.variant == 'ridge':                                                      # closed-form ridge on the same demos, per variable
+        if self.variant in ('ridge', 'hybridge'):                                        # closed-form ridge on the same demos, per variable
             kk = (k * m[..., None]).permute(0, 2, 1, 3)                                  # (b, C, n, d), masked demos -> 0 rows
             vv = (v * m[..., None]).permute(0, 2, 1, 3)
-            G = kk @ kk.transpose(-1, -2) + RIDGE_LAM * torch.eye(kk.shape[2], device=kk.device, dtype=kk.dtype)
+            if self.ridge_rel is None:
+                lam = torch.full(kk.shape[:2], RIDGE_LAM, device=kk.device, dtype=kk.dtype)
+            else:                                                                        # s * mean |k_j|^2 over the valid demos
+                nv = m[..., 0].sum(1)[:, None].clamp_min(1)                              # (b, 1)
+                lam = (self.ridge_rel * kk.square().sum((-1, -2)) / nv).clamp_min(1e-6)  # (b, C)
+            G = kk @ kk.transpose(-1, -2) + lam[..., None, None] * torch.eye(kk.shape[2], device=kk.device, dtype=kk.dtype)
             icl = ((q[:, :, None] @ kk.transpose(-1, -2)) @ torch.linalg.solve(G, vv)).squeeze(2)   # q K^T (K K^T + lam I)^-1 V
             return delta + icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]
         s = (k * q[:, None]).sum(-1) * m                                                 # (b, n, C)
         den = q.norm(dim=-1) * (k.norm(dim=-1) * m).sum(1) + 1e-6                       # (b, C)
         icl = (s[..., None] * v).sum(1) / den[..., None]                                 # (b, C, K*P)
+        if self.nshrink:                                                                 # eta * n / (n + c), n = valid demos
+            nv = m[..., 0].sum(1)[:, None, None]                                         # (b, 1, 1)
+            icl = icl * nv / (nv + self.nshrink)
         return delta + icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]
