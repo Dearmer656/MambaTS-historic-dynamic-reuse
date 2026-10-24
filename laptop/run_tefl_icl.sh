@@ -23,7 +23,7 @@ push() { git add -f $OUT/icl6_* && git commit -m "laptop results: tefl_icl $1" &
 # a run is complete when its log has the final test line for L=1440 at H = $2 (audit line for TEFL / ICL arms, test line for plain R1)
 done_() {
   [ -f "$1" ] || return 1
-  if grep -q "^R1Tefl" "$1"; then grep -q "R1Mem audit test\] L=1440 H=$2" "$1"; else grep -q "R1 test\] L=1440 H=$2" "$1"; fi
+  if grep -q "^R1Tefl" "$1"; then grep -q "R1Mem audit test\] L=1440 H= *$2" "$1"; else grep -q "R1 test\] L=1440 H= *$2" "$1"; fi
 }
 # run D NAME SEED HDONE [env assignments...]: one training / test-only run, log $OUT/icl6_${D}_${NAME}_s${SEED}.txt
 run() {
@@ -35,7 +35,7 @@ run() {
   if ! env SEED=$s "$@" bash $SH > $LOG 2>&1 || ! done_ $LOG $HD; then
     echo "FAILED $D $NAME s$s, see $LOG"; tail -20 $LOG; push "$D $NAME s$s FAILED"; exit 1
   fi
-  grep "R1Mem audit test\] L=1440 H=$HD\|R1 test\] L=1440 H=$HD" $LOG | cut -c1-200
+  grep "R1Mem audit test\] L=1440 H= *$HD\|R1 test\] L=1440 H= *$HD" $LOG | cut -c1-200
 }
 OFF=(R1_TEFL=ms R1_ICL_ETA0=1 R1_ICL_ETA_FIX=1 "EXTRA=--is_training 0")            # test-only, eta fixed at 1
 # fixh D H SEED: the 6 fixed-H arms (H in steps, P = 48: training, val and test all at H)
