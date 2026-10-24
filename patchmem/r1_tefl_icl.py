@@ -12,6 +12,8 @@ One GD step from W = 0 on the demos in feature space phi: W_impl = sum_j v_j phi
 Step size normalised so the term is bounded by max |v_j| and scale free: delta_icl = eta_k sum_j v_j <phi(k_j), phi(q)> /
 (|phi(q)| sum_j |phi(k_j)|) (one demo with k = q gives eta * v).
   variant 'id'  : phi = identity (no learned map; the offline zero-parameter arm, eta fixed 1)
+  variant 'ridge': the same demos, closed-form ridge instead of one GD step: delta = q K^T (K K^T + lam I)^-1 V per variable
+                  (lam = RIDGE_LAM = 1, EFC-CET's value; no learned map, eta fixed 1): the solver ablation of 'id' (same information)
 k_follow=True (any variant): K = the forecast's H in patches (min(n_out, Hmax)) instead of Hmax (TEFL's error length = H; n = T-2K
 demos, e.g. L720 H96: 11). eps and the demo errors are zero-padded on leads K+1..Hmax so W1 keeps its input size; training samples H,
 so one model covers every H. 'hyb' with eta fixed at 0 is plain TEFL with this input (TEFL-KH).
@@ -26,6 +28,7 @@ the demos stay the window's own): 'icloff' (ICL term removed; 'hyb' -> its TEFL 
 across the window's demos: pairing broken, the demo set and its mean kept)."""
 import torch
 import torch.nn as nn
+RIDGE_LAM = 1.0                                                                          # EFC-CET's lambda (normalised errors)
 from patchmem.r1_msres import R1TeflMS, multistep_residuals
 
 
@@ -46,15 +49,15 @@ def demos(E, avail, K):
 class R1TeflICL(R1TeflMS):
     def __init__(self, cfg, variant='tied', eta0=0.0, eta_learn=True, k_follow=False, **kw):
         super().__init__(cfg, **kw)
-        assert variant in ('id', 'tied', 'qk', 'hyb'), variant
+        assert variant in ('id', 'tied', 'qk', 'hyb', 'ridge'), variant
         self.variant, self.k_follow, self.n_out = variant, k_follow, None
         r = self.W1.out_features
         if variant == 'qk':
             self.Wq, self.Wk = nn.Linear(self.din, r, bias=False), nn.Linear(self.din, r, bias=False)
-        if variant in ('id', 'tied', 'qk'):                                              # no trained W2 term
+        if variant in ('id', 'tied', 'qk', 'ridge'):                                     # no trained W2 term
             self.W2.weight.requires_grad_(False)
             nn.init.zeros_(self.W2.weight)
-        if variant in ('id', 'qk'):
+        if variant in ('id', 'qk', 'ridge'):
             self.W1.weight.requires_grad_(False)
         self.eta = nn.Parameter(torch.full((self.hmax,), float(eta0)), requires_grad=eta_learn)
         self.demo, self.icl_gen = None, torch.Generator().manual_seed(0)
@@ -88,7 +91,7 @@ class R1TeflICL(R1TeflMS):
         return eps
 
     def phi(self, e, role):
-        if self.variant == 'id':
+        if self.variant in ('id', 'ridge'):
             return e
         if self.variant == 'qk':
             return (self.Wq if role == 'q' else self.Wk)(e)
@@ -110,6 +113,12 @@ class R1TeflICL(R1TeflMS):
             assert bool(D['mask'].all()), 'iclperm assumes no masked demos'
             v = v[:, torch.randperm(v.shape[1], generator=self.icl_gen).to(v.device)]
         m = D['mask'][:, :, None].to(q.dtype)                                            # (b, n, 1)
+        if self.variant == 'ridge':                                                      # closed-form ridge on the same demos, per variable
+            kk = (k * m[..., None]).permute(0, 2, 1, 3)                                  # (b, C, n, d), masked demos -> 0 rows
+            vv = (v * m[..., None]).permute(0, 2, 1, 3)
+            G = kk @ kk.transpose(-1, -2) + RIDGE_LAM * torch.eye(kk.shape[2], device=kk.device, dtype=kk.dtype)
+            icl = ((q[:, :, None] @ kk.transpose(-1, -2)) @ torch.linalg.solve(G, vv)).squeeze(2)   # q K^T (K K^T + lam I)^-1 V
+            return delta + icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]
         s = (k * q[:, None]).sum(-1) * m                                                 # (b, n, C)
         den = q.norm(dim=-1) * (k.norm(dim=-1) * m).sum(1) + 1e-6                       # (b, C)
         icl = (s[..., None] * v).sum(1) / den[..., None]                                 # (b, C, K*P)
