@@ -11,7 +11,7 @@ One line per code version and per run batch. Every result quoted in Linear names
 | (same) | exp_r1 training: `backward()` skipped when the loss has no gradient (frozen backbone + no demos at L < 2K+1) | frozen tied runs |
 | `0f960dc` | K = H for every variant (`R1_ICL_KH=1`: error length = the forecast's H, zero-padded to 336) ; id with K = H is numerically identical to the earlier id-only K = H version (zero padding leaves dot products and norms unchanged) | idKH0, KH-trained arms, H192 array |
 | `5be946e` | EFC-CET baseline (`patchmem/efc_cet.py`, arXiv 2610.22872 CED + CET + out-of-sample alpha, no TRL GRU) on frozen A1; cold / warm stream | efc_cet_* |
-| (next) | `ridge` variant: closed-form ridge (lam 1) on the same in-window demos as id (solver ablation); `icl_kh.sbatch` takes the variant | iclridgeKH0 |
+| `206ecfc` | `ridge` variant: closed-form ridge (lam 1) on the same in-window demos as id (solver ablation); `icl_kh.sbatch` takes the variant | iclridgeKH0 |
 
 ## Fixed choices (set before results)
 
@@ -21,6 +21,10 @@ One line per code version and per run batch. Every result quoted in Linear names
 - Judged on test MSE, 3/3 seeds; iclperm (values shuffled across the window's demos) is the pairing control.
 
 ## Run batches
+
+Cluster jobs run the repository as it is when the job STARTS (not when it was submitted); every log starts with `commit <hash>`,
+which is the authoritative version. The "code" column is the latest commit the run needs; a later commit at start time only adds
+unrelated code paths (checked when the batch is reported).
 
 | batch | where | code | logs | status |
 |---|---|---|---|---|
@@ -32,3 +36,4 @@ One line per code version and per run batch. Every result quoted in Linear names
 | ETTh2 H = 192 only, 6 arms x 3 seeds | 3090 array 6144 | `0f960dc` | `E_H192_{arm}_s*.txt` | queued |
 | EFC-CET ETTh2 (smoke + 3 seeds) | 3090 job 6196 | `5be946e` | `efc_cet_E*.txt/json` | queued |
 | laptop task 6: offline + ETTh2 H96 + Weather H96 / H192 | laptop | laptop `3aaef66` (code `0f960dc`) | `patchmem/logs/laptop/icl6_*` | waiting for the laptop |
+| offline ridge, K = H, ETTh2 s3047-9 | 3090 jobs 6199-6201 | `206ecfc` | `E_iclridgeKH0_s*.txt` | queued |
