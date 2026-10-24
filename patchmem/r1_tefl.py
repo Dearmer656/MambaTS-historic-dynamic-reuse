@@ -41,6 +41,10 @@ class R1Tefl(R1):
     def stats(self):
         return {k: torch.stack(v).mean().item() for k, v in self.mem_stats.items() if v}
 
+    def extra_delta(self, delta, eps, stdev):
+        """Hook for subclasses: delta (b, C, Hmax, P) normalised, eps (b, C, Din), stdev (b, 1, C) RevIN scale. Identity in R1Tefl."""
+        return delta
+
     def error(self, x, xn, xo, yh, perm, means, stdev, lens=None):
         """eps (b, C, Din), detached, normalised with the current window's statistics, original variable order."""
         b, L, c = x.shape
@@ -90,6 +94,7 @@ class R1Tefl(R1):
         if self.audit == 'recent':                                                      # keep the last 2 patches only
             eps = torch.cat([torch.zeros_like(eps[..., :-2 * P]), eps[..., -2 * P:]], -1)
         delta = self.W2(torch.relu(self.W1(eps))).reshape(b, c, self.hmax, P)          # (b, C, Hmax, P)
+        delta = self.extra_delta(delta, eps, stdev)                                     # subclass hook (R1TeflAtt); identity here
         if n_out > self.hmax:                                                           # beyond the trained horizon
             ext = delta[:, :, -1:] if self.extrap == 'last' else torch.zeros_like(delta[:, :, -1:])
             delta = torch.cat([delta, ext.expand(b, c, n_out - self.hmax, P)], 2)
