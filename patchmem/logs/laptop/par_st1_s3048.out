@@ -1,0 +1,11 @@
+commit 3c32134 tefl_icl stages 1 (Sat Oct 24 17:20:24 CEST 2026)
+E id0 s3048 -> patchmem/logs/laptop/icl6_E_id0_s3048.txt (Sat Oct 24 17:20:24 CEST 2026)
+[R1 test] L=1440 H=336 | mse 0.437025 mae 0.472401 | naive last-patch mse 0.544560 linear mse 7.889779 | 37.1s peak 187MB | per-patch mse 0.3316 0.3923 0.4172 0.4422 0.4634 0.4957 0.5169
+[R1Mem audit test] L=1440 H=336 | normal mse 0.437025 mae 0.472401 | zero dMSE +0.001162 dMAE +0.004034 | perm dMSE -0.006904 dMAE -0.002916 | icloff dMSE +0.001162 dMAE +0.004034 | iclperm0 dMSE +0.0
+E idKH0 s3048 -> patchmem/logs/laptop/icl6_E_idKH0_s3048.txt (Sat Oct 24 18:47:19 CEST 2026)
+[R1 test] L=1440 H=336 | mse 0.437025 mae 0.472401 | naive last-patch mse 0.544560 linear mse 7.889779 | 37.7s peak 187MB | per-patch mse 0.3316 0.3923 0.4172 0.4422 0.4634 0.4957 0.5169
+[R1Mem audit test] L=1440 H=336 | normal mse 0.437025 mae 0.472401 | zero dMSE +0.001162 dMAE +0.004034 | perm dMSE -0.006904 dMAE -0.002916 | icloff dMSE +0.001162 dMAE +0.004034 | iclperm0 dMSE +0.0
+E tied0 s3048 -> patchmem/logs/laptop/icl6_E_tied0_s3048.txt (Sat Oct 24 19:58:32 CEST 2026)
+[R1 test] L=1440 H=336 | mse 0.417366 mae 0.455663 | naive last-patch mse 0.544560 linear mse 7.889779 | 41.0s peak 187MB | per-patch mse 0.3684 0.3842 0.3941 0.4089 0.4315 0.4559 0.4787
+[R1Mem audit test] L=1440 H=336 | normal mse 0.417366 mae 0.455663 | zero dMSE +0.051211 dMAE +0.034671 | perm dMSE +0.002721 dMAE +0.004562 | icloff dMSE +0.051211 dMAE +0.034671 | iclperm0 dMSE +0.0
+E hyb0 s3048 -> patchmem/logs/laptop/icl6_E_hyb0_s3048.txt (Sat Oct 24 21:30:08 CEST 2026)

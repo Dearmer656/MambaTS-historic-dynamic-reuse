@@ -43,10 +43,10 @@ Use GPU: cuda:0
 VPT_mode: 1, ATSP_solver: SA
 R1TeflICL: variant id | K follows H True | eta0 1.0 learned False | eps = lead 1..7 errors of origin T-1-7 (input 336) rank 64 | trainable 189328 | feed forecast True
 R1: d_inner 32 d_state 16 vars 7 patch 48 | readout 512 -> 336 (172368 params) | readout LN False | VPT True (SA) | trainable 189328
-===== [param snapshot] event=init | 2026-10-24T16:46:04.574716+02:00 | commit b70b42a4216feaaecd328cee3c2dff9a587071a4 (laptop) | R1TeflICL torch.float32 cpu
+===== [param snapshot] event=init | 2026-10-24T17:20:28.955689+02:00 | commit 3c3213437ff5b4de5ccd5812495dfd6bf12df650 (laptop, dirty) | R1TeflICL torch.float32 cpu
   meta: {"seed": 3047, "model_id": "ETTh2_r1", "des": "R1IclIdKH0s3047", "patch_len": 48, "VPT": 1}
   env: R1_LAMBDA_HIST=0
-  params: total 232448 | trainable 189328 | frozen 43120 | extra vs R1 (corr_net+mem_net) 0 | 56 tensors, 0 buffers | files patchmem/logs/param_snapshots/ETTh2_r1_R1IclIdKH0s3047_s3047/20261024T164604574716_init.jsonl / .csv
+  params: total 232448 | trainable 189328 | frozen 43120 | extra vs R1 (corr_net+mem_net) 0 | 56 tensors, 0 buffers | files patchmem/logs/param_snapshots/ETTh2_r1_R1IclIdKH0s3047_s3047/20261024T172028955689_init.jsonl / .csv
   name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
   eta                                                       7      False 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 2.6458e+00 0.0000e+00          0  (7,)
   base.value_embedding.1.weight                           768       True-3.0489e-03 8.1994e-02-1.4406e-01 1.4407e-01 1.4407e-01 8.2051e-02 2.2739e+00 0.0000e+00          0  (16, 48)
@@ -120,10 +120,10 @@ R1: d_inner 32 d_state 16 vars 7 patch 48 | readout 512 -> 336 (172368 params) |
 ===== [param snapshot end] event=init
 >>>>>>>testing : long_term_forecast_ETTh2_r1_MambaTS_ETTh2_ftM_sl1440_ll48_pl336_dm16_nh16_el5_dl2_df2048_fc1_ebtimeF_dtTrue_R1IclIdKH0s3047_0<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 [eval-from] ./checkpoints/long_term_forecast_ETTh2_r1_MambaTS_ETTh2_ftM_sl1440_ll48_pl336_dm16_nh16_el5_dl2_df2048_fc1_ebtimeF_dtTrue_R1h0s3047_0/checkpoint.pth | missing (kept at init) ['eta', 'W1.weight', 'W2.weight']
-===== [param snapshot] event=checkpoint_loaded | 2026-10-24T16:46:05.180089+02:00 | commit b70b42a4216feaaecd328cee3c2dff9a587071a4 (laptop) | R1TeflICL torch.float32 cuda:0
+===== [param snapshot] event=checkpoint_loaded | 2026-10-24T17:20:31.110859+02:00 | commit 3c3213437ff5b4de5ccd5812495dfd6bf12df650 (laptop, dirty) | R1TeflICL torch.float32 cuda:0
   meta: {"seed": 3047, "model_id": "ETTh2_r1", "des": "R1IclIdKH0s3047", "patch_len": 48, "VPT": 1, "checkpoint": "./checkpoints/long_term_forecast_ETTh2_r1_MambaTS_ETTh2_ftM_sl1440_ll48_pl336_dm16_nh16_el5_dl2_df2048_fc1_ebtimeF_dtTrue_R1h0s3047_0/checkpoint.pth", "source": "test: R1_EVAL_FROM", "setting": "long_term_forecast_ETTh2_r1_MambaTS_ETTh2_ftM_sl1440_ll48_pl336_dm16_nh16_el5_dl2_df2048_fc1_ebtimeF_dtTrue_R1IclIdKH0s3047_0"}
   env: R1_LAMBDA_HIST=0
-  params: total 232448 | trainable 189328 | frozen 43120 | extra vs R1 (corr_net+mem_net) 0 | 56 tensors, 0 buffers | files patchmem/logs/param_snapshots/ETTh2_r1_R1IclIdKH0s3047_s3047/20261024T164605180089_checkpoint_loaded.jsonl / .csv
+  params: total 232448 | trainable 189328 | frozen 43120 | extra vs R1 (corr_net+mem_net) 0 | 56 tensors, 0 buffers | files patchmem/logs/param_snapshots/ETTh2_r1_R1IclIdKH0s3047_s3047/20261024T172031110859_checkpoint_loaded.jsonl / .csv
   name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
   eta                                                       7      False 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 2.6458e+00 0.0000e+00          0  (7,)
   base.value_embedding.1.weight                           768       True-4.0813e-03 9.5128e-02-3.3215e-01 2.8160e-01 3.3215e-01 9.5215e-02 2.6387e+00 0.0000e+00          0  (16, 48)
@@ -206,15 +206,15 @@ val 2545
 val 2785
 val 2689
 val 2545
-[R1 val] L= 384 H= 96 | mse 0.279839 mae 0.369764 | naive last-patch mse 0.298595 linear mse 0.764540 | 10.3s peak 268MB | per-patch mse 0.2361 0.3236
-[R1 val] L= 384 H=192 | mse 0.331698 mae 0.406480 | naive last-patch mse 0.351927 linear mse 1.952548 | 13.1s peak 52MB | per-patch mse 0.2500 0.3135 0.3607 0.4026
-[R1 val] L= 384 H=336 | mse 0.412820 mae 0.452723 | naive last-patch mse 0.437566 linear mse 4.805021 | 19.5s peak 53MB | per-patch mse 0.2532 0.3193 0.3648 0.4121 0.4594 0.5160 0.5651
-[R1 val] L= 720 H= 96 | mse 0.296605 mae 0.388205 | naive last-patch mse 0.298595 linear mse 0.764540 | 8.8s peak 93MB | per-patch mse 0.2586 0.3346
-[R1 val] L= 720 H=192 | mse 0.389271 mae 0.440188 | naive last-patch mse 0.351927 linear mse 1.952548 | 14.5s peak 95MB | per-patch mse 0.2749 0.3517 0.4231 0.5074
-[R1 val] L= 720 H=336 | mse 0.624626 mae 0.555019 | naive last-patch mse 0.437566 linear mse 4.805021 | 21.5s peak 92MB | per-patch mse 0.3266 0.4390 0.5313 0.6239 0.7275 0.8260 0.8979
-[R1 val] L=1440 H= 96 | mse 0.341984 mae 0.422137 | naive last-patch mse 0.298595 linear mse 0.764540 | 10.9s peak 177MB | per-patch mse 0.3037 0.3803
-[R1 val] L=1440 H=192 | mse 0.440497 mae 0.476649 | naive last-patch mse 0.351927 linear mse 1.952548 | 16.4s peak 184MB | per-patch mse 0.3384 0.4141 0.4740 0.5355
-[R1 val] L=1440 H=336 | mse 0.610342 mae 0.560055 | naive last-patch mse 0.437566 linear mse 4.805021 | 23.2s peak 187MB | per-patch mse 0.3896 0.4703 0.5344 0.6081 0.6819 0.7595 0.8285
+[R1 val] L= 384 H= 96 | mse 0.279839 mae 0.369764 | naive last-patch mse 0.298595 linear mse 0.764540 | 14.9s peak 268MB | per-patch mse 0.2361 0.3236
+[R1 val] L= 384 H=192 | mse 0.331698 mae 0.406480 | naive last-patch mse 0.351927 linear mse 1.952548 | 21.8s peak 54MB | per-patch mse 0.2500 0.3135 0.3607 0.4026
+[R1 val] L= 384 H=336 | mse 0.412820 mae 0.452723 | naive last-patch mse 0.437566 linear mse 4.805021 | 32.1s peak 53MB | per-patch mse 0.2532 0.3193 0.3648 0.4121 0.4594 0.5160 0.5651
+[R1 val] L= 720 H= 96 | mse 0.296605 mae 0.388205 | naive last-patch mse 0.298595 linear mse 0.764540 | 13.6s peak 103MB | per-patch mse 0.2586 0.3346
+[R1 val] L= 720 H=192 | mse 0.389271 mae 0.440188 | naive last-patch mse 0.351927 linear mse 1.952548 | 23.1s peak 97MB | per-patch mse 0.2749 0.3517 0.4231 0.5074
+[R1 val] L= 720 H=336 | mse 0.624626 mae 0.555019 | naive last-patch mse 0.437566 linear mse 4.805021 | 34.1s peak 92MB | per-patch mse 0.3266 0.4390 0.5313 0.6239 0.7275 0.8260 0.8979
+[R1 val] L=1440 H= 96 | mse 0.341984 mae 0.422137 | naive last-patch mse 0.298595 linear mse 0.764540 | 16.3s peak 199MB | per-patch mse 0.3037 0.3803
+[R1 val] L=1440 H=192 | mse 0.440497 mae 0.476649 | naive last-patch mse 0.351927 linear mse 1.952548 | 25.2s peak 194MB | per-patch mse 0.3384 0.4141 0.4740 0.5355
+[R1 val] L=1440 H=336 | mse 0.610342 mae 0.560055 | naive last-patch mse 0.437566 linear mse 4.805021 | 36.1s peak 187MB | per-patch mse 0.3896 0.4703 0.5344 0.6081 0.6819 0.7595 0.8285
 test 2785
 test 2689
 test 2545
@@ -225,15 +225,15 @@ test 2545
 test 2785
 test 2689
 test 2545
-[R1 test] L= 384 H= 96 | mse 0.357655 mae 0.396834 | naive last-patch mse 0.424232 linear mse 1.335442 | 8.6s peak 65MB | per-patch mse 0.3113 0.4040
-[R1 test] L= 384 H=192 | mse 0.387742 mae 0.423726 | naive last-patch mse 0.507903 linear mse 3.480486 | 14.3s peak 52MB | per-patch mse 0.3027 0.3745 0.4172 0.4566
-[R1 test] L= 384 H=336 | mse 0.400137 mae 0.435929 | naive last-patch mse 0.544560 linear mse 7.889779 | 20.5s peak 53MB | per-patch mse 0.2738 0.3470 0.3780 0.4094 0.4398 0.4635 0.4896
-[R1 test] L= 720 H= 96 | mse 0.348713 mae 0.397845 | naive last-patch mse 0.424232 linear mse 1.335442 | 9.3s peak 93MB | per-patch mse 0.3073 0.3901
-[R1 test] L= 720 H=192 | mse 0.380653 mae 0.424630 | naive last-patch mse 0.507903 linear mse 3.480486 | 16.5s peak 95MB | per-patch mse 0.2937 0.3665 0.4123 0.4501
-[R1 test] L= 720 H=336 | mse 0.439700 mae 0.458245 | naive last-patch mse 0.544560 linear mse 7.889779 | 25.6s peak 92MB | per-patch mse 0.2795 0.3517 0.3931 0.4438 0.5031 0.5369 0.5697
-[R1 test] L=1440 H= 96 | mse 0.369546 mae 0.421552 | naive last-patch mse 0.424232 linear mse 1.335442 | 12.1s peak 177MB | per-patch mse 0.3332 0.4059
-[R1 test] L=1440 H=192 | mse 0.405868 mae 0.449469 | naive last-patch mse 0.507903 linear mse 3.480486 | 20.7s peak 184MB | per-patch mse 0.3302 0.3970 0.4335 0.4627
-[R1 test] L=1440 H=336 | mse 0.428071 mae 0.466822 | naive last-patch mse 0.544560 linear mse 7.889779 | 28.8s peak 187MB | per-patch mse 0.3168 0.3803 0.4072 0.4345 0.4619 0.4863 0.5095
+[R1 test] L= 384 H= 96 | mse 0.357655 mae 0.396834 | naive last-patch mse 0.424232 linear mse 1.335442 | 12.7s peak 65MB | per-patch mse 0.3113 0.4040
+[R1 test] L= 384 H=192 | mse 0.387742 mae 0.423726 | naive last-patch mse 0.507903 linear mse 3.480486 | 21.1s peak 54MB | per-patch mse 0.3027 0.3745 0.4172 0.4566
+[R1 test] L= 384 H=336 | mse 0.400137 mae 0.435929 | naive last-patch mse 0.544560 linear mse 7.889779 | 33.6s peak 53MB | per-patch mse 0.2738 0.3470 0.3780 0.4094 0.4398 0.4635 0.4896
+[R1 test] L= 720 H= 96 | mse 0.348713 mae 0.397845 | naive last-patch mse 0.424232 linear mse 1.335442 | 14.1s peak 103MB | per-patch mse 0.3073 0.3901
+[R1 test] L= 720 H=192 | mse 0.380653 mae 0.424630 | naive last-patch mse 0.507903 linear mse 3.480486 | 21.8s peak 97MB | per-patch mse 0.2937 0.3665 0.4123 0.4501
+[R1 test] L= 720 H=336 | mse 0.439700 mae 0.458245 | naive last-patch mse 0.544560 linear mse 7.889779 | 33.4s peak 92MB | per-patch mse 0.2795 0.3517 0.3931 0.4438 0.5031 0.5369 0.5697
+[R1 test] L=1440 H= 96 | mse 0.369546 mae 0.421552 | naive last-patch mse 0.424232 linear mse 1.335442 | 16.9s peak 199MB | per-patch mse 0.3332 0.4059
+[R1 test] L=1440 H=192 | mse 0.405868 mae 0.449469 | naive last-patch mse 0.507903 linear mse 3.480486 | 26.3s peak 194MB | per-patch mse 0.3302 0.3970 0.4335 0.4627
+[R1 test] L=1440 H=336 | mse 0.428071 mae 0.466822 | naive last-patch mse 0.544560 linear mse 7.889779 | 35.8s peak 187MB | per-patch mse 0.3168 0.3803 0.4072 0.4345 0.4619 0.4863 0.5095
 val 2785
 [R1 val state L=384] |h_T| RMS mean 0.0557 q10/50/90 0.0427/0.0545/0.0698 max 0.0903
 val 2785
@@ -393,3 +393,110 @@ test 2785
 test 2689
 test 2545
 test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+test 2785
+test 2689
+test 2545
+[R1Mem audit test] L= 384 H= 96 | normal mse 0.357655 mae 0.396834 | zero dMSE -0.002622 dMAE +0.006338 | perm dMSE -0.013563 dMAE -0.004057 | icloff dMSE -0.002622 dMAE +0.006338 | iclperm0 dMSE +0.006379 dMAE +0.003997 | iclperm1 dMSE -0.000974 dMAE +0.000253 | iclperm2 dMSE +0.004783 dMAE +0.002790
+[R1Mem audit test per-patch] L= 384 H= 96 zero     dMSE_k +0.00967 -0.01492
+[R1Mem audit test per-patch] L= 384 H= 96 perm     dMSE_k +0.00351 -0.03063
+[R1Mem audit test per-patch] L= 384 H= 96 icloff   dMSE_k +0.00967 -0.01492
+[R1Mem audit test per-patch] L= 384 H= 96 iclperm0 dMSE_k +0.01199 +0.00077
+[R1Mem audit test per-patch] L= 384 H= 96 iclperm1 dMSE_k +0.00200 -0.00395
+[R1Mem audit test per-patch] L= 384 H= 96 iclperm2 dMSE_k +0.00777 +0.00180
+[R1Mem audit test] L= 384 H=192 | normal mse 0.387742 mae 0.423726 | zero dMSE +0.000000 dMAE +0.000000 | perm dMSE +0.000000 dMAE +0.000000 | icloff dMSE +0.000000 dMAE +0.000000 | iclperm0 dMSE +0.000000 dMAE +0.000000 | iclperm1 dMSE +0.000000 dMAE +0.000000 | iclperm2 dMSE +0.000000 dMAE +0.000000
+[R1Mem audit test per-patch] L= 384 H=192 zero     dMSE_k +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test per-patch] L= 384 H=192 perm     dMSE_k +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test per-patch] L= 384 H=192 icloff   dMSE_k +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test per-patch] L= 384 H=192 iclperm0 dMSE_k +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test per-patch] L= 384 H=192 iclperm1 dMSE_k +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test per-patch] L= 384 H=192 iclperm2 dMSE_k +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test] L= 384 H=336 | normal mse 0.400137 mae 0.435929 | zero dMSE +0.000000 dMAE +0.000000 | perm dMSE +0.000000 dMAE +0.000000 | icloff dMSE +0.000000 dMAE +0.000000 | iclperm0 dMSE +0.000000 dMAE +0.000000 | iclperm1 dMSE +0.000000 dMAE +0.000000 | iclperm2 dMSE +0.000000 dMAE +0.000000
+[R1Mem audit test per-patch] L= 384 H=336 zero     dMSE_k +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test per-patch] L= 384 H=336 perm     dMSE_k +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test per-patch] L= 384 H=336 icloff   dMSE_k +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test per-patch] L= 384 H=336 iclperm0 dMSE_k +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test per-patch] L= 384 H=336 iclperm1 dMSE_k +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test per-patch] L= 384 H=336 iclperm2 dMSE_k +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test] L= 720 H= 96 | normal mse 0.348713 mae 0.397845 | zero dMSE +0.013054 dMAE +0.014028 | perm dMSE +0.000877 dMAE +0.005096 | icloff dMSE +0.013054 dMAE +0.014028 | iclperm0 dMSE +0.003128 dMAE +0.005299 | iclperm1 dMSE +0.010747 dMAE +0.008997 | iclperm2 dMSE +0.004586 dMAE +0.005165
+[R1Mem audit test per-patch] L= 720 H= 96 zero     dMSE_k +0.02140 +0.00471
+[R1Mem audit test per-patch] L= 720 H= 96 perm     dMSE_k +0.01601 -0.01426
+[R1Mem audit test per-patch] L= 720 H= 96 icloff   dMSE_k +0.02140 +0.00471
+[R1Mem audit test per-patch] L= 720 H= 96 iclperm0 dMSE_k +0.01076 -0.00451
+[R1Mem audit test per-patch] L= 720 H= 96 iclperm1 dMSE_k +0.01270 +0.00880
+[R1Mem audit test per-patch] L= 720 H= 96 iclperm2 dMSE_k +0.01190 -0.00273
+[R1Mem audit test] L= 720 H=192 | normal mse 0.380653 mae 0.424630 | zero dMSE +0.005088 dMAE +0.003625 | perm dMSE +0.007213 dMAE +0.003612 | icloff dMSE +0.005088 dMAE +0.003625 | iclperm0 dMSE +0.005963 dMAE +0.001721 | iclperm1 dMSE +0.004008 dMAE +0.000954 | iclperm2 dMSE +0.005221 dMAE +0.000871
+[R1Mem audit test per-patch] L= 720 H=192 zero     dMSE_k +0.00956 +0.00616 +0.00408 +0.00056
+[R1Mem audit test per-patch] L= 720 H=192 perm     dMSE_k +0.00999 +0.01035 +0.00858 -0.00007
+[R1Mem audit test per-patch] L= 720 H=192 icloff   dMSE_k +0.00956 +0.00616 +0.00408 +0.00056
+[R1Mem audit test per-patch] L= 720 H=192 iclperm0 dMSE_k +0.00698 +0.00586 +0.00771 +0.00330
+[R1Mem audit test per-patch] L= 720 H=192 iclperm1 dMSE_k +0.00820 +0.01278 +0.00033 -0.00528
+[R1Mem audit test per-patch] L= 720 H=192 iclperm2 dMSE_k +0.00715 +0.00220 +0.00411 +0.00742
+[R1Mem audit test] L= 720 H=336 | normal mse 0.439700 mae 0.458245 | zero dMSE -0.041864 dMAE -0.016686 | perm dMSE -0.028222 dMAE -0.009102 | icloff dMSE -0.041864 dMAE -0.016686 | iclperm0 dMSE +0.000000 dMAE +0.000000 | iclperm1 dMSE +0.000000 dMAE +0.000000 | iclperm2 dMSE +0.000000 dMAE +0.000000
+[R1Mem audit test per-patch] L= 720 H=336 zero     dMSE_k -0.00225 -0.00486 -0.01466 -0.03930 -0.07027 -0.07879 -0.08292
+[R1Mem audit test per-patch] L= 720 H=336 perm     dMSE_k +0.00238 +0.00541 -0.00232 -0.01656 -0.04906 -0.06734 -0.07007
+[R1Mem audit test per-patch] L= 720 H=336 icloff   dMSE_k -0.00225 -0.00486 -0.01466 -0.03930 -0.07027 -0.07879 -0.08292
+[R1Mem audit test per-patch] L= 720 H=336 iclperm0 dMSE_k +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test per-patch] L= 720 H=336 iclperm1 dMSE_k +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test per-patch] L= 720 H=336 iclperm2 dMSE_k +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000 +0.00000
+[R1Mem audit test] L=1440 H= 96 | normal mse 0.369546 mae 0.421552 | zero dMSE +0.029588 dMAE +0.023528 | perm dMSE +0.015298 dMAE +0.014264 | icloff dMSE +0.029588 dMAE +0.023528 | iclperm0 dMSE +0.023971 dMAE +0.017320 | iclperm1 dMSE +0.023707 dMAE +0.016571 | iclperm2 dMSE +0.022272 dMAE +0.017342
+[R1Mem audit test per-patch] L=1440 H= 96 zero     dMSE_k +0.03804 +0.02114
+[R1Mem audit test per-patch] L=1440 H= 96 perm     dMSE_k +0.02882 +0.00177
+[R1Mem audit test per-patch] L=1440 H= 96 icloff   dMSE_k +0.03804 +0.02114
+[R1Mem audit test per-patch] L=1440 H= 96 iclperm0 dMSE_k +0.02803 +0.01992
+[R1Mem audit test per-patch] L=1440 H= 96 iclperm1 dMSE_k +0.02910 +0.01831
+[R1Mem audit test per-patch] L=1440 H= 96 iclperm2 dMSE_k +0.03015 +0.01440
+[R1Mem audit test] L=1440 H=192 | normal mse 0.405868 mae 0.449469 | zero dMSE +0.011316 dMAE +0.008893 | perm dMSE -0.003458 dMAE -0.000426 | icloff dMSE +0.011316 dMAE +0.008893 | iclperm0 dMSE +0.006606 dMAE +0.004259 | iclperm1 dMSE +0.008405 dMAE +0.004273 | iclperm2 dMSE +0.007270 dMAE +0.004446
+[R1Mem audit test per-patch] L=1440 H=192 zero     dMSE_k +0.01814 +0.01002 +0.00762 +0.00948
+[R1Mem audit test per-patch] L=1440 H=192 perm     dMSE_k +0.00619 -0.00483 -0.00814 -0.00705
+[R1Mem audit test per-patch] L=1440 H=192 icloff   dMSE_k +0.01814 +0.01002 +0.00762 +0.00948
+[R1Mem audit test per-patch] L=1440 H=192 iclperm0 dMSE_k +0.01085 +0.00618 +0.00305 +0.00634
+[R1Mem audit test per-patch] L=1440 H=192 iclperm1 dMSE_k +0.01086 +0.00758 +0.00480 +0.01038
+[R1Mem audit test per-patch] L=1440 H=192 iclperm2 dMSE_k +0.01162 +0.00300 +0.00519 +0.00927
+[R1Mem audit test] L=1440 H=336 | normal mse 0.428071 mae 0.466822 | zero dMSE +0.005754 dMAE +0.006112 | perm dMSE -0.004744 dMAE -0.002547 | icloff dMSE +0.005754 dMAE +0.006112 | iclperm0 dMSE +0.005369 dMAE +0.002686 | iclperm1 dMSE +0.004375 dMAE +0.002516 | iclperm2 dMSE +0.001464 dMAE +0.001403
+[R1Mem audit test per-patch] L=1440 H=336 zero     dMSE_k +0.01101 +0.00781 +0.00449 +0.00308 +0.00381 +0.00395 +0.00613
+[R1Mem audit test per-patch] L=1440 H=336 perm     dMSE_k +0.00121 -0.00149 -0.00495 -0.00647 -0.00798 -0.00809 -0.00544
+[R1Mem audit test per-patch] L=1440 H=336 icloff   dMSE_k +0.01101 +0.00781 +0.00449 +0.00308 +0.00381 +0.00395 +0.00613
+[R1Mem audit test per-patch] L=1440 H=336 iclperm0 dMSE_k +0.00556 +0.00847 +0.00555 +0.00505 +0.00496 +0.00534 +0.00266
+[R1Mem audit test per-patch] L=1440 H=336 iclperm1 dMSE_k +0.00320 +0.00586 +0.00507 +0.00529 +0.00480 +0.00493 +0.00148
+[R1Mem audit test per-patch] L=1440 H=336 iclperm2 dMSE_k +0.00349 +0.00180 +0.00089 +0.00195 +0.00334 -0.00010 -0.00113

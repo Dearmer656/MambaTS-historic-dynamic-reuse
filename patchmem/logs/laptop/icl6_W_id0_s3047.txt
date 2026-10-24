@@ -1,0 +1,120 @@
+Args in experiment:
+[1mBasic Config[0m
+  Task Name:          long_term_forecast  Is Training:        1                   
+  Model ID:           weather_r1          Model:              MambaTS             
+
+[1mData Loader[0m
+  Data:               custom              Root Path:          ./dataset/weather   
+  Data Path:          weather.csv         Features:           M                   
+  Target:             OT                  Freq:               h                   
+  Checkpoints:        ./checkpoints/      
+
+[1mForecasting Task[0m
+  Seq Len:            1440                Label Len:          48                  
+  Pred Len:           336                 Seasonal Patterns:  Monthly             
+  Inverse:            0                   
+
+[1mModel Parameters[0m
+  Top k:              5                   Num Kernels:        6                   
+  Enc In:             21                  Dec In:             21                  
+  C Out:              21                  d model:            32                  
+  n heads:            16                  e layers:           3                   
+  d layers:           2                   d FF:               512                 
+  Moving Avg:         25                  Factor:             1                   
+  Distil:             1                   Dropout:            0.2                 
+  Embed:              timeF               Activation:         gelu                
+  Output Attention:   0                   
+
+[1mRun Parameters[0m
+  Num Workers:        0                   Itr:                1                   
+  Train Epochs:       10                  Batch Size:         8                   
+  Patience:           3                   Learning Rate:      0.0005              
+  Des:                R1WIclId0s3047      Loss:               MSE                 
+  Lradj:              type1               Use Amp:            0                   
+
+[1mGPU[0m
+  Use GPU:            1                   GPU:                0                   
+  Use Multi GPU:      0                   Devices:            0,1,2,3             
+
+[1mDe-stationary Projector Params[0m
+  P Hidden Dims:      128, 128            P Hidden Layers:    2                   
+
+Use GPU: cuda:0
+VPT_mode: 1, ATSP_solver: SA
+R1TeflICL: variant id | K follows H False | eta0 1.0 learned False | eps = lead 1..7 errors of origin T-1-7 (input 336) rank 64 | trainable 1063792 | feed forecast True
+R1: d_inner 64 d_state 16 vars 21 patch 48 | readout 1024 -> 1008 (1033200 params) | readout LN False | VPT True (SA) | trainable 1063792
+===== [param snapshot] event=init | 2026-10-24T21:30:14.995627+02:00 | commit 3c3213437ff5b4de5ccd5812495dfd6bf12df650 (laptop, dirty) | R1TeflICL torch.float32 cpu
+  meta: {"seed": 3047, "model_id": "weather_r1", "des": "R1WIclId0s3047", "patch_len": 48, "VPT": 1}
+  env: R1_LAMBDA_HIST=0
+  params: total 1107710 | trainable 1063792 | frozen 43918 | extra vs R1 (corr_net+mem_net) 0 | 38 tensors, 0 buffers | files patchmem/logs/param_snapshots/weather_r1_R1WIclId0s3047_s3047/20261024T213014995627_init.jsonl / .csv
+  name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
+  eta                                                       7      False 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 2.6458e+00 0.0000e+00          0  (7,)
+  base.value_embedding.1.weight                          1536       True-6.8048e-04 8.1606e-02-1.4406e-01 1.4407e-01 1.4407e-01 8.1609e-02 3.1984e+00 0.0000e+00          0  (32, 48)
+  base.encoder.adjacency_matrix                           441      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21, 21)
+  base.encoder.count_matrix                               441      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21, 21)
+  base.encoder.ending_points                               21      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21,)
+  base.encoder.layers.0.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.0.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.0.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.0.mixer.in_proj.weight             4096       True-2.6155e-03 1.0160e-01-1.7656e-01 1.7674e-01 1.7674e-01 1.0164e-01 6.5047e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.0.mixer.x_proj.0.weight            2176       True-3.0251e-03 7.2727e-02-1.2497e-01 1.2499e-01 1.2499e-01 7.2790e-02 3.3955e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.0.mixer.dt_proj.weight              128       True 1.3105e-02 3.8700e-01-6.8524e-01 6.9562e-01 6.9562e-01 3.8722e-01 4.3809e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.0.mixer.dt_proj.bias                 64       True-4.4322e+00 1.3052e+00-6.7612e+00-2.2741e+00 6.7612e+00 4.6204e+00 3.6963e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.0.mixer.out_proj.weight            2048       True-9.7573e-04 4.1642e-02-7.2072e-02 7.2093e-02 7.2093e-02 4.1653e-02 1.8850e+00 0.0000e+00          0  (32, 64)
+  base.encoder.layers.1.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.1.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.1.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.1.mixer.in_proj.weight             4096       True 3.8628e-04 1.0185e-01-1.7645e-01 1.7673e-01 1.7673e-01 1.0185e-01 6.5187e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.1.mixer.x_proj.0.weight            2176       True-2.8022e-03 7.1885e-02-1.2482e-01 1.2490e-01 1.2490e-01 7.1939e-02 3.3558e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.1.mixer.dt_proj.weight              128       True 4.2180e-02 3.8483e-01-6.7587e-01 7.0576e-01 7.0576e-01 3.8714e-01 4.3800e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.1.mixer.dt_proj.bias                 64       True-4.3323e+00 1.3870e+00-6.8953e+00-2.3363e+00 6.8953e+00 4.5489e+00 3.6391e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.1.mixer.out_proj.weight            2048       True 5.6136e-04 4.1577e-02-7.2167e-02 7.2046e-02 7.2167e-02 4.1581e-02 1.8817e+00 0.0000e+00          0  (32, 64)
+  base.encoder.layers.2.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.2.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.2.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.2.mixer.in_proj.weight             4096       True-1.6203e-03 1.0146e-01-1.7676e-01 1.7672e-01 1.7676e-01 1.0148e-01 6.4945e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.2.mixer.x_proj.0.weight            2176       True 2.3685e-04 7.1956e-02-1.2487e-01 1.2472e-01 1.2487e-01 7.1957e-02 3.3566e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.2.mixer.dt_proj.weight              128       True 2.7995e-02 4.5061e-01-7.0128e-01 6.9495e-01 7.0128e-01 4.5148e-01 5.1079e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.2.mixer.dt_proj.bias                 64       True-4.7722e+00 1.3233e+00-6.8374e+00-2.2800e+00 6.8374e+00 4.9523e+00 3.9618e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.2.mixer.out_proj.weight            2048       True 1.6762e-04 4.1813e-02-7.2163e-02 7.2116e-02 7.2163e-02 4.1814e-02 1.8923e+00 0.0000e+00          0  (32, 64)
+  base.encoder.norm_f.weight                               32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.norm_f.bias                                 32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  readout.weight                                      1032192       True-8.2270e-06 1.8051e-02-3.1250e-02 3.1250e-02 3.1250e-02 1.8051e-02 1.8339e+01 0.0000e+00          0  (1008, 1024)
+  readout.bias                                           1008       True-1.2277e-03 1.8251e-02-3.1190e-02 3.1216e-02 3.1216e-02 1.8293e-02 5.8078e-01 0.0000e+00          0  (1008,)
+  W1.weight                                             21504      False-1.0522e-04 3.1457e-02-5.4554e-02 5.4549e-02 5.4554e-02 3.1457e-02 4.6130e+00 0.0000e+00          0  (64, 336)
+  W2.weight                                             21504      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (336, 64)
+  -- module subtotals:
+  eta                                              numel         7 | l2 2.6458e+00 | rms 1.0000e+00
+  base.value_embedding                             numel      1536 | l2 3.1984e+00 | rms 8.1609e-02
+  base.encoder                                     numel       967 | l2 5.6569e+00 | rms 1.8191e-01
+  base.encoder.layers.0                            numel      9664 | l2 7.6810e+01 | rms 7.8134e-01
+  base.encoder.layers.1                            numel      9664 | l2 7.6536e+01 | rms 7.7855e-01
+  base.encoder.layers.2                            numel      9664 | l2 7.8164e+01 | rms 7.9511e-01
+  readout                                          numel   1033200 | l2 1.8348e+01 | rms 1.8051e-02
+  W1                                               numel     21504 | l2 4.6130e+00 | rms 3.1457e-02
+  W2                                               numel     21504 | l2 0.0000e+00 | rms 0.0000e+00
+  -- buffers (0; not parameters):
+===== [param snapshot end] event=init
+>>>>>>>start training : long_term_forecast_weather_r1_MambaTS_custom_ftM_sl1440_ll48_pl336_dm32_nh16_el3_dl2_df512_fc1_ebtimeF_dtTrue_R1WIclId0s3047_0>>>>>>>>>>>>>>>>>>>>>>>>>>
+train 35112
+R1 train: 35112 windows of 1440+336 | lookback 384..1440 step 48 | horizon 2..7 patches | per-sample L/H False | lambda_hist 0.0 | lambda_corr 0.0 | val grid [(384, 96), (720, 96), (1440, 96), (384, 336), (720, 336), (1440, 336)] stride 4
+	iters: 100, epoch: 1 | L 1344 H 240 | future mse 0.46284 hist mse 0.60483 | mem delta_rms 0.197 eps_rms 0.979
+	iters: 200, epoch: 1 | L 1248 H 192 | future mse 0.55164 hist mse 0.86667 | mem delta_rms 0.217 eps_rms 1.01
+	iters: 300, epoch: 1 | L 864 H 240 | future mse 0.52795 hist mse 0.59892 | mem delta_rms 0.268 eps_rms 1.03
+	iters: 400, epoch: 1 | L 1152 H 144 | future mse 0.38344 hist mse 0.44531 | mem delta_rms 0.21 eps_rms 0.979
+	iters: 500, epoch: 1 | L 1440 H 144 | future mse 0.42637 hist mse 0.56413 | mem delta_rms 0.203 eps_rms 0.973
+	iters: 600, epoch: 1 | L 912 H 240 | future mse 0.47060 hist mse 0.46548 | mem delta_rms 0.27 eps_rms 1.03
+	iters: 700, epoch: 1 | L 624 H 288 | future mse 1.85924 hist mse 0.46278 | mem delta_rms 0 eps_rms 1.02
+	iters: 800, epoch: 1 | L 816 H 240 | future mse 0.42395 hist mse 0.44135 | mem delta_rms 0.315 eps_rms 0.997
+	iters: 900, epoch: 1 | L 1296 H 96 | future mse 0.47244 hist mse 0.82057 | mem delta_rms 0.223 eps_rms 1.08
+	iters: 1000, epoch: 1 | L 1248 H 96 | future mse 0.51592 hist mse 0.59430 | mem delta_rms 0.216 eps_rms 0.975
+	iters: 1100, epoch: 1 | L 864 H 288 | future mse 0.60208 hist mse 0.48616 | mem delta_rms 0.262 eps_rms 1.03
+	iters: 1200, epoch: 1 | L 720 H 336 | future mse 0.78888 hist mse 0.54491 | mem delta_rms 0.417 eps_rms 0.981
+	iters: 1300, epoch: 1 | L 1104 H 336 | future mse 0.86485 hist mse 0.50414 | mem delta_rms 0.243 eps_rms 1.06
+	iters: 1400, epoch: 1 | L 768 H 288 | future mse 0.61799 hist mse 0.40905 | mem delta_rms 0.291 eps_rms 0.924
+	iters: 1500, epoch: 1 | L 1392 H 240 | future mse 0.68439 hist mse 0.57146 | mem delta_rms 0.194 eps_rms 1.04
+	iters: 1600, epoch: 1 | L 1008 H 144 | future mse 0.34934 hist mse 0.52048 | mem delta_rms 0.231 eps_rms 1.04
+	iters: 1700, epoch: 1 | L 1104 H 144 | future mse 0.51695 hist mse 1.00470 | mem delta_rms 0.21 eps_rms 1.06
