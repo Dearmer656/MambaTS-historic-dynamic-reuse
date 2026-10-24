@@ -1,0 +1,16 @@
+commit 3c32134 tefl_icl stages 2 (Sat Oct 24 17:20:24 CEST 2026)
+E H96_a1 s3048 -> patchmem/logs/laptop/icl6_E_H96_a1_s3048.txt (Sat Oct 24 17:20:24 CEST 2026)
+[R1 test] L=1440 H= 96 | mse 0.380163 mae 0.431454 | naive last-patch mse 0.424232 linear mse 1.335442 | 8.0s peak 127MB | per-patch mse 0.3384 0.4219
+E H96_tefl s3048 -> patchmem/logs/laptop/icl6_E_H96_tefl_s3048.txt (Sat Oct 24 17:52:02 CEST 2026)
+[R1 test] L=1440 H= 96 | mse 0.296820 mae 0.353375 | naive last-patch mse 0.424232 linear mse 1.335442 | 19.9s peak 176MB | per-patch mse 0.2443 0.3494
+[R1Mem audit test] L=1440 H= 96 | normal mse 0.296820 mae 0.353375 | zero dMSE +0.751670 dMAE +0.424806 | perm dMSE +0.356622 dMAE +0.220053
+E H96_tied s3048 -> patchmem/logs/laptop/icl6_E_H96_tied_s3048.txt (Sat Oct 24 18:51:22 CEST 2026)
+[R1 test] L=1440 H= 96 | mse 0.341688 mae 0.402640 | naive last-patch mse 0.424232 linear mse 1.335442 | 16.4s peak 187MB | per-patch mse 0.2938 0.3896
+[R1Mem audit test] L=1440 H= 96 | normal mse 0.341688 mae 0.402640 | zero dMSE +0.087957 dMAE +0.070283 | perm dMSE +0.024059 dMAE +0.019336 | icloff dMSE +0.087957 dMAE +0.070283 | iclperm0 dMSE +0.0
+E H96_hyb s3048 -> patchmem/logs/laptop/icl6_E_H96_hyb_s3048.txt (Sat Oct 24 19:59:50 CEST 2026)
+[R1 test] L=1440 H= 96 | mse 0.286760 mae 0.351828 | naive last-patch mse 0.424232 linear mse 1.335442 | 17.3s peak 187MB | per-patch mse 0.2371 0.3364
+[R1Mem audit test] L=1440 H= 96 | normal mse 0.286760 mae 0.351828 | zero dMSE +0.452875 dMAE +0.282882 | perm dMSE +0.314891 dMAE +0.198102 | icloff dMSE +0.009390 dMAE +0.008333 | iclperm0 dMSE -0.0
+E H96_teflFz s3048 -> patchmem/logs/laptop/icl6_E_H96_teflFz_s3048.txt (Sat Oct 24 21:09:10 CEST 2026)
+[R1 test] L=1440 H= 96 | mse 0.317449 mae 0.369802 | naive last-patch mse 0.424232 linear mse 1.335442 | 19.0s peak 174MB | per-patch mse 0.2567 0.3782
+[R1Mem audit test] L=1440 H= 96 | normal mse 0.317449 mae 0.369802 | zero dMSE +0.091212 dMAE +0.078723 | perm dMSE +0.172885 dMAE +0.121322
+E H96_tiedFz s3048 -> patchmem/logs/laptop/icl6_E_H96_tiedFz_s3048.txt (Sat Oct 24 22:09:54 CEST 2026)

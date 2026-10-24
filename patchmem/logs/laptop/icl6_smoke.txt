@@ -1,0 +1,258 @@
+Args in experiment:
+[1mBasic Config[0m
+  Task Name:          long_term_forecast  Is Training:        1                   
+  Model ID:           ETTh2_r1            Model:              MambaTS             
+
+[1mData Loader[0m
+  Data:               ETTh2               Root Path:          ./dataset/ETT-small 
+  Data Path:          ETTh2.csv           Features:           M                   
+  Target:             OT                  Freq:               h                   
+  Checkpoints:        ./checkpoints/      
+
+[1mForecasting Task[0m
+  Seq Len:            1440                Label Len:          48                  
+  Pred Len:           336                 Seasonal Patterns:  Monthly             
+  Inverse:            0                   
+
+[1mModel Parameters[0m
+  Top k:              5                   Num Kernels:        6                   
+  Enc In:             7                   Dec In:             7                   
+  C Out:              7                   d model:            16                  
+  n heads:            16                  e layers:           5                   
+  d layers:           2                   d FF:               2048                
+  Moving Avg:         25                  Factor:             1                   
+  Distil:             1                   Dropout:            0.3                 
+  Embed:              timeF               Activation:         gelu                
+  Output Attention:   0                   
+
+[1mRun Parameters[0m
+  Num Workers:        0                   Itr:                1                   
+  Train Epochs:       1                   Batch Size:         8                   
+  Patience:           3                   Learning Rate:      0.001               
+  Des:                icl6smoke           Loss:               MSE                 
+  Lradj:              type1               Use Amp:            0                   
+
+[1mGPU[0m
+  Use GPU:            1                   GPU:                0                   
+  Use Multi GPU:      0                   Devices:            0,1,2,3             
+
+[1mDe-stationary Projector Params[0m
+  P Hidden Dims:      128, 128            P Hidden Layers:    2                   
+
+Use GPU: cuda:0
+VPT_mode: 1, ATSP_solver: SA
+R1TeflICL: variant tied | K follows H False | eta0 0.0 learned True | eps = lead 1..2 errors of origin T-1-2 (input 96) rank 64 | trainable 195474 | feed forecast True
+R1: d_inner 32 d_state 16 vars 7 patch 48 | readout 512 -> 336 (172368 params) | readout LN False | VPT True (SA) | trainable 195474
+===== [param snapshot] event=init | 2026-10-24T17:15:52.993852+02:00 | commit 5f57cc65d249746e2affe44395ee9a25b5895fcd (laptop) | R1TeflICL torch.float32 cpu
+  meta: {"seed": 3047, "model_id": "ETTh2_r1", "des": "icl6smoke", "patch_len": 48, "VPT": 1}
+  env: R1_LAMBDA_HIST=0 R1_HMIN=2 R1_HMAX=2
+  params: total 201723 | trainable 195474 | frozen 6249 | extra vs R1 (corr_net+mem_net) 0 | 56 tensors, 0 buffers | files patchmem/logs/param_snapshots/ETTh2_r1_icl6smoke_s3047/20261024T171552993852_init.jsonl / .csv
+  name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
+  eta                                                       2       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (2,)
+  base.value_embedding.1.weight                           768       True-3.0489e-03 8.1994e-02-1.4406e-01 1.4407e-01 1.4407e-01 8.2051e-02 2.2739e+00 0.0000e+00          0  (16, 48)
+  base.encoder.adjacency_matrix                            49      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (7, 7)
+  base.encoder.count_matrix                                49      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (7, 7)
+  base.encoder.ending_points                                7      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (7,)
+  base.encoder.layers.0.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.0.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.0.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.0.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.in_proj.weight             1024       True-9.6532e-04 1.4113e-01-2.4948e-01 2.4721e-01 2.4948e-01 1.4113e-01 4.5161e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.0.mixer.x_proj.0.weight            1056       True-4.2258e-03 1.0268e-01-1.7593e-01 1.7659e-01 1.7659e-01 1.0277e-01 3.3396e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.0.mixer.dt_proj.weight               32       True-5.1971e-02 6.3039e-01-9.8645e-01 9.9081e-01 9.9081e-01 6.3253e-01 3.5781e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.0.mixer.dt_proj.bias                 32       True-4.4760e+00 1.4723e+00-6.8637e+00-2.4427e+00 6.8637e+00 4.7119e+00 2.6655e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.out_proj.weight             512       True-1.0884e-03 4.5776e-02-7.8892e-02 7.8820e-02 7.8892e-02 4.5789e-02 1.0361e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.1.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.1.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.1.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.1.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.in_proj.weight             1024       True 2.7968e-03 1.4052e-01-2.4934e-01 2.4893e-01 2.4934e-01 1.4055e-01 4.4975e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.1.mixer.x_proj.0.weight            1056       True-5.0476e-03 1.0138e-01-1.7585e-01 1.7610e-01 1.7610e-01 1.0150e-01 3.2985e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.1.mixer.dt_proj.weight               32       True-2.3159e-01 5.4005e-01-9.2073e-01 8.4628e-01 9.2073e-01 5.8761e-01 3.3240e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.1.mixer.dt_proj.bias                 32       True-4.4792e+00 1.3121e+00-6.9063e+00-2.4818e+00 6.9063e+00 4.6674e+00 2.6403e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.out_proj.weight             512       True-1.8572e-03 4.3511e-02-7.8940e-02 7.8553e-02 7.8940e-02 4.3551e-02 9.8544e-01 0.0000e+00          0  (16, 32)
+  base.encoder.layers.2.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.2.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.2.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.2.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.in_proj.weight             1024       True-1.1579e-02 1.4468e-01-2.4995e-01 2.4999e-01 2.4999e-01 1.4514e-01 4.6446e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.2.mixer.x_proj.0.weight            1056       True-4.3305e-04 1.0251e-01-1.7592e-01 1.7622e-01 1.7622e-01 1.0251e-01 3.3311e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.2.mixer.dt_proj.weight               32       True-6.7759e-02 6.0564e-01-9.8475e-01 9.5237e-01 9.8475e-01 6.0941e-01 3.4474e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.2.mixer.dt_proj.bias                 32       True-4.5693e+00 1.3864e+00-6.8335e+00-2.2643e+00 6.8335e+00 4.7750e+00 2.7012e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.out_proj.weight             512       True-3.4853e-03 4.5958e-02-7.8943e-02 7.8848e-02 7.8943e-02 4.6090e-02 1.0429e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.3.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.3.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.3.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.3.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.3.mixer.in_proj.weight             1024       True 3.6054e-04 1.4311e-01-2.4983e-01 2.4998e-01 2.4998e-01 1.4311e-01 4.5796e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.3.mixer.x_proj.0.weight            1056       True-2.7285e-03 1.0490e-01-1.7639e-01 1.7571e-01 1.7639e-01 1.0493e-01 3.4100e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.3.mixer.dt_proj.weight               32       True 6.3978e-02 5.7747e-01-9.9040e-01 9.9234e-01 9.9234e-01 5.8100e-01 3.2867e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.3.mixer.dt_proj.bias                 32       True-4.4566e+00 1.5565e+00-6.8959e+00-2.5066e+00 6.8959e+00 4.7206e+00 2.6704e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.3.mixer.out_proj.weight             512       True 1.8490e-05 4.6531e-02-7.8944e-02 7.8991e-02 7.8991e-02 4.6531e-02 1.0529e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.4.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.4.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.4.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.4.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.4.mixer.in_proj.weight             1024       True 8.9571e-04 1.4340e-01-2.4922e-01 2.4990e-01 2.4990e-01 1.4340e-01 4.5888e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.4.mixer.x_proj.0.weight            1056       True 1.4996e-03 1.0162e-01-1.7645e-01 1.7673e-01 1.7673e-01 1.0164e-01 3.3028e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.4.mixer.dt_proj.weight               32       True-5.5304e-02 5.9939e-01-9.2377e-01 9.3984e-01 9.3984e-01 6.0194e-01 3.4051e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.4.mixer.dt_proj.bias                 32       True-4.7292e+00 1.2697e+00-6.7512e+00-2.2986e+00 6.7512e+00 4.8967e+00 2.7700e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.4.mixer.out_proj.weight             512       True 8.3020e-04 4.6524e-02-7.8646e-02 7.8906e-02 7.8906e-02 4.6532e-02 1.0529e+00 0.0000e+00          0  (16, 32)
+  base.encoder.norm_f.weight                               16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.norm_f.bias                                 16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  readout.weight                                       172032       True 6.1560e-05 2.5540e-02-4.4193e-02 4.4193e-02 4.4193e-02 2.5540e-02 1.0593e+01 0.0000e+00          0  (336, 512)
+  readout.bias                                            336       True 1.9249e-03 2.5387e-02-4.4103e-02 4.3753e-02 4.4103e-02 2.5460e-02 4.6669e-01 0.0000e+00          0  (336,)
+  W1.weight                                              6144       True 8.1919e-04 5.8663e-02-1.0200e-01 1.0194e-01 1.0200e-01 5.8669e-02 4.5987e+00 0.0000e+00          0  (64, 96)
+  W2.weight                                              6144      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (96, 64)
+  -- module subtotals:
+  eta                                              numel         2 | l2 0.0000e+00 | rms 0.0000e+00
+  base.value_embedding                             numel       768 | l2 2.2739e+00 | rms 8.2051e-02
+  base.encoder                                     numel       137 | l2 4.0000e+00 | rms 3.4174e-01
+  base.encoder.layers.0                            numel      3232 | l2 5.4629e+01 | rms 9.6092e-01
+  base.encoder.layers.1                            numel      3232 | l2 5.4486e+01 | rms 9.5840e-01
+  base.encoder.layers.2                            numel      3232 | l2 5.4806e+01 | rms 9.6404e-01
+  base.encoder.layers.3                            numel      3232 | l2 5.4645e+01 | rms 9.6120e-01
+  base.encoder.layers.4                            numel      3232 | l2 5.5140e+01 | rms 9.6991e-01
+  readout                                          numel    172368 | l2 1.0603e+01 | rms 2.5539e-02
+  W1                                               numel      6144 | l2 4.5987e+00 | rms 5.8669e-02
+  W2                                               numel      6144 | l2 0.0000e+00 | rms 0.0000e+00
+  -- buffers (0; not parameters):
+===== [param snapshot end] event=init
+>>>>>>>start training : long_term_forecast_ETTh2_r1_MambaTS_ETTh2_ftM_sl1440_ll48_pl336_dm16_nh16_el5_dl2_df2048_fc1_ebtimeF_dtTrue_icl6smoke_0>>>>>>>>>>>>>>>>>>>>>>>>>>
+train 7105
+R1 train: 7105 windows of 1440+96 | lookback 384..1440 step 48 | horizon 2..2 patches | per-sample L/H False | lambda_hist 0.0 | lambda_corr 0.0 | val grid [(720, 96), (1440, 96)] stride 32
+[R1 ATSP] order [5, 6, 3, 2, 1, 0, 4] cost 9.5680
+val 2785
+val 2785
+Epoch: 1 cost time: 15 | train future 0.65585 hist 0.52636 | val mean mse 0.53552 | 720/96:0.4219 1440/96:0.6491
+Validation loss decreased (inf --> 0.535518).  Saving model ...
+Updating learning rate to 0.001
+[R1 best] epoch 1 step 30 of 30 steps
+===== [param snapshot] event=checkpoint_loaded | 2026-10-24T17:16:09.856266+02:00 | commit 5f57cc65d249746e2affe44395ee9a25b5895fcd (laptop) | R1TeflICL torch.float32 cuda:0
+  meta: {"seed": 3047, "model_id": "ETTh2_r1", "des": "icl6smoke", "patch_len": 48, "VPT": 1, "checkpoint": "./checkpoints/long_term_forecast_ETTh2_r1_MambaTS_ETTh2_ftM_sl1440_ll48_pl336_dm16_nh16_el5_dl2_df2048_fc1_ebtimeF_dtTrue_icl6smoke_0/checkpoint.pth", "source": "train: early-stopping best", "best_epoch": 1, "best_step": 30, "total_steps": 30, "setting": "long_term_forecast_ETTh2_r1_MambaTS_ETTh2_ftM_sl1440_ll48_pl336_dm16_nh16_el5_dl2_df2048_fc1_ebtimeF_dtTrue_icl6smoke_0"}
+  env: R1_LAMBDA_HIST=0 R1_HMIN=2 R1_HMAX=2
+  params: total 201723 | trainable 195474 | frozen 6249 | extra vs R1 (corr_net+mem_net) 0 | 56 tensors, 0 buffers | files patchmem/logs/param_snapshots/ETTh2_r1_icl6smoke_s3047/20261024T171609856266_checkpoint_loaded.jsonl / .csv
+  name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
+  eta                                                       2       True 2.7445e-02 1.7876e-04 2.7266e-02 2.7624e-02 2.7624e-02 2.7446e-02 3.8814e-02 0.0000e+00          0  (2,)
+  base.value_embedding.1.weight                           768       True-4.2042e-03 8.2264e-02-1.5286e-01 1.5444e-01 1.5444e-01 8.2372e-02 2.2828e+00 0.0000e+00          0  (16, 48)
+  base.encoder.adjacency_matrix                            49      False 3.6603e+01 6.1011e+00 1.9387e+01 4.8812e+01 4.8812e+01 3.7108e+01 2.5975e+02 0.0000e+00          0  (7, 7)
+  base.encoder.count_matrix                                49      False 3.4286e+01 4.1502e+00 2.4000e+01 4.2000e+01 4.2000e+01 3.4536e+01 2.4175e+02 0.0000e+00          0  (7, 7)
+  base.encoder.ending_points                                7      False 3.6603e+01 6.1645e+00 2.5728e+01 4.4780e+01 4.4780e+01 3.7118e+01 9.8205e+01 0.0000e+00          0  (7,)
+  base.encoder.layers.0.norm.weight                        16       True 9.9647e-01 5.2509e-03 9.8955e-01 1.0074e+00 1.0074e+00 9.9648e-01 3.9859e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.0.norm.bias                          16       True-7.3139e-04 3.8013e-03-5.9994e-03 5.6907e-03 5.9994e-03 3.8710e-03 1.5484e-02 0.0000e+00          0  (16,)
+  base.encoder.layers.0.mixer.A_log                       512       True 1.9169e+00 7.6426e-01-1.1104e-02 2.7837e+00 2.7837e+00 2.0637e+00 4.6696e+01 0.0000e+00          0  (32, 16)
+  base.encoder.layers.0.mixer.D                            32       True 9.9858e-01 6.1792e-03 9.8849e-01 1.0095e+00 1.0095e+00 9.9860e-01 5.6489e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.in_proj.weight             1024       True-1.0078e-03 1.4093e-01-2.5266e-01 2.5053e-01 2.5266e-01 1.4094e-01 4.5100e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.0.mixer.x_proj.0.weight            1056       True-4.1562e-03 1.0284e-01-1.8494e-01 1.8221e-01 1.8494e-01 1.0292e-01 3.3445e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.0.mixer.dt_proj.weight               32       True-5.1590e-02 6.3054e-01-9.8478e-01 9.9235e-01 9.9235e-01 6.3264e-01 3.5788e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.0.mixer.dt_proj.bias                 32       True-4.4749e+00 1.4712e+00-6.8653e+00-2.4396e+00 6.8653e+00 4.7106e+00 2.6647e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.out_proj.weight             512       True-9.6348e-04 4.5911e-02-8.2358e-02 8.7510e-02 8.7510e-02 4.5921e-02 1.0391e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.1.norm.weight                        16       True 1.0007e+00 5.6260e-03 9.9074e-01 1.0129e+00 1.0129e+00 1.0007e+00 4.0030e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.1.norm.bias                          16       True 5.9543e-04 5.0389e-03-7.5485e-03 9.1731e-03 9.1731e-03 5.0739e-03 2.0296e-02 0.0000e+00          0  (16,)
+  base.encoder.layers.1.mixer.A_log                       512       True 1.9169e+00 7.6402e-01-9.2296e-03 2.7797e+00 2.7797e+00 2.0636e+00 4.6693e+01 0.0000e+00          0  (32, 16)
+  base.encoder.layers.1.mixer.D                            32       True 9.9977e-01 7.0538e-03 9.8591e-01 1.0170e+00 1.0170e+00 9.9980e-01 5.6557e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.in_proj.weight             1024       True 2.7398e-03 1.4068e-01-2.6015e-01 2.5778e-01 2.6015e-01 1.4071e-01 4.5027e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.1.mixer.x_proj.0.weight            1056       True-4.7511e-03 1.0156e-01-1.8301e-01 1.8656e-01 1.8656e-01 1.0167e-01 3.3040e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.1.mixer.dt_proj.weight               32       True-2.3227e-01 5.4107e-01-9.2361e-01 8.5143e-01 9.2361e-01 5.8882e-01 3.3309e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.1.mixer.dt_proj.bias                 32       True-4.4796e+00 1.3113e+00-6.8988e+00-2.4865e+00 6.8988e+00 4.6676e+00 2.6404e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.out_proj.weight             512       True-1.9192e-03 4.4139e-02-8.9536e-02 8.9147e-02 8.9536e-02 4.4181e-02 9.9971e-01 0.0000e+00          0  (16, 32)
+  base.encoder.layers.2.norm.weight                        16       True 1.0011e+00 7.1284e-03 9.8873e-01 1.0131e+00 1.0131e+00 1.0011e+00 4.0045e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.2.norm.bias                          16       True-1.8922e-04 7.0388e-03-1.1689e-02 1.5554e-02 1.5554e-02 7.0413e-03 2.8165e-02 0.0000e+00          0  (16,)
+  base.encoder.layers.2.mixer.A_log                       512       True 1.9171e+00 7.6396e-01-1.0618e-02 2.7877e+00 2.7877e+00 2.0637e+00 4.6696e+01 0.0000e+00          0  (32, 16)
+  base.encoder.layers.2.mixer.D                            32       True 1.0003e+00 5.8582e-03 9.8201e-01 1.0116e+00 1.0116e+00 1.0004e+00 5.6589e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.in_proj.weight             1024       True-1.1755e-02 1.4488e-01-2.5758e-01 2.6176e-01 2.6176e-01 1.4536e-01 4.6515e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.2.mixer.x_proj.0.weight            1056       True-5.0176e-04 1.0267e-01-1.8296e-01 1.8947e-01 1.8947e-01 1.0267e-01 3.3363e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.2.mixer.dt_proj.weight               32       True-6.8051e-02 6.0555e-01-9.8562e-01 9.4658e-01 9.8562e-01 6.0937e-01 3.4471e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.2.mixer.dt_proj.bias                 32       True-4.5705e+00 1.3878e+00-6.8420e+00-2.2596e+00 6.8420e+00 4.7766e+00 2.7020e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.out_proj.weight             512       True-3.5040e-03 4.6575e-02-8.7913e-02 8.7873e-02 8.7913e-02 4.6707e-02 1.0569e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.3.norm.weight                        16       True 1.0009e+00 5.0839e-03 9.8816e-01 1.0104e+00 1.0104e+00 1.0009e+00 4.0037e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.3.norm.bias                          16       True-2.4300e-04 6.0908e-03-9.0228e-03 9.0002e-03 9.0228e-03 6.0957e-03 2.4383e-02 0.0000e+00          0  (16,)
+  base.encoder.layers.3.mixer.A_log                       512       True 1.9172e+00 7.6410e-01-9.2043e-03 2.7805e+00 2.7805e+00 2.0639e+00 4.6700e+01 0.0000e+00          0  (32, 16)
+  base.encoder.layers.3.mixer.D                            32       True 1.0004e+00 6.8604e-03 9.8609e-01 1.0122e+00 1.0122e+00 1.0005e+00 5.6594e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.3.mixer.in_proj.weight             1024       True 4.3057e-04 1.4321e-01-2.5352e-01 2.5547e-01 2.5547e-01 1.4321e-01 4.5829e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.3.mixer.x_proj.0.weight            1056       True-2.8078e-03 1.0499e-01-1.8719e-01 1.8726e-01 1.8726e-01 1.0503e-01 3.4129e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.3.mixer.dt_proj.weight               32       True 6.2459e-02 5.7715e-01-9.8958e-01 9.9194e-01 9.9194e-01 5.8052e-01 3.2839e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.3.mixer.dt_proj.bias                 32       True-4.4561e+00 1.5559e+00-6.9038e+00-2.5044e+00 6.9038e+00 4.7199e+00 2.6700e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.3.mixer.out_proj.weight             512       True 9.7978e-05 4.7026e-02-8.7122e-02 9.3743e-02 9.3743e-02 4.7026e-02 1.0641e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.4.norm.weight                        16       True 1.0060e+00 8.6925e-03 9.8800e-01 1.0159e+00 1.0159e+00 1.0060e+00 4.0240e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.4.norm.bias                          16       True 5.7608e-03 1.3455e-02-1.5939e-02 2.3828e-02 2.3828e-02 1.4636e-02 5.8546e-02 0.0000e+00          0  (16,)
+  base.encoder.layers.4.mixer.A_log                       512       True 1.9140e+00 7.6486e-01-1.6037e-02 2.7873e+00 2.7873e+00 2.0612e+00 4.6639e+01 0.0000e+00          0  (32, 16)
+  base.encoder.layers.4.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.4.mixer.in_proj.weight             1024       True 9.7144e-04 1.4457e-01-2.6155e-01 2.6342e-01 2.6342e-01 1.4457e-01 4.6263e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.4.mixer.x_proj.0.weight            1056       True 1.3159e-03 1.0271e-01-1.8564e-01 1.9398e-01 1.9398e-01 1.0272e-01 3.3379e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.4.mixer.dt_proj.weight               32       True-5.3983e-02 6.0191e-01-9.2521e-01 9.4988e-01 9.4988e-01 6.0433e-01 3.4186e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.4.mixer.dt_proj.bias                 32       True-4.7252e+00 1.2675e+00-6.7526e+00-2.3060e+00 6.7526e+00 4.8923e+00 2.7675e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.4.mixer.out_proj.weight             512       True 8.3020e-04 4.6524e-02-7.8646e-02 7.8906e-02 7.8906e-02 4.6532e-02 1.0529e+00 0.0000e+00          0  (16, 32)
+  base.encoder.norm_f.weight                               16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.norm_f.bias                                 16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  readout.weight                                       172032       True 5.8148e-04 2.6697e-02-6.3854e-02 6.5486e-02 6.5486e-02 2.6704e-02 1.1076e+01 0.0000e+00          0  (336, 512)
+  readout.bias                                            336       True-6.2354e-03 2.5002e-02-5.6488e-02 3.7304e-02 5.6488e-02 2.5768e-02 4.7234e-01 0.0000e+00          0  (336,)
+  W1.weight                                              6144       True-1.7377e-03 5.8763e-02-1.2103e-01 1.1906e-01 1.2103e-01 5.8788e-02 4.6080e+00 0.0000e+00          0  (64, 96)
+  W2.weight                                              6144      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (96, 64)
+  -- module subtotals:
+  eta                                              numel         2 | l2 3.8814e-02 | rms 2.7446e-02
+  base.value_embedding                             numel       768 | l2 2.2828e+00 | rms 8.2372e-02
+  base.encoder                                     numel       137 | l2 3.6821e+02 | rms 3.1458e+01
+  base.encoder.layers.0                            numel      3232 | l2 5.4624e+01 | rms 9.6083e-01
+  base.encoder.layers.1                            numel      3232 | l2 5.4486e+01 | rms 9.5840e-01
+  base.encoder.layers.2                            numel      3232 | l2 5.4812e+01 | rms 9.6415e-01
+  base.encoder.layers.3                            numel      3232 | l2 5.4648e+01 | rms 9.6125e-01
+  base.encoder.layers.4                            numel      3232 | l2 5.5087e+01 | rms 9.6898e-01
+  readout                                          numel    172368 | l2 1.1086e+01 | rms 2.6702e-02
+  W1                                               numel      6144 | l2 4.6080e+00 | rms 5.8788e-02
+  W2                                               numel      6144 | l2 0.0000e+00 | rms 0.0000e+00
+  -- buffers (0; not parameters):
+===== [param snapshot end] event=checkpoint_loaded
+resetting ids shuffle...
+>>>>>>>testing : long_term_forecast_ETTh2_r1_MambaTS_ETTh2_ftM_sl1440_ll48_pl336_dm16_nh16_el5_dl2_df2048_fc1_ebtimeF_dtTrue_icl6smoke_0<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+[R1 ATSP] order [5, 6, 3, 2, 1, 0, 4] cost 9.5680
+val 2785
+[R1 val per-variable L=720 H=96] scan order [5, 6, 3, 2, 1, 0, 4]: pos0:v5=0.0206 pos1:v6=0.3168 pos2:v3=0.8501 pos3:v2=0.1551 pos4:v1=0.6189 pos5:v0=0.4004 pos6:v4=0.5997
+val 2785
+[R1 val] L= 720 H= 96 | mse 0.423085 mae 0.473233 | naive last-patch mse 0.298595 linear mse 0.764540 | 11.0s peak 103MB | per-patch mse 0.3980 0.4482
+[R1 val] L=1440 H= 96 | mse 0.647596 mae 0.590423 | naive last-patch mse 0.298595 linear mse 0.764540 | 12.5s peak 186MB | per-patch mse 0.6192 0.6760
+test 2785
+[R1 test per-variable L=720 H=96] scan order [5, 6, 3, 2, 1, 0, 4]: pos0:v5=0.0201 pos1:v6=0.2324 pos2:v3=0.7874 pos3:v2=0.1947 pos4:v1=0.3277 pos5:v0=0.6994 pos6:v4=0.4659
+test 2785
+[R1 test] L= 720 H= 96 | mse 0.389667 mae 0.429840 | naive last-patch mse 0.424232 linear mse 1.335442 | 9.6s peak 102MB | per-patch mse 0.3682 0.4112
+[R1 test] L=1440 H= 96 | mse 0.438500 mae 0.469523 | naive last-patch mse 0.424232 linear mse 1.335442 | 11.8s peak 186MB | per-patch mse 0.4235 0.4535
+val 2785
+[R1 val state L=720] |h_T| RMS mean 0.1130 q10/50/90 0.0841/0.1104/0.1541 max 0.1757
+val 2785
+[R1 val state L=1440] |h_T| RMS mean 0.1455 q10/50/90 0.1096/0.1438/0.1825 max 0.2042
+[R1 VPT] skipped cost updates 0 | edge counts min 24 | adjacency (mean transition cost):
+[[2.063 1.839 1.944 1.634 1.459 1.877 2.045]
+ [1.689 1.853 1.779 2.044 1.977 1.829 1.658]
+ [1.802 1.482 1.609 2.049 1.915 1.9   1.66 ]
+ [1.851 2.049 1.592 1.969 1.749 1.559 1.806]
+ [1.769 1.762 1.709 1.674 1.783 1.986 1.978]
+ [1.785 1.896 1.947 1.618 1.775 1.475 1.687]
+ [1.665 1.729 1.996 1.659 1.993 1.927 1.799]]
+val 2785
+val 2785
+val 2785
+val 2785
+val 2785
+val 2785
+val 2785
+[R1Mem audit val] L=1440 H= 96 | normal mse 0.647596 mae 0.590423 | zero dMSE +0.007810 dMAE +0.003566 | perm dMSE +0.006375 dMAE +0.003019 | icloff dMSE +0.007810 dMAE +0.003566 | iclperm0 dMSE +0.006075 dMAE +0.002663 | iclperm1 dMSE +0.006207 dMAE +0.002735 | iclperm2 dMSE +0.005793 dMAE +0.002567
+[R1Mem audit val per-patch] L=1440 H= 96 zero     dMSE_k +0.00793 +0.00769
+[R1Mem audit val per-patch] L=1440 H= 96 perm     dMSE_k +0.00713 +0.00562
+[R1Mem audit val per-patch] L=1440 H= 96 icloff   dMSE_k +0.00793 +0.00769
+[R1Mem audit val per-patch] L=1440 H= 96 iclperm0 dMSE_k +0.00655 +0.00560
+[R1Mem audit val per-patch] L=1440 H= 96 iclperm1 dMSE_k +0.00680 +0.00562
+[R1Mem audit val per-patch] L=1440 H= 96 iclperm2 dMSE_k +0.00634 +0.00525
+test 2785
+test 2785
+test 2785
+test 2785
+test 2785
+test 2785
+test 2785
+[R1Mem audit test] L=1440 H= 96 | normal mse 0.438500 mae 0.469523 | zero dMSE +0.002671 dMAE +0.001554 | perm dMSE +0.001429 dMAE +0.000952 | icloff dMSE +0.002671 dMAE +0.001554 | iclperm0 dMSE +0.001369 dMAE +0.000757 | iclperm1 dMSE +0.001512 dMAE +0.000829 | iclperm2 dMSE +0.001409 dMAE +0.000784
+[R1Mem audit test per-patch] L=1440 H= 96 zero     dMSE_k +0.00289 +0.00246
+[R1Mem audit test per-patch] L=1440 H= 96 perm     dMSE_k +0.00187 +0.00099
+[R1Mem audit test per-patch] L=1440 H= 96 icloff   dMSE_k +0.00289 +0.00246
+[R1Mem audit test per-patch] L=1440 H= 96 iclperm0 dMSE_k +0.00173 +0.00101
+[R1Mem audit test per-patch] L=1440 H= 96 iclperm1 dMSE_k +0.00187 +0.00116
+[R1Mem audit test per-patch] L=1440 H= 96 iclperm2 dMSE_k +0.00173 +0.00109
