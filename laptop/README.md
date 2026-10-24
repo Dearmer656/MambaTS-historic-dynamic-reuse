@@ -26,7 +26,19 @@ Any data/seed: `bash laptop/run_errpath_shared.sh E|W SEED`. Settings are identi
 
 ErrPath-shared = O-ErrPath with the Householder path in the P-dim patch space, the same reflection for every variable (no cross-variable mixing; `R1_OBS_VSHARE=1`). See Linear PAT-307 / PAT-312.
 
-### Task 3 (current): icl_mem — no training, results pushed automatically
+### Task 4 (current, assigned 2026-10-24): icl_close — results pushed automatically
+
+```bash
+git pull origin laptop && conda activate mambats
+bash laptop/run_icl_close.sh      # smoke test (minutes), then ETTh2, then Weather; commits patchmem/logs/laptop/icl_close_* and pushes
+```
+
+Closing probe for the TEFL-attention line (`patchmem/icl_close.py`, frozen T0r / TF0 checkpoints in `checkpoints/`):
+A = bias memory of own past forecast errors (window 1-16 H, exponential decay, combination; H = 96 / 192 / 336),
+B = H -> H fixed key (attention / kernel ridge), C = learned low-rank Wq / Wk attention (trains only Wq, Wk, temperature, eta; minutes
+per model). If the smoke test or a run fails, the log is pushed right away so it can be fixed on the cluster.
+
+### Task 3 (done 2026-10-24, results c78e2f2): icl_mem — no training, results pushed automatically
 
 ```bash
 git pull origin laptop && conda activate mambats
