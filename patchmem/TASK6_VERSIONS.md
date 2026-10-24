@@ -55,6 +55,7 @@ unrelated code paths (checked when the batch is reported).
 | laptop stage 2: ETTh2 H = 96 trained, a1 / tefl / tied / hyb / teflFz x 3 seeds, tiedFz s3049 (s3047-8 unfinished) | laptop pushes `19b7d44`, `956907f` | laptop `3c32134` (dirty: local completion-marker fix, ICL code = `0f960dc`) | `patchmem/logs/laptop/icl6_E_H96_*` (copied to the work branch) | done (tiedFz partial) |
 | laptop stage 1: offline E id0 / idKH0 / tied0 s3047-8, hyb0 s3047 (K = 7, T0-MS ckpt) | same | same | `icl6_E_{id0,idKH0,tied0,hyb0}_s*` | partial; id / idKH / hyb0 duplicate cluster runs (idKH0 s3047 and hyb0 s3047 reproduce the cluster numbers exactly) |
 | ~~laptop stage 1 W id0 s3047~~ | `956907f` | `3c32134` (before `3bf92a0`) | `icl6_W_id0_s3047.txt` | **INVALID** (r1_weather EXTRA bug: trained) |
+| laptop stages 5 / 6: Weather H96 / H192 trained, a1 / tefl / hyb x 3 seeds (old stages 1 / 3 / 4 dropped, old run stopped) | laptop | laptop `634cdd5` (code = work branch `f8821be`) | `icl6_W_H{96,192}_*` | waiting for the laptop |
 
 ## Results so far (test MSE, ETTh2)
 
