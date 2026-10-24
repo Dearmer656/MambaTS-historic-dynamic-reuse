@@ -1,0 +1,358 @@
+Use GPU: cuda:0
+VPT_mode: 1, ATSP_solver: SA
+R1Tefl: mode native Hc 0 patches (0 = all lookback, input 1392) rank 64 Hmax 7 extrap last | g params 110592 | feed forecast True
+R1: d_inner 64 d_state 16 vars 21 patch 48 | readout 1024 -> 1008 (1033200 params) | readout LN False | VPT True (SA) | trainable 1174384
+===== [param snapshot] event=init | 2026-10-24T10:39:22.240222+02:00 | commit 78964df80ce94a1c871f0b5a09ece2f691c30311 (laptop) | R1Tefl torch.float32 cpu
+  meta: {"seed": 3047, "model_id": "weather_r1", "des": "R1WTfnH0R64h0s3047", "patch_len": 48, "VPT": 1}
+  env: 
+  params: total 1175287 | trainable 1174384 | frozen 903 | extra vs R1 (corr_net+mem_net) 0 | 37 tensors, 0 buffers | files patchmem/logs/param_snapshots/weather_r1_R1WTfnH0R64h0s3047_s3047/20261024T103922240222_init.jsonl / .csv
+  name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
+  base.value_embedding.1.weight                          1536       True 1.3014e-03 8.3987e-02-1.4425e-01 1.4431e-01 1.4431e-01 8.3997e-02 3.2920e+00 0.0000e+00          0  (32, 48)
+  base.encoder.adjacency_matrix                           441      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21, 21)
+  base.encoder.count_matrix                               441      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21, 21)
+  base.encoder.ending_points                               21      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21,)
+  base.encoder.layers.0.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.0.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.0.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.0.mixer.in_proj.weight             4096       True 2.6619e-04 1.0218e-01-1.7678e-01 1.7674e-01 1.7678e-01 1.0218e-01 6.5398e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.0.mixer.x_proj.0.weight            2176       True-4.1755e-03 7.0702e-02-1.2500e-01 1.2500e-01 1.2500e-01 7.0825e-02 3.3038e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.0.mixer.dt_proj.weight              128       True-4.2557e-02 3.9647e-01-6.8728e-01 7.0644e-01 7.0644e-01 3.9875e-01 4.5114e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.0.mixer.dt_proj.bias                 64       True-4.5956e+00 1.1747e+00-6.8772e+00-2.2913e+00 6.8772e+00 4.7433e+00 3.7947e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.0.mixer.out_proj.weight            2048       True-7.1477e-04 4.1618e-02-7.1974e-02 7.2027e-02 7.2027e-02 4.1624e-02 1.8837e+00 0.0000e+00          0  (32, 64)
+  base.encoder.layers.1.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.1.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.1.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.1.mixer.in_proj.weight             4096       True-2.3149e-03 1.0292e-01-1.7665e-01 1.7646e-01 1.7665e-01 1.0294e-01 6.5883e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.1.mixer.x_proj.0.weight            2176       True-3.0277e-03 7.2790e-02-1.2489e-01 1.2496e-01 1.2496e-01 7.2853e-02 3.3984e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.1.mixer.dt_proj.weight              128       True-4.6040e-03 4.0895e-01-7.0697e-01 6.9897e-01 7.0697e-01 4.0897e-01 4.6270e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.1.mixer.dt_proj.bias                 64       True-4.5203e+00 1.2970e+00-6.8827e+00-2.2571e+00 6.8827e+00 4.7027e+00 3.7622e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.1.mixer.out_proj.weight            2048       True-4.6470e-05 4.2221e-02-7.1900e-02 7.2134e-02 7.2134e-02 4.2221e-02 1.9107e+00 0.0000e+00          0  (32, 64)
+  base.encoder.layers.2.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.2.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.2.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.2.mixer.in_proj.weight             4096       True-4.4877e-05 1.0267e-01-1.7671e-01 1.7662e-01 1.7671e-01 1.0267e-01 6.5707e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.2.mixer.x_proj.0.weight            2176       True 3.2133e-03 7.3737e-02-1.2461e-01 1.2492e-01 1.2492e-01 7.3807e-02 3.4429e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.2.mixer.dt_proj.weight              128       True 9.2717e-03 4.2639e-01-7.0677e-01 7.0457e-01 7.0677e-01 4.2649e-01 4.8252e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.2.mixer.dt_proj.bias                 64       True-4.6575e+00 1.3924e+00-6.8762e+00-2.2625e+00 6.8762e+00 4.8612e+00 3.8889e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.2.mixer.out_proj.weight            2048       True-1.9963e-03 4.1542e-02-7.1999e-02 7.2122e-02 7.2122e-02 4.1590e-02 1.8821e+00 0.0000e+00          0  (32, 64)
+  base.encoder.norm_f.weight                               32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.norm_f.bias                                 32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  readout.weight                                      1032192       True 7.4601e-06 1.8033e-02-3.1250e-02 3.1250e-02 3.1250e-02 1.8033e-02 1.8321e+01 0.0000e+00          0  (1008, 1024)
+  readout.bias                                           1008       True 1.1598e-04 1.8046e-02-3.1204e-02 3.1223e-02 3.1223e-02 1.8047e-02 5.7296e-01 0.0000e+00          0  (1008,)
+  W1.weight                                             89088       True 1.5491e-05 1.5483e-02-2.6802e-02 2.6803e-02 2.6803e-02 1.5483e-02 4.6212e+00 0.0000e+00          0  (64, 1392)
+  W2.weight                                             21504       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (336, 64)
+  -- module subtotals:
+  base.value_embedding                             numel      1536 | l2 3.2920e+00 | rms 8.3997e-02
+  base.encoder                                     numel       967 | l2 5.6569e+00 | rms 1.8191e-01
+  base.encoder.layers.0                            numel      9664 | l2 7.7295e+01 | rms 7.8627e-01
+  base.encoder.layers.1                            numel      9664 | l2 7.7151e+01 | rms 7.8481e-01
+  base.encoder.layers.2                            numel      9664 | l2 7.7789e+01 | rms 7.9130e-01
+  readout                                          numel   1033200 | l2 1.8330e+01 | rms 1.8033e-02
+  W1                                               numel     89088 | l2 4.6212e+00 | rms 1.5483e-02
+  W2                                               numel     21504 | l2 0.0000e+00 | rms 0.0000e+00
+  -- buffers (0; not parameters):
+===== [param snapshot end] event=init
+[R1 ATSP] order [5, 3, 4, 11, 17, 15, 14, 2, 20, 1, 7, 16, 0, 10, 6, 12, 19, 18, 13, 9, 8] cost 67.8013
+[ckpt] long_term_forecast_weather_r1_MambaTS_custom_ftM_sl1440_ll48_pl336_dm32_nh16_el3_dl2_df512_fc1_ebtimeF_dtTrue_R1WTfnH0R64h0s3047_0 | model R1Tefl hc=0
+val 4935
+test 10204
+  [sanity] L=1440 T0r official test MSE 0.2541 (backbone 0.3559), 2551 origins
+===== W T0 s3047 L=1440 | absolute test MSEred vs T0r own forecast (7 leads) | real / shuffle
+  v=own M=1H dstep= 48 | att +0.0021 sh +0.0021 (lin 0, eta +0.00) | mean +0.0002 | last +0.0002
+  v=own M=1H dstep=336 | att +0.0021 sh +0.0021 (lin 0, eta +0.00) | mean +0.0002 | last +0.0002
+  v=own M=2H dstep= 48 | att -0.0086 sh -0.0079 (rbf 0.1, eta -0.08) | mean -0.0097 | last +0.0002
+  v=own M=2H dstep=336 | att -0.0023 sh -0.0022 (rbf 1.0, eta -0.04) | mean -0.0021 | last +0.0002
+  v=own M=3H dstep= 48 | att -0.0013 sh -0.0013 (rbf 3.0, eta -0.08) | mean -0.0014 | last +0.0002
+  v=own M=3H dstep=336 | att -0.0031 sh -0.0029 (lin 0, eta +0.00) | mean -0.0001 | last +0.0002
+  v=own M=5H dstep= 48 | att -0.0038 sh -0.0044 (cos 0.03, eta +0.04) | mean +0.0058 | last +0.0002
+  v=own M=5H dstep=336 | att -0.0074 sh -0.0071 (lin 0, eta +0.00) | mean +0.0006 | last +0.0002
+  v=own M=8H dstep= 48 | att -0.0085 sh -0.0118 (rbf 0.1, eta +0.11) | mean +0.0170 | last +0.0002
+  v=own M=8H dstep=336 | att -0.0044 sh -0.0077 (rbf 0.1, eta +0.07) | mean +0.0045 | last +0.0002
+  best att v=own [M=2H dstep=48 own rbf tau=0.1] test -0.0086 sh -0.0079 | per lead -0.008 -0.010 -0.008 -0.006 -0.007 -0.009 -0.012
+  v=bb  M=1H dstep= 48 | att +0.0013 sh +0.0013 (cos 0.03, eta +0.01) | mean +0.0013 | last +0.0013
+  v=bb  M=1H dstep=336 | att +0.0013 sh +0.0013 (cos 0.03, eta +0.01) | mean +0.0013 | last +0.0013
+  v=bb  M=2H dstep= 48 | att -0.0130 sh -0.0165 (rbf 0.1, eta -0.10) | mean -0.0085 | last +0.0013
+  v=bb  M=2H dstep=336 | att -0.0003 sh -0.0003 (cos 0.03, eta -0.00) | mean +0.0004 | last +0.0013
+  v=bb  M=3H dstep= 48 | att -0.0013 sh -0.0022 (rbf 0.3, eta -0.08) | mean -0.0001 | last +0.0013
+  v=bb  M=3H dstep=336 | att +0.0006 sh -0.0001 (rbf 0.1, eta -0.02) | mean +0.0000 | last +0.0013
+  v=bb  M=5H dstep= 48 | att +0.0086 sh +0.0111 (rbf 0.3, eta -0.09) | mean +0.0069 | last +0.0013
+  v=bb  M=5H dstep=336 | att +0.0040 sh +0.0045 (cos 0.3, eta -0.04) | mean -0.0014 | last +0.0013
+  v=bb  M=8H dstep= 48 | att +0.0161 sh +0.0214 (rbf 1.0, eta -0.24) | mean +0.0188 | last +0.0013
+  v=bb  M=8H dstep=336 | att +0.0016 sh +0.0066 (cos 0.3, eta -0.11) | mean +0.0056 | last +0.0013
+  best att v=bb [M=2H dstep=48 bb rbf tau=0.1] test -0.0130 sh -0.0165 | per lead -0.017 -0.016 -0.013 -0.008 -0.011 -0.013 -0.015
+  best att  [M=2H dstep=48 bb rbf tau=0.1] test -0.0130 sh -0.0165 val +0.0097 eta -0.099
+    per lead -0.017 -0.016 -0.013 -0.008 -0.011 -0.013 -0.015 | sh -0.021 -0.017 -0.015 -0.015 -0.016 -0.016 -0.017
+  best base [M=8H dstep=48 bb mean tau=0] test +0.0188 val +0.0030 | per lead +0.004 +0.013 +0.016 +0.019 +0.022 +0.023 +0.025
+  criterion: att -0.0130 (>= 0.02) | att - sh +0.0035 (>= 0.01) | att - base -0.0318 (> 0)
+val 4935
+test 10204
+  [sanity] L=720 T0r official test MSE 0.2556 (backbone 0.3336), 2551 origins
+===== W T0 s3047 L=720 | absolute test MSEred vs T0r own forecast (7 leads) | real / shuffle
+  v=own M=1H dstep= 48 | att -0.0011 sh -0.0011 (cos 0.03, eta -0.02) | mean -0.0011 | last -0.0011
+  v=own M=1H dstep=336 | att -0.0011 sh -0.0011 (cos 0.03, eta -0.02) | mean -0.0011 | last -0.0011
+  v=own M=2H dstep= 48 | att -0.0124 sh -0.0123 (cos 1.0, eta -0.29) | mean -0.0128 | last -0.0011
+  v=own M=2H dstep=336 | att -0.0001 sh -0.0001 (cos 1.0, eta -0.13) | mean -0.0001 | last -0.0011
+  v=own M=3H dstep= 48 | att +0.0059 sh +0.0051 (rbf 3.0, eta -0.45) | mean +0.0030 | last -0.0011
+  v=own M=3H dstep=336 | att +0.0045 sh +0.0043 (rbf 3.0, eta -0.09) | mean +0.0045 | last -0.0011
+  v=own M=5H dstep= 48 | att +0.0228 sh +0.0234 (rbf 3.0, eta -0.32) | mean +0.0266 | last -0.0011
+  v=own M=5H dstep=336 | att -0.0067 sh -0.0068 (lin 0, eta +0.00) | mean +0.0042 | last -0.0011
+  v=own M=8H dstep= 48 | att +0.0257 sh +0.0297 (rbf 3.0, eta -0.57) | mean +0.0339 | last -0.0011
+  v=own M=8H dstep=336 | att +0.0047 sh +0.0056 (rbf 3.0, eta -0.13) | mean +0.0065 | last -0.0011
+  best att v=own [M=3H dstep=48 own rbf tau=3.0] test +0.0059 sh +0.0051 | per lead -0.012 -0.002 +0.005 +0.010 +0.011 +0.012 +0.005
+  v=bb  M=1H dstep= 48 | att -0.0019 sh -0.0019 (cos 0.03, eta -0.04) | mean -0.0019 | last -0.0019
+  v=bb  M=1H dstep=336 | att -0.0019 sh -0.0019 (cos 0.03, eta -0.04) | mean -0.0019 | last -0.0019
+  v=bb  M=2H dstep= 48 | att -0.0136 sh -0.0124 (cos 1.0, eta -0.27) | mean -0.0131 | last -0.0019
+  v=bb  M=2H dstep=336 | att -0.0003 sh +0.0006 (cos 1.0, eta -0.15) | mean +0.0005 | last -0.0019
+  v=bb  M=3H dstep= 48 | att +0.0055 sh +0.0055 (rbf 3.0, eta -0.34) | mean +0.0026 | last -0.0019
+  v=bb  M=3H dstep=336 | att +0.0061 sh +0.0061 (rbf 3.0, eta -0.11) | mean +0.0059 | last -0.0019
+  v=bb  M=5H dstep= 48 | att +0.0210 sh +0.0223 (rbf 3.0, eta -0.22) | mean +0.0263 | last -0.0019
+  v=bb  M=5H dstep=336 | att -0.0037 sh -0.0055 (rbf 0.1, eta +0.04) | mean +0.0098 | last -0.0019
+  v=bb  M=8H dstep= 48 | att +0.0197 sh +0.0239 (rbf 3.0, eta -0.35) | mean +0.0273 | last -0.0019
+  v=bb  M=8H dstep=336 | att +0.0074 sh +0.0093 (rbf 3.0, eta -0.16) | mean +0.0105 | last -0.0019
+  best att v=bb [M=2H dstep=48 bb cos tau=1.0] test -0.0136 sh -0.0124 | per lead -0.036 -0.021 -0.010 -0.006 -0.011 -0.008 -0.016
+  best att  [M=2H dstep=48 bb cos tau=1.0] test -0.0136 sh -0.0124 val +0.0327 eta -0.274
+    per lead -0.036 -0.021 -0.010 -0.006 -0.011 -0.008 -0.016 | sh -0.032 -0.018 -0.007 -0.005 -0.011 -0.008 -0.016
+  best base [M=2H dstep=48 bb mean tau=0] test -0.0131 val +0.0328 | per lead -0.033 -0.018 -0.008 -0.006 -0.012 -0.009 -0.017
+  criterion: att -0.0136 (>= 0.02) | att - sh -0.0012 (>= 0.01) | att - base -0.0005 (> 0)
+Use GPU: cuda:0
+VPT_mode: 1, ATSP_solver: SA
+R1Tefl: mode native Hc 0 patches (0 = all lookback, input 1392) rank 64 Hmax 7 extrap last | g params 110592 | feed forecast True
+R1: d_inner 64 d_state 16 vars 21 patch 48 | readout 1024 -> 1008 (1033200 params) | readout LN False | VPT True (SA) | trainable 1174384
+===== [param snapshot] event=init | 2026-10-24T10:42:21.457353+02:00 | commit 78964df80ce94a1c871f0b5a09ece2f691c30311 (laptop) | R1Tefl torch.float32 cpu
+  meta: {"seed": 3048, "model_id": "weather_r1", "des": "R1WTfnH0R64h0s3048", "patch_len": 48, "VPT": 1}
+  env: 
+  params: total 1175287 | trainable 1174384 | frozen 903 | extra vs R1 (corr_net+mem_net) 0 | 37 tensors, 0 buffers | files patchmem/logs/param_snapshots/weather_r1_R1WTfnH0R64h0s3048_s3048/20261024T104221457353_init.jsonl / .csv
+  name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
+  base.value_embedding.1.weight                          1536       True 2.4203e-03 8.1774e-02-1.4403e-01 1.4432e-01 1.4432e-01 8.1810e-02 3.2063e+00 0.0000e+00          0  (32, 48)
+  base.encoder.adjacency_matrix                           441      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21, 21)
+  base.encoder.count_matrix                               441      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21, 21)
+  base.encoder.ending_points                               21      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21,)
+  base.encoder.layers.0.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.0.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.0.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.0.mixer.in_proj.weight             4096       True-1.6066e-03 1.0107e-01-1.7647e-01 1.7665e-01 1.7665e-01 1.0108e-01 6.4690e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.0.mixer.x_proj.0.weight            2176       True-5.1930e-04 7.2087e-02-1.2487e-01 1.2494e-01 1.2494e-01 7.2089e-02 3.3628e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.0.mixer.dt_proj.weight              128       True 5.8798e-02 3.9185e-01-7.0076e-01 7.0592e-01 7.0592e-01 3.9624e-01 4.4829e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.0.mixer.dt_proj.bias                 64       True-4.7098e+00 1.2699e+00-6.9006e+00-2.3579e+00 6.9006e+00 4.8780e+00 3.9024e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.0.mixer.out_proj.weight            2048       True-8.4563e-05 4.1678e-02-7.2155e-02 7.2168e-02 7.2168e-02 4.1678e-02 1.8861e+00 0.0000e+00          0  (32, 64)
+  base.encoder.layers.1.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.1.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.1.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.1.mixer.in_proj.weight             4096       True 1.0512e-03 1.0096e-01-1.7646e-01 1.7677e-01 1.7677e-01 1.0097e-01 6.4618e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.1.mixer.x_proj.0.weight            2176       True-1.8062e-03 7.2237e-02-1.2492e-01 1.2486e-01 1.2492e-01 7.2259e-02 3.3707e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.1.mixer.dt_proj.weight              128       True-3.7761e-02 4.0368e-01-7.0502e-01 7.0664e-01 7.0664e-01 4.0544e-01 4.5870e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.1.mixer.dt_proj.bias                 64       True-4.8955e+00 1.3057e+00-6.8539e+00-2.5694e+00 6.8539e+00 5.0666e+00 4.0533e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.1.mixer.out_proj.weight            2048       True-6.8240e-04 4.1377e-02-7.1842e-02 7.2141e-02 7.2141e-02 4.1382e-02 1.8727e+00 0.0000e+00          0  (32, 64)
+  base.encoder.layers.2.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.2.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.2.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.2.mixer.in_proj.weight             4096       True-1.2790e-03 1.0203e-01-1.7671e-01 1.7677e-01 1.7677e-01 1.0204e-01 6.5305e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.2.mixer.x_proj.0.weight            2176       True-4.8007e-04 7.2498e-02-1.2495e-01 1.2490e-01 1.2495e-01 7.2499e-02 3.3819e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.2.mixer.dt_proj.weight              128       True-1.3935e-02 4.2050e-01-7.0042e-01 7.0243e-01 7.0243e-01 4.2073e-01 4.7601e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.2.mixer.dt_proj.bias                 64       True-4.7807e+00 1.3119e+00-6.8678e+00-2.2544e+00 6.8678e+00 4.9574e+00 3.9659e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.2.mixer.out_proj.weight            2048       True-3.3528e-04 4.2170e-02-7.2166e-02 7.2093e-02 7.2166e-02 4.2171e-02 1.9084e+00 0.0000e+00          0  (32, 64)
+  base.encoder.norm_f.weight                               32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.norm_f.bias                                 32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  readout.weight                                      1032192       True 1.1996e-05 1.8044e-02-3.1250e-02 3.1250e-02 3.1250e-02 1.8044e-02 1.8332e+01 0.0000e+00          0  (1008, 1024)
+  readout.bias                                           1008       True 3.8804e-04 1.8143e-02-3.1200e-02 3.1177e-02 3.1200e-02 1.8148e-02 5.7617e-01 0.0000e+00          0  (1008,)
+  W1.weight                                             89088       True-1.8588e-05 1.5465e-02-2.6803e-02 2.6803e-02 2.6803e-02 1.5465e-02 4.6158e+00 0.0000e+00          0  (64, 1392)
+  W2.weight                                             21504       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (336, 64)
+  -- module subtotals:
+  base.value_embedding                             numel      1536 | l2 3.2063e+00 | rms 8.1810e-02
+  base.encoder                                     numel       967 | l2 5.6569e+00 | rms 1.8191e-01
+  base.encoder.layers.0                            numel      9664 | l2 7.7824e+01 | rms 7.9165e-01
+  base.encoder.layers.1                            numel      9664 | l2 7.8597e+01 | rms 7.9952e-01
+  base.encoder.layers.2                            numel      9664 | l2 7.8168e+01 | rms 7.9515e-01
+  readout                                          numel   1033200 | l2 1.8341e+01 | rms 1.8044e-02
+  W1                                               numel     89088 | l2 4.6158e+00 | rms 1.5465e-02
+  W2                                               numel     21504 | l2 0.0000e+00 | rms 0.0000e+00
+  -- buffers (0; not parameters):
+===== [param snapshot end] event=init
+[R1 ATSP] order [9, 13, 3, 4, 7, 6, 12, 18, 20, 5, 16, 15, 11, 14, 8, 17, 10, 19, 0, 1, 2] cost 67.7245
+[ckpt] long_term_forecast_weather_r1_MambaTS_custom_ftM_sl1440_ll48_pl336_dm32_nh16_el3_dl2_df512_fc1_ebtimeF_dtTrue_R1WTfnH0R64h0s3048_0 | model R1Tefl hc=0
+val 4935
+test 10204
+  [sanity] L=1440 T0r official test MSE 0.2544 (backbone 0.3564), 2551 origins
+===== W T0 s3048 L=1440 | absolute test MSEred vs T0r own forecast (7 leads) | real / shuffle
+  v=own M=1H dstep= 48 | att +0.0024 sh +0.0024 (lin 0, eta +0.00) | mean +0.0006 | last +0.0006
+  v=own M=1H dstep=336 | att +0.0024 sh +0.0024 (lin 0, eta +0.00) | mean +0.0006 | last +0.0006
+  v=own M=2H dstep= 48 | att -0.0075 sh -0.0068 (rbf 0.1, eta -0.07) | mean -0.0080 | last +0.0006
+  v=own M=2H dstep=336 | att -0.0021 sh -0.0018 (rbf 1.0, eta -0.04) | mean -0.0017 | last +0.0006
+  v=own M=3H dstep= 48 | att -0.0010 sh -0.0010 (rbf 3.0, eta -0.08) | mean -0.0011 | last +0.0006
+  v=own M=3H dstep=336 | att -0.0031 sh -0.0034 (lin 0, eta +0.00) | mean -0.0002 | last +0.0006
+  v=own M=5H dstep= 48 | att -0.0065 sh -0.0066 (cos 0.03, eta +0.06) | mean +0.0053 | last +0.0006
+  v=own M=5H dstep=336 | att -0.0077 sh -0.0077 (lin 0, eta +0.00) | mean +0.0006 | last +0.0006
+  v=own M=8H dstep= 48 | att -0.0088 sh -0.0130 (rbf 0.1, eta +0.13) | mean +0.0164 | last +0.0006
+  v=own M=8H dstep=336 | att -0.0047 sh -0.0078 (rbf 0.1, eta +0.08) | mean +0.0044 | last +0.0006
+  best att v=own [M=2H dstep=48 own rbf tau=0.1] test -0.0075 sh -0.0068 | per lead -0.007 -0.008 -0.006 -0.005 -0.007 -0.009 -0.009
+  v=bb  M=1H dstep= 48 | att +0.0018 sh +0.0018 (cos 0.03, eta +0.01) | mean +0.0018 | last +0.0018
+  v=bb  M=1H dstep=336 | att +0.0018 sh +0.0018 (cos 0.03, eta +0.01) | mean +0.0018 | last +0.0018
+  v=bb  M=2H dstep= 48 | att -0.0121 sh -0.0157 (rbf 0.1, eta -0.10) | mean -0.0075 | last +0.0018
+  v=bb  M=2H dstep=336 | att +0.0004 sh +0.0004 (rbf 3.0, eta +0.01) | mean +0.0005 | last +0.0018
+  v=bb  M=3H dstep= 48 | att -0.0007 sh -0.0017 (rbf 0.3, eta -0.08) | mean +0.0002 | last +0.0018
+  v=bb  M=3H dstep=336 | att +0.0012 sh +0.0000 (rbf 0.1, eta -0.02) | mean -0.0000 | last +0.0018
+  v=bb  M=5H dstep= 48 | att +0.0093 sh +0.0114 (rbf 0.3, eta -0.09) | mean +0.0061 | last +0.0018
+  v=bb  M=5H dstep=336 | att +0.0026 sh +0.0035 (rbf 0.3, eta -0.03) | mean -0.0022 | last +0.0018
+  v=bb  M=8H dstep= 48 | att +0.0167 sh +0.0212 (rbf 1.0, eta -0.24) | mean +0.0184 | last +0.0018
+  v=bb  M=8H dstep=336 | att +0.0022 sh +0.0062 (cos 0.3, eta -0.10) | mean +0.0053 | last +0.0018
+  best att v=bb [M=2H dstep=48 bb rbf tau=0.1] test -0.0121 sh -0.0157 | per lead -0.017 -0.016 -0.012 -0.008 -0.010 -0.013 -0.012
+  best att  [M=2H dstep=48 bb rbf tau=0.1] test -0.0121 sh -0.0157 val +0.0098 eta -0.100
+    per lead -0.017 -0.016 -0.012 -0.008 -0.010 -0.013 -0.012 | sh -0.019 -0.016 -0.016 -0.015 -0.016 -0.016 -0.013
+  best base [M=8H dstep=48 bb mean tau=0] test +0.0184 val +0.0029 | per lead +0.005 +0.012 +0.015 +0.018 +0.021 +0.022 +0.025
+  criterion: att -0.0121 (>= 0.02) | att - sh +0.0036 (>= 0.01) | att - base -0.0305 (> 0)
+val 4935
+test 10204
+  [sanity] L=720 T0r official test MSE 0.2557 (backbone 0.3352), 2551 origins
+===== W T0 s3048 L=720 | absolute test MSEred vs T0r own forecast (7 leads) | real / shuffle
+  v=own M=1H dstep= 48 | att -0.0009 sh -0.0009 (cos 0.03, eta -0.02) | mean -0.0009 | last -0.0009
+  v=own M=1H dstep=336 | att -0.0009 sh -0.0009 (cos 0.03, eta -0.02) | mean -0.0009 | last -0.0009
+  v=own M=2H dstep= 48 | att -0.0115 sh -0.0113 (cos 1.0, eta -0.29) | mean -0.0118 | last -0.0009
+  v=own M=2H dstep=336 | att +0.0001 sh +0.0002 (cos 0.3, eta -0.12) | mean +0.0004 | last -0.0009
+  v=own M=3H dstep= 48 | att +0.0057 sh +0.0054 (rbf 3.0, eta -0.46) | mean +0.0033 | last -0.0009
+  v=own M=3H dstep=336 | att +0.0044 sh +0.0042 (rbf 3.0, eta -0.09) | mean +0.0045 | last -0.0009
+  v=own M=5H dstep= 48 | att +0.0225 sh +0.0233 (rbf 3.0, eta -0.32) | mean +0.0264 | last -0.0009
+  v=own M=5H dstep=336 | att -0.0062 sh -0.0064 (lin 0, eta +0.00) | mean +0.0040 | last -0.0009
+  v=own M=8H dstep= 48 | att +0.0252 sh +0.0292 (rbf 3.0, eta -0.56) | mean +0.0334 | last -0.0009
+  v=own M=8H dstep=336 | att +0.0045 sh +0.0056 (rbf 3.0, eta -0.13) | mean +0.0063 | last -0.0009
+  best att v=own [M=3H dstep=48 own rbf tau=3.0] test +0.0057 sh +0.0054 | per lead -0.013 -0.001 +0.005 +0.009 +0.010 +0.011 +0.007
+  v=bb  M=1H dstep= 48 | att -0.0023 sh -0.0023 (cos 0.03, eta -0.04) | mean -0.0023 | last -0.0023
+  v=bb  M=1H dstep=336 | att -0.0023 sh -0.0023 (cos 0.03, eta -0.04) | mean -0.0023 | last -0.0023
+  v=bb  M=2H dstep= 48 | att -0.0143 sh -0.0133 (cos 1.0, eta -0.27) | mean -0.0136 | last -0.0023
+  v=bb  M=2H dstep=336 | att -0.0005 sh +0.0003 (cos 1.0, eta -0.15) | mean +0.0001 | last -0.0023
+  v=bb  M=3H dstep= 48 | att +0.0065 sh +0.0067 (rbf 3.0, eta -0.34) | mean +0.0043 | last -0.0023
+  v=bb  M=3H dstep=336 | att +0.0062 sh +0.0062 (rbf 3.0, eta -0.11) | mean +0.0062 | last -0.0023
+  v=bb  M=5H dstep= 48 | att +0.0233 sh +0.0249 (rbf 3.0, eta -0.23) | mean +0.0296 | last -0.0023
+  v=bb  M=5H dstep=336 | att -0.0035 sh -0.0054 (rbf 0.1, eta +0.04) | mean +0.0098 | last -0.0023
+  v=bb  M=8H dstep= 48 | att +0.0242 sh +0.0290 (rbf 3.0, eta -0.39) | mean +0.0339 | last -0.0023
+  v=bb  M=8H dstep=336 | att +0.0080 sh +0.0102 (rbf 3.0, eta -0.16) | mean +0.0115 | last -0.0023
+  best att v=bb [M=2H dstep=48 bb cos tau=1.0] test -0.0143 sh -0.0133 | per lead -0.033 -0.021 -0.009 -0.007 -0.013 -0.011 -0.016
+  best att  [M=2H dstep=48 bb cos tau=1.0] test -0.0143 sh -0.0133 val +0.0329 eta -0.272
+    per lead -0.033 -0.021 -0.009 -0.007 -0.013 -0.011 -0.016 | sh -0.028 -0.018 -0.007 -0.007 -0.014 -0.011 -0.016
+  best base [M=2H dstep=48 bb mean tau=0] test -0.0136 val +0.0326 | per lead -0.028 -0.018 -0.007 -0.007 -0.014 -0.011 -0.017
+  criterion: att -0.0143 (>= 0.02) | att - sh -0.0011 (>= 0.01) | att - base -0.0007 (> 0)
+Use GPU: cuda:0
+VPT_mode: 1, ATSP_solver: SA
+R1Tefl: mode native Hc 0 patches (0 = all lookback, input 1392) rank 64 Hmax 7 extrap last | g params 110592 | feed forecast True
+R1: d_inner 64 d_state 16 vars 21 patch 48 | readout 1024 -> 1008 (1033200 params) | readout LN False | VPT True (SA) | trainable 1174384
+===== [param snapshot] event=init | 2026-10-24T10:45:08.128141+02:00 | commit 78964df80ce94a1c871f0b5a09ece2f691c30311 (laptop) | R1Tefl torch.float32 cpu
+  meta: {"seed": 3049, "model_id": "weather_r1", "des": "R1WTfnH0R64h0s3049", "patch_len": 48, "VPT": 1}
+  env: 
+  params: total 1175287 | trainable 1174384 | frozen 903 | extra vs R1 (corr_net+mem_net) 0 | 37 tensors, 0 buffers | files patchmem/logs/param_snapshots/weather_r1_R1WTfnH0R64h0s3049_s3049/20261024T104508128141_init.jsonl / .csv
+  name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
+  base.value_embedding.1.weight                          1536       True-1.3948e-03 8.2785e-02-1.4410e-01 1.4407e-01 1.4410e-01 8.2797e-02 3.2450e+00 0.0000e+00          0  (32, 48)
+  base.encoder.adjacency_matrix                           441      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21, 21)
+  base.encoder.count_matrix                               441      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21, 21)
+  base.encoder.ending_points                               21      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21,)
+  base.encoder.layers.0.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.0.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.0.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.0.mixer.in_proj.weight             4096       True 2.3627e-04 1.0240e-01-1.7674e-01 1.7675e-01 1.7675e-01 1.0240e-01 6.5539e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.0.mixer.x_proj.0.weight            2176       True-2.2117e-03 7.1893e-02-1.2497e-01 1.2495e-01 1.2497e-01 7.1927e-02 3.3552e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.0.mixer.dt_proj.weight              128       True-2.0217e-02 4.0386e-01-6.9993e-01 6.9241e-01 6.9993e-01 4.0436e-01 4.5749e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.0.mixer.dt_proj.bias                 64       True-5.0536e+00 1.3893e+00-6.8488e+00-2.2709e+00 6.8488e+00 5.2411e+00 4.1929e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.0.mixer.out_proj.weight            2048       True-5.5003e-04 4.1758e-02-7.1863e-02 7.2127e-02 7.2127e-02 4.1761e-02 1.8899e+00 0.0000e+00          0  (32, 64)
+  base.encoder.layers.1.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.1.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.1.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.1.mixer.in_proj.weight             4096       True-2.3894e-03 1.0145e-01-1.7636e-01 1.7677e-01 1.7677e-01 1.0147e-01 6.4944e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.1.mixer.x_proj.0.weight            2176       True 1.4899e-04 7.3333e-02-1.2490e-01 1.2483e-01 1.2490e-01 7.3333e-02 3.4208e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.1.mixer.dt_proj.weight              128       True-5.8874e-03 4.1429e-01-7.0434e-01 6.9848e-01 7.0434e-01 4.1433e-01 4.6876e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.1.mixer.dt_proj.bias                 64       True-4.7143e+00 1.3214e+00-6.9069e+00-2.3055e+00 6.9069e+00 4.8960e+00 3.9168e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.1.mixer.out_proj.weight            2048       True 1.0826e-03 4.0935e-02-7.2120e-02 7.2103e-02 7.2120e-02 4.0949e-02 1.8532e+00 0.0000e+00          0  (32, 64)
+  base.encoder.layers.2.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.2.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.2.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.2.mixer.in_proj.weight             4096       True 1.6691e-03 1.0139e-01-1.7669e-01 1.7677e-01 1.7677e-01 1.0140e-01 6.4899e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.2.mixer.x_proj.0.weight            2176       True 2.0945e-03 7.0543e-02-1.2498e-01 1.2488e-01 1.2498e-01 7.0574e-02 3.2921e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.2.mixer.dt_proj.weight              128       True 2.7718e-02 4.0710e-01-6.9012e-01 6.8819e-01 6.9012e-01 4.0804e-01 4.6165e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.2.mixer.dt_proj.bias                 64       True-4.6969e+00 1.2642e+00-6.8885e+00-2.2558e+00 6.8885e+00 4.8640e+00 3.8912e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.2.mixer.out_proj.weight            2048       True 7.8514e-04 4.1948e-02-7.2159e-02 7.2027e-02 7.2159e-02 4.1955e-02 1.8987e+00 0.0000e+00          0  (32, 64)
+  base.encoder.norm_f.weight                               32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.norm_f.bias                                 32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  readout.weight                                      1032192       True 1.9072e-05 1.8040e-02-3.1250e-02 3.1250e-02 3.1250e-02 1.8040e-02 1.8328e+01 0.0000e+00          0  (1008, 1024)
+  readout.bias                                           1008       True 3.1757e-04 1.7574e-02-3.1139e-02 3.1011e-02 3.1139e-02 1.7577e-02 5.5804e-01 0.0000e+00          0  (1008,)
+  W1.weight                                             89088       True-1.2881e-05 1.5458e-02-2.6803e-02 2.6803e-02 2.6803e-02 1.5458e-02 4.6137e+00 0.0000e+00          0  (64, 1392)
+  W2.weight                                             21504       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (336, 64)
+  -- module subtotals:
+  base.value_embedding                             numel      1536 | l2 3.2450e+00 | rms 8.2797e-02
+  base.encoder                                     numel       967 | l2 5.6569e+00 | rms 1.8191e-01
+  base.encoder.layers.0                            numel      9664 | l2 7.9332e+01 | rms 8.0700e-01
+  base.encoder.layers.1                            numel      9664 | l2 7.7912e+01 | rms 7.9255e-01
+  base.encoder.layers.2                            numel      9664 | l2 7.7775e+01 | rms 7.9115e-01
+  readout                                          numel   1033200 | l2 1.8336e+01 | rms 1.8039e-02
+  W1                                               numel     89088 | l2 4.6137e+00 | rms 1.5458e-02
+  W2                                               numel     21504 | l2 0.0000e+00 | rms 0.0000e+00
+  -- buffers (0; not parameters):
+===== [param snapshot end] event=init
+[R1 ATSP] order [13, 2, 10, 3, 4, 16, 8, 11, 15, 19, 9, 18, 5, 0, 12, 6, 14, 20, 1, 7, 17] cost 67.2467
+[ckpt] long_term_forecast_weather_r1_MambaTS_custom_ftM_sl1440_ll48_pl336_dm32_nh16_el3_dl2_df512_fc1_ebtimeF_dtTrue_R1WTfnH0R64h0s3049_0 | model R1Tefl hc=0
+val 4935
+test 10204
+  [sanity] L=1440 T0r official test MSE 0.2548 (backbone 0.3526), 2551 origins
+===== W T0 s3049 L=1440 | absolute test MSEred vs T0r own forecast (7 leads) | real / shuffle
+  v=own M=1H dstep= 48 | att +0.0026 sh +0.0026 (lin 0, eta +0.00) | mean +0.0008 | last +0.0008
+  v=own M=1H dstep=336 | att +0.0026 sh +0.0026 (lin 0, eta +0.00) | mean +0.0008 | last +0.0008
+  v=own M=2H dstep= 48 | att -0.0078 sh -0.0074 (rbf 0.1, eta -0.08) | mean -0.0084 | last +0.0008
+  v=own M=2H dstep=336 | att -0.0020 sh -0.0018 (rbf 1.0, eta -0.03) | mean -0.0017 | last +0.0008
+  v=own M=3H dstep= 48 | att -0.0012 sh -0.0011 (rbf 3.0, eta -0.08) | mean -0.0011 | last +0.0008
+  v=own M=3H dstep=336 | att -0.0026 sh -0.0023 (lin 0, eta +0.00) | mean -0.0002 | last +0.0008
+  v=own M=5H dstep= 48 | att -0.0047 sh -0.0042 (cos 0.03, eta +0.04) | mean +0.0050 | last +0.0008
+  v=own M=5H dstep=336 | att -0.0029 sh -0.0046 (rbf 0.1, eta +0.04) | mean +0.0002 | last +0.0008
+  v=own M=8H dstep= 48 | att +0.0141 sh +0.0153 (rbf 3.0, eta -0.22) | mean +0.0176 | last +0.0008
+  v=own M=8H dstep=336 | att -0.0050 sh -0.0094 (rbf 0.1, eta +0.08) | mean +0.0047 | last +0.0008
+  best att v=own [M=2H dstep=48 own rbf tau=0.1] test -0.0078 sh -0.0074 | per lead -0.007 -0.007 -0.006 -0.006 -0.005 -0.009 -0.013
+  v=bb  M=1H dstep= 48 | att +0.0009 sh +0.0009 (cos 0.03, eta +0.01) | mean +0.0009 | last +0.0009
+  v=bb  M=1H dstep=336 | att +0.0009 sh +0.0009 (cos 0.03, eta +0.01) | mean +0.0009 | last +0.0009
+  v=bb  M=2H dstep= 48 | att -0.0116 sh -0.0143 (rbf 0.1, eta -0.10) | mean -0.0085 | last +0.0009
+  v=bb  M=2H dstep=336 | att -0.0009 sh -0.0009 (cos 0.03, eta -0.01) | mean -0.0001 | last +0.0009
+  v=bb  M=3H dstep= 48 | att -0.0008 sh -0.0007 (rbf 0.3, eta -0.08) | mean +0.0004 | last +0.0009
+  v=bb  M=3H dstep=336 | att +0.0001 sh +0.0003 (rbf 0.1, eta -0.02) | mean +0.0000 | last +0.0009
+  v=bb  M=5H dstep= 48 | att +0.0069 sh +0.0083 (lin 0, eta -0.00) | mean +0.0076 | last +0.0009
+  v=bb  M=5H dstep=336 | att +0.0031 sh +0.0040 (cos 0.3, eta -0.03) | mean -0.0010 | last +0.0009
+  v=bb  M=8H dstep= 48 | att +0.0169 sh +0.0221 (rbf 1.0, eta -0.23) | mean +0.0208 | last +0.0009
+  v=bb  M=8H dstep=336 | att -0.0001 sh +0.0065 (lin 0, eta -0.00) | mean +0.0063 | last +0.0009
+  best att v=bb [M=2H dstep=48 bb rbf tau=0.1] test -0.0116 sh -0.0143 | per lead -0.015 -0.011 -0.011 -0.009 -0.008 -0.013 -0.016
+  best att  [M=2H dstep=48 bb rbf tau=0.1] test -0.0116 sh -0.0143 val +0.0091 eta -0.097
+    per lead -0.015 -0.011 -0.011 -0.009 -0.008 -0.013 -0.016 | sh -0.015 -0.012 -0.014 -0.014 -0.014 -0.016 -0.015
+  best base [M=8H dstep=48 bb mean tau=0] test +0.0208 val +0.0033 | per lead +0.006 +0.015 +0.017 +0.021 +0.024 +0.025 +0.027
+  criterion: att -0.0116 (>= 0.02) | att - sh +0.0026 (>= 0.01) | att - base -0.0324 (> 0)
+val 4935
+test 10204
+  [sanity] L=720 T0r official test MSE 0.2565 (backbone 0.3325), 2551 origins
+===== W T0 s3049 L=720 | absolute test MSEred vs T0r own forecast (7 leads) | real / shuffle
+  v=own M=1H dstep= 48 | att -0.0010 sh -0.0010 (cos 0.03, eta -0.02) | mean -0.0010 | last -0.0010
+  v=own M=1H dstep=336 | att -0.0010 sh -0.0010 (cos 0.03, eta -0.02) | mean -0.0010 | last -0.0010
+  v=own M=2H dstep= 48 | att -0.0108 sh -0.0108 (cos 1.0, eta -0.29) | mean -0.0111 | last -0.0010
+  v=own M=2H dstep=336 | att -0.0002 sh -0.0004 (cos 0.3, eta -0.13) | mean +0.0001 | last -0.0010
+  v=own M=3H dstep= 48 | att +0.0067 sh +0.0061 (rbf 3.0, eta -0.45) | mean +0.0042 | last -0.0010
+  v=own M=3H dstep=336 | att +0.0044 sh +0.0042 (rbf 3.0, eta -0.09) | mean +0.0044 | last -0.0010
+  v=own M=5H dstep= 48 | att +0.0228 sh +0.0235 (rbf 3.0, eta -0.32) | mean +0.0267 | last -0.0010
+  v=own M=5H dstep=336 | att -0.0076 sh -0.0075 (lin 0, eta +0.00) | mean +0.0041 | last -0.0010
+  v=own M=8H dstep= 48 | att +0.0258 sh +0.0300 (rbf 3.0, eta -0.55) | mean +0.0344 | last -0.0010
+  v=own M=8H dstep=336 | att +0.0047 sh +0.0057 (rbf 3.0, eta -0.13) | mean +0.0065 | last -0.0010
+  best att v=own [M=3H dstep=48 own rbf tau=3.0] test +0.0067 sh +0.0061 | per lead -0.012 -0.001 +0.006 +0.011 +0.012 +0.013 +0.005
+  v=bb  M=1H dstep= 48 | att -0.0025 sh -0.0025 (cos 0.03, eta -0.04) | mean -0.0025 | last -0.0025
+  v=bb  M=1H dstep=336 | att -0.0025 sh -0.0025 (cos 0.03, eta -0.04) | mean -0.0025 | last -0.0025
+  v=bb  M=2H dstep= 48 | att -0.0134 sh -0.0124 (cos 1.0, eta -0.28) | mean -0.0131 | last -0.0025
+  v=bb  M=2H dstep=336 | att -0.0007 sh +0.0000 (cos 1.0, eta -0.15) | mean -0.0001 | last -0.0025
+  v=bb  M=3H dstep= 48 | att +0.0075 sh +0.0077 (rbf 3.0, eta -0.35) | mean +0.0051 | last -0.0025
+  v=bb  M=3H dstep=336 | att +0.0065 sh +0.0064 (rbf 3.0, eta -0.11) | mean +0.0064 | last -0.0025
+  v=bb  M=5H dstep= 48 | att +0.0241 sh +0.0257 (rbf 3.0, eta -0.23) | mean +0.0309 | last -0.0025
+  v=bb  M=5H dstep=336 | att -0.0044 sh -0.0067 (rbf 0.1, eta +0.04) | mean +0.0104 | last -0.0025
+  v=bb  M=8H dstep= 48 | att +0.0249 sh +0.0301 (rbf 3.0, eta -0.39) | mean +0.0363 | last -0.0025
+  v=bb  M=8H dstep=336 | att +0.0082 sh +0.0104 (rbf 3.0, eta -0.17) | mean +0.0120 | last -0.0025
+  best att v=bb [M=2H dstep=48 bb cos tau=1.0] test -0.0134 sh -0.0124 | per lead -0.035 -0.019 -0.008 -0.007 -0.011 -0.008 -0.018
+  best att  [M=2H dstep=48 bb cos tau=1.0] test -0.0134 sh -0.0124 val +0.0333 eta -0.277
+    per lead -0.035 -0.019 -0.008 -0.007 -0.011 -0.008 -0.018 | sh -0.029 -0.016 -0.006 -0.006 -0.011 -0.008 -0.018
+  best base [M=2H dstep=48 bb mean tau=0] test -0.0131 val +0.0335 | per lead -0.030 -0.017 -0.006 -0.007 -0.012 -0.009 -0.019
+  criterion: att -0.0134 (>= 0.02) | att - sh -0.0010 (>= 0.01) | att - base -0.0003 (> 0)
+DONE
