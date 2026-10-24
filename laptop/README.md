@@ -26,6 +26,18 @@ Any data/seed: `bash laptop/run_errpath_shared.sh E|W SEED`. Settings are identi
 
 ErrPath-shared = O-ErrPath with the Householder path in the P-dim patch space, the same reflection for every variable (no cross-variable mixing; `R1_OBS_VSHARE=1`). See Linear PAT-307 / PAT-312.
 
+### Task 3 (current): icl_mem — no training, results pushed automatically
+
+```bash
+git pull origin laptop && conda activate mambats
+bash laptop/run_icl_mem.sh        # ETTh2 then Weather; at the end it commits patchmem/logs/laptop/icl_mem_* and runs git push origin laptop
+```
+
+Offline probe (`patchmem/icl_mem.py`): TEFL's W2 + softmax / linear attention over the model's own past full-horizon forecast errors,
+memory span 1-8 x 336, lookback 1440 / 720, values = T0r errors and backbone errors. Uses the frozen T0r / TF0 checkpoints committed
+in `checkpoints/` (seeds 3047-3049). The push also happens if a run fails, so the error log reaches the cluster.
+`bash laptop/run_icl_mem.sh E` (or `W`) runs one dataset only.
+
 ## 3. Results
 
 Logs: `patchmem/logs/laptop/{E,W}_OpathVs_s3048.txt`. The test MSE per (L, H) is on the `[R1Mem audit test]` lines (`normal mse`); the `noH` audit is the path removed.
