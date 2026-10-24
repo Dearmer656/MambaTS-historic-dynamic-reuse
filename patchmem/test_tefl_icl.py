@@ -92,20 +92,22 @@ def test_iclperm_keeps_values_set_and_grads_finite():
     assert torch.equal(out, torch.zeros_like(out)) and torch.isfinite(s3.W1.weight.grad).all() and torch.isfinite(s3.eta.grad).all()
 
 
-def test_k_follow_pads_and_slices():
-    """K = 2 < Hmax = 3: the query is the first K*P entries of the zero-padded eps, the ICL term fills leads 1..K only."""
-    s, d, e = stub('id', n=1, K=3)
+def test_k_follow_padding_invariant():
+    """K = 2 < Hmax = 3: zero-padding leads K+1..Hmax leaves the 'id' term unchanged on leads 1..K and zero beyond."""
+    s, d, e = stub('id', n=3, K=3)
     KP = 2 * 4
-    s.demo['k'] = e[:, None, :, :KP].clone(); s.demo['v'] = s.demo['v'][..., :KP]
-    e = torch.cat([e[..., :KP], torch.zeros_like(e[..., KP:])], -1)
+    pad = lambda x: torch.cat([x[..., :KP], torch.zeros_like(x[..., KP:])], -1)
+    s.demo['k'], s.demo['v'], e = pad(s.demo['k']), pad(s.demo['v']), pad(e)
     out = R1TeflICL.extra_delta(s, d, e, None).reshape(e.shape)
-    assert torch.allclose(out[..., :KP], s.demo['v'][:, 0], atol=1e-5) and torch.equal(out[..., KP:], torch.zeros_like(out[..., KP:]))
+    q, k, v = e[..., :KP], s.demo['k'][..., :KP], s.demo['v'][..., :KP]
+    ref = ((k * q[:, None]).sum(-1)[..., None] * v).sum(1) / (q.norm(dim=-1) * k.norm(dim=-1).sum(1) + 1e-6)[..., None]
+    assert torch.allclose(out[..., :KP], ref, atol=1e-5) and torch.equal(out[..., KP:], torch.zeros_like(out[..., KP:]))
     E, avail = fake_E(T=15, K=2)
     _, D = demos(E, avail, 2)
     assert D['k'].shape[1] == 15 - 4                                                                 # L720 H96: 11 demos
 
 
 if __name__ == '__main__':
-    test_k_follow_pads_and_slices()
+    test_k_follow_padding_invariant()
     test_demos_no_leak_and_query(); test_id_one_demo_equal_key_returns_value(); test_formula_bounded_and_mask()
     test_hyb_starts_from_w2_and_offs(); test_iclperm_keeps_values_set_and_grads_finite(); print('ok')
