@@ -190,6 +190,15 @@ class Exp_R1(Exp_Long_Term_Forecast):
                       vsrc=os.environ.get('R1_OBS_VSRC', 'h'), forget=os.environ.get('R1_OBS_FORGET', '0') == '1').float()
             print(f'R1Obs: ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} uniform {m.obs_net.uniform} plain {m.obs_net.plain} path {m.obs_net.path} vpath {m.obs_net.vpath} vshare {m.obs_net.vshare} vsrc {m.obs_net.vsrc} forget {m.obs_net.forget} '
                   f'({sum(p.numel() for p in m.obs_net.parameters())} params) | train slot keep {m.slot_keep} | feed forecast {m.feed}', flush=True)
+        elif os.environ.get('R1_TEFL') and os.environ.get('R1_TEFLATT'):                # PAT-307 TEFL + own-past-forecast attention
+            from patchmem.r1_tefl_att import R1TeflAtt
+            m = R1TeflAtt(a, variant=os.environ['R1_TEFLATT'], n_demo=int(os.environ.get('R1_TEFLATT_N', '50')),
+                          r=int(os.environ.get('R1_TEFLATT_R', '8')), readout_ln=ro_ln, mode=os.environ['R1_TEFL'],
+                          hc=int(os.environ.get('R1_TEFL_HC', '2')), rank=int(os.environ.get('R1_TEFL_RANK', '64')),
+                          hmax=int(os.environ.get('R1_HMAX', '7')), feed=os.environ.get('R1_TEFL_FEED', '1') == '1',
+                          tmax=int(os.environ.get('R1_LMAX', '1440')) // a.patch_len, extrap=os.environ.get('R1_TEFL_EXTRAP', 'last')).float()
+            print(f'R1TeflAtt: variant {m.variant} demos {m.n_demo} r {m.r} | TEFL Hc {m.hc} (input {m.din}) rank {m.W1.out_features} '
+                  f'Hmax {m.hmax} | feed forecast {m.feed}', flush=True)
         elif os.environ.get('R1_TEFL'):
             m = R1Tefl(a, readout_ln=ro_ln, mode=os.environ['R1_TEFL'], hc=int(os.environ.get('R1_TEFL_HC', '2')),
                        rank=int(os.environ.get('R1_TEFL_RANK', '64')), hmax=int(os.environ.get('R1_HMAX', '7')),
