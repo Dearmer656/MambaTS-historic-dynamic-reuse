@@ -59,6 +59,8 @@ Env:
   R1_EVAL_FROM           test-only runs (--is_training 0): load this checkpoint (strict=False, missing keys keep their init) instead of
                          the setting's own (offline arms on a trained A1 / T0-MS checkpoint)
   R1_AUDIT=0             skip the same-checkpoint inference audits after test (memory runs; default 1)
+  R1_AUDIT_FLAGS         splits audited (default 'val,test'; 'train,val,test' adds the training split, every R1_AUDIT_TRAIN_STRIDE-th
+                         window, default 8: is the in-context gain specific to the shifted test period?)
   R1_AUDIT_GRID          audit grid 'L:H,...' (default: the test grid); R1_AUDIT_PERM_REPS random key-value pairings (default 3)
   R1_LOG_DIR             root for param snapshots / diagnostics (default patchmem/logs)
 The training loss is the forecast MSE over the sampled horizon (+ lambda_hist * L_hist). L_hist is in-window auxiliary supervision:
@@ -575,11 +577,12 @@ class Exp_R1(Exp_Long_Term_Forecast):
             if getattr(m.obs_net, 'forget', False):
                 modes.append(('noF', 'noF', 0))
         order = self.eval_order()
-        for flag in ('val', 'test'):
+        for flag in os.environ.get('R1_AUDIT_FLAGS', 'val,test').split(','):
             out = {}
+            st = int(os.environ.get('R1_AUDIT_TRAIN_STRIDE', '8')) if flag == 'train' else 1
             for name, mode, seed in modes:
                 m.set_audit(mode, seed)
-                out[name] = self.eval_grid(flag, g)
+                out[name] = self.eval_grid(flag, g, stride=st)
             m.set_audit(None)
             assert self.eval_order() == order, 'audit changed the scan order'
             for (L, H) in g:
