@@ -51,10 +51,11 @@ Env:
                          R1_TEFL_FEED=0 feeds the backbone patch back, R1_TEFL_EXTRAP last|zero beyond Hmax patches (default last)
   R1_DIAG_EVERY          training diagnostics (JSONL) every N steps (default 100; 0 = off)
   R1_DIAG_VAL_BATCHES    eval batches per (L, H) with memory diagnostics at every validation (default 2)
-  R1_TEFL=ms R1_ICL=id|tied|qk|hyb  R1TeflICL (patchmem/r1_tefl_icl.py): T0-MS with W2 replaced ('id', 'tied', 'qk') or corrected ('hyb')
+  R1_TEFL=ms R1_ICL=id|tied|qk|hyb|ridge|hybridge  R1TeflICL (patchmem/r1_tefl_icl.py): T0-MS with W2 replaced ('id', 'tied', 'qk') or corrected ('hyb')
                          by the one-step-GD map of a linear attention over in-window demos (error of origin j -> error of origin j+K);
                          R1_ICL_ETA0 (eta init, default 0), R1_ICL_ETA_FIX=1 (eta not trained), R1_ICL_KH=1 (error length K = the
-                         forecast's H instead of Hmax, zero-padded; R1_ICL=hyb R1_ICL_ETA0=0 R1_ICL_ETA_FIX=1 = plain TEFL-KH). Extra audits icloff / iclperm<s>
+                         forecast's H instead of Hmax, zero-padded; R1_ICL_KEY=ced: EFC anti-diagonal keys, id / ridge only; R1_ICL_RLAM=s (ridge lam = s mean|k|^2;
+                         variant hybridge = ridge anchored at TEFL W2), R1_ICL_NSHRINK=c (eta n/(n+c)); R1_ICL=hyb R1_ICL_ETA0=0 R1_ICL_ETA_FIX=1 = plain TEFL-KH). Extra audits icloff / iclperm<s>
   R1_EVAL_FROM           test-only runs (--is_training 0): load this checkpoint (strict=False, missing keys keep their init) instead of
                          the setting's own (offline arms on a trained A1 / T0-MS checkpoint)
   R1_AUDIT=0             skip the same-checkpoint inference audits after test (memory runs; default 1)
@@ -180,11 +181,13 @@ class Exp_R1(Exp_Long_Term_Forecast):
         elif os.environ.get('R1_TEFL') == 'ms' and os.environ.get('R1_ICL'):            # PAT-307 TEFL compiled into ICL
             m = R1TeflICL(a, variant=os.environ['R1_ICL'], eta0=float(os.environ.get('R1_ICL_ETA0', '0')),
                           eta_learn=os.environ.get('R1_ICL_ETA_FIX', '0') != '1', k_follow=os.environ.get('R1_ICL_KH', '0') == '1',
-                          readout_ln=ro_ln,
+                          key=os.environ.get('R1_ICL_KEY', 'row'),
+                          ridge_rel=float(os.environ['R1_ICL_RLAM']) if os.environ.get('R1_ICL_RLAM') else None,
+                          nshrink=float(os.environ.get('R1_ICL_NSHRINK', '0')), readout_ln=ro_ln,
                           rank=int(os.environ.get('R1_TEFL_RANK', '64')), hmax=int(os.environ.get('R1_HMAX', '7')),
                           feed=os.environ.get('R1_TEFL_FEED', '1') == '1', tmax=int(os.environ.get('R1_LMAX', '1440')) // a.patch_len,
                           extrap=os.environ.get('R1_TEFL_EXTRAP', 'last')).float()
-            print(f'R1TeflICL: variant {m.variant} | K follows H {m.k_follow} | eta0 {m.eta.data[0].item()} learned {m.eta.requires_grad} | eps = lead 1..{m.hmax} '
+            print(f'R1TeflICL: variant {m.variant} | key {m.key} | ridge_rel {m.ridge_rel} nshrink {m.nshrink} | K follows H {m.k_follow} | eta0 {m.eta.data[0].item()} learned {m.eta.requires_grad} | eps = lead 1..{m.hmax} '
                   f'errors of origin T-1-{m.hmax} (input {m.din}) rank {m.W1.out_features} | trainable '
                   f'{sum(p.numel() for p in m.parameters() if p.requires_grad)} | feed forecast {m.feed}', flush=True)
         elif os.environ.get('R1_TEFL') == 'ms':
