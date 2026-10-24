@@ -1,0 +1,821 @@
+Args in experiment:
+[1mBasic Config[0m
+  Task Name:          long_term_forecast  Is Training:        1                   
+  Model ID:           weather_r1          Model:              MambaTS             
+
+[1mData Loader[0m
+  Data:               custom              Root Path:          ./dataset/weather   
+  Data Path:          weather.csv         Features:           M                   
+  Target:             OT                  Freq:               h                   
+  Checkpoints:        ./checkpoints/      
+
+[1mForecasting Task[0m
+  Seq Len:            1440                Label Len:          48                  
+  Pred Len:           336                 Seasonal Patterns:  Monthly             
+  Inverse:            0                   
+
+[1mModel Parameters[0m
+  Top k:              5                   Num Kernels:        6                   
+  Enc In:             21                  Dec In:             21                  
+  C Out:              21                  d model:            32                  
+  n heads:            16                  e layers:           3                   
+  d layers:           2                   d FF:               512                 
+  Moving Avg:         25                  Factor:             1                   
+  Distil:             1                   Dropout:            0.2                 
+  Embed:              timeF               Activation:         gelu                
+  Output Attention:   0                   
+
+[1mRun Parameters[0m
+  Num Workers:        0                   Itr:                1                   
+  Train Epochs:       10                  Batch Size:         8                   
+  Patience:           3                   Learning Rate:      0.0005              
+  Des:                R1WObK0.5Q8PVsh0s3048Loss:               MSE                 
+  Lradj:              type1               Use Amp:            0                   
+
+[1mGPU[0m
+  Use GPU:            1                   GPU:                0                   
+  Use Multi GPU:      0                   Devices:            0,1,2,3             
+
+[1mDe-stationary Projector Params[0m
+  P Hidden Dims:      128, 128            P Hidden Layers:    2                   
+
+Use GPU: cuda:0
+VPT_mode: 1, ATSP_solver: SA
+R1Obs: ObsMem heads 16 qk_dim 8 uniform False plain False path False vpath True vshare True (349990 params) | train slot keep 0.5 | feed forecast True
+R1: d_inner 64 d_state 16 vars 21 patch 48 | readout 1024 -> 1008 (1033200 params) | readout LN False | VPT True (SA) | trainable 1413782
+===== [param snapshot] event=init | 2026-10-23T12:55:55.855182+02:00 | commit bea5af8e6da0f42a73e322b69d70717edf1c6bfa (laptop) | R1Obs torch.float32 cpu
+  meta: {"seed": 3048, "model_id": "weather_r1", "des": "R1WObK0.5Q8PVsh0s3048", "patch_len": 48, "VPT": 1}
+  env: R1_LAMBDA_HIST=0
+  params: total 1414685 | trainable 1413782 | frozen 903 | extra vs R1 (corr_net+mem_net) 0 | 44 tensors, 0 buffers | files patchmem/logs/param_snapshots/weather_r1_R1WObK0.5Q8PVsh0s3048_s3048/20261023T125555855182_init.jsonl / .csv
+  name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
+  base.value_embedding.1.weight                          1536       True 2.4299e-03 8.4622e-02-1.4404e-01 1.4399e-01 1.4404e-01 8.4657e-02 3.3179e+00 0.0000e+00          0  (32, 48)
+  base.encoder.adjacency_matrix                           441      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21, 21)
+  base.encoder.count_matrix                               441      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21, 21)
+  base.encoder.ending_points                               21      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21,)
+  base.encoder.layers.0.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.0.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.0.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.0.mixer.in_proj.weight             4096       True 2.3184e-03 1.0147e-01-1.7675e-01 1.7676e-01 1.7676e-01 1.0149e-01 6.4956e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.0.mixer.x_proj.0.weight            2176       True 2.6556e-03 7.0943e-02-1.2494e-01 1.2499e-01 1.2499e-01 7.0993e-02 3.3116e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.0.mixer.dt_proj.weight              128       True-2.3508e-02 4.3309e-01-7.0677e-01 6.9572e-01 7.0677e-01 4.3373e-01 4.9071e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.0.mixer.dt_proj.bias                 64       True-4.7123e+00 1.3337e+00-6.8329e+00-2.3881e+00 6.8329e+00 4.8974e+00 3.9179e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.0.mixer.out_proj.weight            2048       True 3.2620e-04 4.2041e-02-7.2082e-02 7.1977e-02 7.2082e-02 4.2042e-02 1.9026e+00 0.0000e+00          0  (32, 64)
+  base.encoder.layers.1.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.1.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.1.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.1.mixer.in_proj.weight             4096       True 3.3919e-04 1.0275e-01-1.7672e-01 1.7674e-01 1.7674e-01 1.0275e-01 6.5758e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.1.mixer.x_proj.0.weight            2176       True-7.3722e-04 7.2382e-02-1.2485e-01 1.2478e-01 1.2485e-01 7.2385e-02 3.3766e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.1.mixer.dt_proj.weight              128       True-4.4511e-02 4.2599e-01-7.0012e-01 7.0398e-01 7.0398e-01 4.2831e-01 4.8457e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.1.mixer.dt_proj.bias                 64       True-4.3785e+00 1.2138e+00-6.5768e+00-2.2572e+00 6.5768e+00 4.5436e+00 3.6349e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.1.mixer.out_proj.weight            2048       True 1.6888e-04 4.1691e-02-7.2070e-02 7.2127e-02 7.2127e-02 4.1691e-02 1.8867e+00 0.0000e+00          0  (32, 64)
+  base.encoder.layers.2.norm.weight                        32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.2.norm.bias                          32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.A_log                      1024       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 6.6037e+01 6.2500e-02          0  (64, 16)
+  base.encoder.layers.2.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.2.mixer.in_proj.weight             4096       True-2.8473e-03 1.0220e-01-1.7676e-01 1.7677e-01 1.7677e-01 1.0224e-01 6.5435e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.2.mixer.x_proj.0.weight            2176       True-2.2233e-04 7.1991e-02-1.2499e-01 1.2492e-01 1.2499e-01 7.1992e-02 3.3582e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.2.mixer.dt_proj.weight              128       True-2.0016e-03 4.1679e-01-7.0495e-01 6.9218e-01 7.0495e-01 4.1679e-01 4.7155e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.2.mixer.dt_proj.bias                 64       True-4.7454e+00 1.3256e+00-6.8857e+00-2.3092e+00 6.8857e+00 4.9271e+00 3.9417e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.2.mixer.out_proj.weight            2048       True 1.0378e-03 4.1942e-02-7.2121e-02 7.2140e-02 7.2140e-02 4.1955e-02 1.8987e+00 0.0000e+00          0  (32, 64)
+  base.encoder.norm_f.weight                               32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.norm_f.bias                                 32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  readout.weight                                      1032192       True 1.2447e-05 1.8050e-02-3.1250e-02 3.1250e-02 3.1250e-02 1.8050e-02 1.8339e+01 0.0000e+00          0  (1008, 1024)
+  readout.bias                                           1008       True-6.1948e-04 1.8276e-02-3.1234e-02 3.1138e-02 3.1234e-02 1.8287e-02 5.8058e-01 0.0000e+00          0  (1008,)
+  obs_net.log_tau                                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  obs_net.W                                             16128       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16, 21, 48)
+  obs_net.Wwv.weight                                    49152       True 1.3352e-04 1.8051e-02-3.1249e-02 3.1249e-02 3.1249e-02 1.8051e-02 4.0020e+00 0.0000e+00          0  (48, 1024)
+  obs_net.Wbv.weight                                     1024       True-8.0817e-05 1.8068e-02-3.1212e-02 3.1241e-02 3.1241e-02 1.8068e-02 5.7817e-01 0.0000e+00          0  (1, 1024)
+  obs_net.Wbv.bias                                          1       True-1.8933e-02 0.0000e+00-1.8933e-02-1.8933e-02 1.8933e-02 1.8933e-02 1.8933e-02 0.0000e+00          0  (1,)
+  obs_net.Wq.weight                                    131072       True-8.5614e-05 1.8043e-02-3.1249e-02 3.1250e-02 3.1250e-02 1.8044e-02 6.5325e+00 0.0000e+00          0  (128, 1024)
+  obs_net.Wk.weight                                    131072       True 1.0709e-04 1.8065e-02-3.1250e-02 3.1249e-02 3.1250e-02 1.8065e-02 6.5402e+00 0.0000e+00          0  (128, 1024)
+  obs_net.Wg.weight                                     21504       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21, 1024)
+  obs_net.Wg.bias                                          21       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (21,)
+  -- module subtotals:
+  base.value_embedding                             numel      1536 | l2 3.3179e+00 | rms 8.4657e-02
+  base.encoder                                     numel       967 | l2 5.6569e+00 | rms 1.8191e-01
+  base.encoder.layers.0                            numel      9664 | l2 7.7928e+01 | rms 7.9271e-01
+  base.encoder.layers.1                            numel      9664 | l2 7.6550e+01 | rms 7.7869e-01
+  base.encoder.layers.2                            numel      9664 | l2 7.8042e+01 | rms 7.9387e-01
+  readout                                          numel   1033200 | l2 1.8348e+01 | rms 1.8051e-02
+  obs_net                                          numel     16144 | l2 0.0000e+00 | rms 0.0000e+00
+  obs_net.Wwv                                      numel     49152 | l2 4.0020e+00 | rms 1.8051e-02
+  obs_net.Wbv                                      numel      1025 | l2 5.7848e-01 | rms 1.8069e-02
+  obs_net.Wq                                       numel    131072 | l2 6.5325e+00 | rms 1.8044e-02
+  obs_net.Wk                                       numel    131072 | l2 6.5402e+00 | rms 1.8065e-02
+  obs_net.Wg                                       numel     21525 | l2 0.0000e+00 | rms 0.0000e+00
+  -- buffers (0; not parameters):
+===== [param snapshot end] event=init
+>>>>>>>start training : long_term_forecast_weather_r1_MambaTS_custom_ftM_sl1440_ll48_pl336_dm32_nh16_el3_dl2_df512_fc1_ebtimeF_dtTrue_R1WObK0.5Q8PVsh0s3048_0>>>>>>>>>>>>>>>>>>>>>>>>>>
+train 35112
+R1 train: 35112 windows of 1440+336 | lookback 384..1440 step 48 | horizon 2..7 patches | per-sample L/H False | lambda_hist 0.0 | lambda_corr 0.0 | val grid [(384, 96), (720, 96), (1440, 96), (384, 336), (720, 336), (1440, 336)] stride 4
+	iters: 100, epoch: 1 | L 1392 H 192 | future mse 0.51492 hist mse 0.54704 | mem g 0.51 delta_rms 0.0203 ent_norm 0.756
+	iters: 200, epoch: 1 | L 1296 H 144 | future mse 0.55589 hist mse 0.52006 | mem g 0.531 delta_rms 0.0442 ent_norm 0.771
+	iters: 300, epoch: 1 | L 1296 H 192 | future mse 0.87835 hist mse 0.72710 | mem g 0.552 delta_rms 0.0486 ent_norm 0.739
+	iters: 400, epoch: 1 | L 1344 H 336 | future mse 1.74295 hist mse 0.44109 | mem g 0.578 delta_rms 0.133 ent_norm 0.765
+	iters: 500, epoch: 1 | L 1392 H 144 | future mse 0.43826 hist mse 0.48035 | mem g 0.563 delta_rms 0.0849 ent_norm 0.802
+	iters: 600, epoch: 1 | L 384 H 288 | future mse 1.00846 hist mse 1.38235 | mem g 0.593 delta_rms 0.283 ent_norm 0.577
+	iters: 700, epoch: 1 | L 1392 H 192 | future mse 2.49762 hist mse 0.50762 | mem g 0.583 delta_rms 0.142 ent_norm 0.733
+	iters: 800, epoch: 1 | L 1152 H 144 | future mse 0.39870 hist mse 0.47887 | mem g 0.57 delta_rms 0.144 ent_norm 0.71
+	iters: 900, epoch: 1 | L 816 H 192 | future mse 0.58108 hist mse 0.62026 | mem g 0.596 delta_rms 0.179 ent_norm 0.614
+	iters: 1000, epoch: 1 | L 720 H 240 | future mse 0.49355 hist mse 0.51233 | mem g 0.572 delta_rms 0.243 ent_norm 0.66
+	iters: 1100, epoch: 1 | L 1392 H 336 | future mse 0.61847 hist mse 0.78030 | mem g 0.583 delta_rms 0.155 ent_norm 0.703
+	iters: 1200, epoch: 1 | L 480 H 96 | future mse 0.63247 hist mse 0.35416 | mem g 0.603 delta_rms 0.367 ent_norm 0.576
+	iters: 1300, epoch: 1 | L 1392 H 336 | future mse 0.56726 hist mse 0.42934 | mem g 0.584 delta_rms 0.137 ent_norm 0.676
+	iters: 1400, epoch: 1 | L 1296 H 336 | future mse 0.66652 hist mse 0.81118 | mem g 0.564 delta_rms 0.125 ent_norm 0.747
+	iters: 1500, epoch: 1 | L 1248 H 240 | future mse 0.52670 hist mse 0.50523 | mem g 0.581 delta_rms 0.249 ent_norm 0.707
+	iters: 1600, epoch: 1 | L 1008 H 336 | future mse 0.56963 hist mse 0.48241 | mem g 0.569 delta_rms 0.156 ent_norm 0.593
+	iters: 1700, epoch: 1 | L 672 H 240 | future mse 0.46537 hist mse 0.55185 | mem g 0.578 delta_rms 0.304 ent_norm 0.614
+	iters: 1800, epoch: 1 | L 768 H 288 | future mse 0.57260 hist mse 0.44333 | mem g 0.57 delta_rms 0.293 ent_norm 0.572
+	iters: 1900, epoch: 1 | L 864 H 288 | future mse 0.53566 hist mse 0.46688 | mem g 0.568 delta_rms 0.381 ent_norm 0.527
+	iters: 2000, epoch: 1 | L 384 H 96 | future mse 0.41250 hist mse 0.31248 | mem g 0.554 delta_rms 0.49 ent_norm 0.44
+	iters: 2100, epoch: 1 | L 528 H 288 | future mse 0.81346 hist mse 0.58507 | mem g 0.576 delta_rms 0.427 ent_norm 0.492
+	iters: 2200, epoch: 1 | L 768 H 336 | future mse 0.50916 hist mse 0.53487 | mem g 0.586 delta_rms 0.384 ent_norm 0.52
+	iters: 2300, epoch: 1 | L 1248 H 96 | future mse 0.29133 hist mse 0.56089 | mem g 0.58 delta_rms 0.244 ent_norm 0.541
+	iters: 2400, epoch: 1 | L 960 H 96 | future mse 0.75185 hist mse 0.37760 | mem g 0.606 delta_rms 0.393 ent_norm 0.501
+	iters: 2500, epoch: 1 | L 1104 H 288 | future mse 0.40848 hist mse 0.68039 | mem g 0.6 delta_rms 0.337 ent_norm 0.539
+	iters: 2600, epoch: 1 | L 480 H 192 | future mse 0.42218 hist mse 0.45695 | mem g 0.615 delta_rms 0.453 ent_norm 0.416
+	iters: 2700, epoch: 1 | L 1152 H 192 | future mse 0.43780 hist mse 0.54641 | mem g 0.602 delta_rms 0.349 ent_norm 0.513
+	iters: 2800, epoch: 1 | L 720 H 240 | future mse 0.43613 hist mse 0.45110 | mem g 0.606 delta_rms 0.369 ent_norm 0.447
+	iters: 2900, epoch: 1 | L 1344 H 240 | future mse 0.55559 hist mse 0.47681 | mem g 0.597 delta_rms 0.353 ent_norm 0.525
+	iters: 3000, epoch: 1 | L 672 H 192 | future mse 0.36938 hist mse 0.47017 | mem g 0.594 delta_rms 0.355 ent_norm 0.529
+	iters: 3100, epoch: 1 | L 1008 H 288 | future mse 0.41534 hist mse 0.48075 | mem g 0.613 delta_rms 0.367 ent_norm 0.436
+	iters: 3200, epoch: 1 | L 1104 H 336 | future mse 0.44262 hist mse 0.57362 | mem g 0.602 delta_rms 0.359 ent_norm 0.501
+	iters: 3300, epoch: 1 | L 672 H 240 | future mse 0.42000 hist mse 0.39178 | mem g 0.626 delta_rms 0.425 ent_norm 0.371
+	iters: 3400, epoch: 1 | L 912 H 144 | future mse 0.54985 hist mse 0.59224 | mem g 0.61 delta_rms 0.337 ent_norm 0.559
+	iters: 3500, epoch: 1 | L 1440 H 336 | future mse 0.37333 hist mse 0.93894 | mem g 0.587 delta_rms 0.249 ent_norm 0.642
+	iters: 3600, epoch: 1 | L 1152 H 96 | future mse 0.48719 hist mse 0.50776 | mem g 0.648 delta_rms 0.417 ent_norm 0.498
+	iters: 3700, epoch: 1 | L 528 H 336 | future mse 0.70185 hist mse 0.53378 | mem g 0.624 delta_rms 0.469 ent_norm 0.312
+	iters: 3800, epoch: 1 | L 1440 H 288 | future mse 0.72257 hist mse 0.53105 | mem g 0.606 delta_rms 0.42 ent_norm 0.466
+	iters: 3900, epoch: 1 | L 960 H 192 | future mse 0.47790 hist mse 0.53609 | mem g 0.648 delta_rms 0.46 ent_norm 0.397
+	iters: 4000, epoch: 1 | L 768 H 96 | future mse 0.42524 hist mse 0.42944 | mem g 0.645 delta_rms 0.432 ent_norm 0.454
+	iters: 4100, epoch: 1 | L 432 H 144 | future mse 0.40085 hist mse 1.33460 | mem g 0.639 delta_rms 0.388 ent_norm 0.383
+	iters: 4200, epoch: 1 | L 1296 H 336 | future mse 0.65164 hist mse 0.41951 | mem g 0.665 delta_rms 0.515 ent_norm 0.285
+	iters: 4300, epoch: 1 | L 960 H 192 | future mse 0.71829 hist mse 0.47744 | mem g 0.623 delta_rms 0.402 ent_norm 0.432
+[R1 ATSP] order [13, 0, 7, 20, 10, 11, 14, 8, 15, 2, 12, 1, 5, 4, 17, 18, 19, 9, 3, 16, 6] cost 84.0574
+val 5175
+val 5175
+val 5175
+val 4935
+val 4935
+val 4935
+Epoch: 1 cost time: 4315 | train future 0.64256 hist 0.58330 | val mean mse 0.55948 | 384/96:0.5001 720/96:0.5009 1440/96:0.5322 384/336:0.6194 720/336:0.6002 1440/336:0.6041
+Validation loss decreased (inf --> 0.559479).  Saving model ...
+Updating learning rate to 0.0005
+	iters: 100, epoch: 2 | L 624 H 288 | future mse 0.74810 hist mse 0.56130 | mem g 0.612 delta_rms 0.35 ent_norm 0.474
+	iters: 200, epoch: 2 | L 1104 H 336 | future mse 0.56056 hist mse 0.46046 | mem g 0.624 delta_rms 0.513 ent_norm 0.356
+	iters: 300, epoch: 2 | L 1248 H 240 | future mse 0.52889 hist mse 0.50556 | mem g 0.618 delta_rms 0.409 ent_norm 0.496
+	iters: 400, epoch: 2 | L 528 H 192 | future mse 0.30040 hist mse 0.33193 | mem g 0.639 delta_rms 0.418 ent_norm 0.336
+	iters: 500, epoch: 2 | L 720 H 288 | future mse 0.75325 hist mse 0.46701 | mem g 0.604 delta_rms 0.45 ent_norm 0.429
+	iters: 600, epoch: 2 | L 528 H 192 | future mse 0.50491 hist mse 0.50744 | mem g 0.625 delta_rms 0.372 ent_norm 0.48
+	iters: 700, epoch: 2 | L 432 H 96 | future mse 0.45203 hist mse 0.47307 | mem g 0.655 delta_rms 0.41 ent_norm 0.401
+	iters: 800, epoch: 2 | L 528 H 336 | future mse 0.55132 hist mse 0.44683 | mem g 0.612 delta_rms 0.429 ent_norm 0.373
+	iters: 900, epoch: 2 | L 672 H 288 | future mse 0.49951 hist mse 0.47215 | mem g 0.631 delta_rms 0.502 ent_norm 0.336
+	iters: 1000, epoch: 2 | L 1104 H 96 | future mse 0.42805 hist mse 0.53473 | mem g 0.634 delta_rms 0.353 ent_norm 0.563
+	iters: 1100, epoch: 2 | L 672 H 96 | future mse 0.27335 hist mse 0.39834 | mem g 0.643 delta_rms 0.384 ent_norm 0.422
+	iters: 1200, epoch: 2 | L 816 H 336 | future mse 0.43684 hist mse 0.37812 | mem g 0.627 delta_rms 0.42 ent_norm 0.47
+	iters: 1300, epoch: 2 | L 1200 H 192 | future mse 0.62043 hist mse 0.89389 | mem g 0.622 delta_rms 0.417 ent_norm 0.435
+	iters: 1400, epoch: 2 | L 1152 H 96 | future mse 0.55707 hist mse 0.60681 | mem g 0.684 delta_rms 0.468 ent_norm 0.365
+	iters: 1500, epoch: 2 | L 1440 H 336 | future mse 0.58260 hist mse 0.50570 | mem g 0.661 delta_rms 0.542 ent_norm 0.316
+	iters: 1600, epoch: 2 | L 672 H 288 | future mse 0.48749 hist mse 1.00869 | mem g 0.631 delta_rms 0.416 ent_norm 0.383
+	iters: 1700, epoch: 2 | L 960 H 144 | future mse 0.35697 hist mse 0.34421 | mem g 0.636 delta_rms 0.399 ent_norm 0.402
+	iters: 1800, epoch: 2 | L 672 H 144 | future mse 0.41682 hist mse 0.51564 | mem g 0.665 delta_rms 0.548 ent_norm 0.31
+	iters: 1900, epoch: 2 | L 528 H 336 | future mse 1.42784 hist mse 0.57905 | mem g 0.649 delta_rms 0.532 ent_norm 0.35
+	iters: 2000, epoch: 2 | L 1296 H 192 | future mse 0.45507 hist mse 1.05681 | mem g 0.655 delta_rms 0.459 ent_norm 0.414
+	iters: 2100, epoch: 2 | L 1344 H 192 | future mse 0.31259 hist mse 0.71944 | mem g 0.674 delta_rms 0.489 ent_norm 0.482
+	iters: 2200, epoch: 2 | L 864 H 240 | future mse 0.48549 hist mse 0.67284 | mem g 0.646 delta_rms 0.507 ent_norm 0.417
+	iters: 2300, epoch: 2 | L 720 H 144 | future mse 0.87674 hist mse 0.45035 | mem g 0.671 delta_rms 0.565 ent_norm 0.318
+	iters: 2400, epoch: 2 | L 912 H 192 | future mse 0.57965 hist mse 0.66284 | mem g 0.674 delta_rms 0.577 ent_norm 0.411
+	iters: 2500, epoch: 2 | L 1248 H 240 | future mse 0.65265 hist mse 0.56745 | mem g 0.669 delta_rms 0.5 ent_norm 0.426
+	iters: 2600, epoch: 2 | L 1440 H 336 | future mse 0.54059 hist mse 0.50290 | mem g 0.633 delta_rms 0.538 ent_norm 0.418
+	iters: 2700, epoch: 2 | L 720 H 96 | future mse 0.55984 hist mse 0.39698 | mem g 0.684 delta_rms 0.524 ent_norm 0.305
+	iters: 2800, epoch: 2 | L 1296 H 144 | future mse 0.39145 hist mse 0.52006 | mem g 0.667 delta_rms 0.535 ent_norm 0.445
+	iters: 2900, epoch: 2 | L 816 H 288 | future mse 0.45367 hist mse 0.58094 | mem g 0.639 delta_rms 0.475 ent_norm 0.418
+	iters: 3000, epoch: 2 | L 864 H 96 | future mse 0.42721 hist mse 0.56339 | mem g 0.681 delta_rms 0.41 ent_norm 0.402
+	iters: 3100, epoch: 2 | L 864 H 288 | future mse 0.35980 hist mse 0.52221 | mem g 0.665 delta_rms 0.492 ent_norm 0.454
+	iters: 3200, epoch: 2 | L 1392 H 288 | future mse 0.45388 hist mse 0.62084 | mem g 0.611 delta_rms 0.378 ent_norm 0.556
+	iters: 3300, epoch: 2 | L 1056 H 96 | future mse 0.28326 hist mse 0.55239 | mem g 0.692 delta_rms 0.456 ent_norm 0.436
+	iters: 3400, epoch: 2 | L 576 H 192 | future mse 1.22070 hist mse 0.54490 | mem g 0.627 delta_rms 0.433 ent_norm 0.325
+	iters: 3500, epoch: 2 | L 1440 H 96 | future mse 0.39061 hist mse 0.47952 | mem g 0.679 delta_rms 0.491 ent_norm 0.456
+	iters: 3600, epoch: 2 | L 384 H 336 | future mse 0.59355 hist mse 0.38302 | mem g 0.63 delta_rms 0.424 ent_norm 0.3
+	iters: 3700, epoch: 2 | L 528 H 192 | future mse 0.46155 hist mse 0.44810 | mem g 0.686 delta_rms 0.537 ent_norm 0.246
+	iters: 3800, epoch: 2 | L 384 H 144 | future mse 0.38948 hist mse 0.48983 | mem g 0.677 delta_rms 0.539 ent_norm 0.268
+	iters: 3900, epoch: 2 | L 624 H 240 | future mse 0.41895 hist mse 0.36050 | mem g 0.663 delta_rms 0.476 ent_norm 0.299
+	iters: 4000, epoch: 2 | L 1440 H 144 | future mse 0.47119 hist mse 0.76643 | mem g 0.659 delta_rms 0.483 ent_norm 0.53
+	iters: 4100, epoch: 2 | L 1344 H 336 | future mse 0.47734 hist mse 0.57780 | mem g 0.61 delta_rms 0.354 ent_norm 0.547
+	iters: 4200, epoch: 2 | L 1392 H 144 | future mse 0.40892 hist mse 1.05774 | mem g 0.671 delta_rms 0.483 ent_norm 0.524
+	iters: 4300, epoch: 2 | L 1152 H 336 | future mse 1.59540 hist mse 0.52012 | mem g 0.61 delta_rms 0.388 ent_norm 0.593
+[R1 ATSP] order [15, 12, 6, 2, 13, 16, 10, 11, 20, 14, 3, 8, 7, 18, 19, 5, 1, 9, 4, 0, 17] cost 80.3640
+val 5175
+val 5175
+val 5175
+val 4935
+val 4935
+val 4935
+Epoch: 2 cost time: 4359 | train future 0.58149 hist 0.57400 | val mean mse 0.51353 | 384/96:0.4488 720/96:0.4546 1440/96:0.4727 384/336:0.5768 720/336:0.5609 1440/336:0.5674
+Validation loss decreased (0.559479 --> 0.513533).  Saving model ...
+Updating learning rate to 0.00025
+	iters: 100, epoch: 3 | L 720 H 192 | future mse 0.42874 hist mse 0.95146 | mem g 0.649 delta_rms 0.483 ent_norm 0.418
+	iters: 200, epoch: 3 | L 1440 H 96 | future mse 0.46903 hist mse 0.75093 | mem g 0.673 delta_rms 0.483 ent_norm 0.537
+	iters: 300, epoch: 3 | L 480 H 96 | future mse 0.55653 hist mse 0.41703 | mem g 0.708 delta_rms 0.597 ent_norm 0.329
+	iters: 400, epoch: 3 | L 624 H 288 | future mse 1.54726 hist mse 1.10774 | mem g 0.645 delta_rms 0.471 ent_norm 0.498
+	iters: 500, epoch: 3 | L 1056 H 192 | future mse 0.50828 hist mse 0.38504 | mem g 0.654 delta_rms 0.487 ent_norm 0.43
+	iters: 600, epoch: 3 | L 960 H 336 | future mse 0.36465 hist mse 0.61719 | mem g 0.653 delta_rms 0.515 ent_norm 0.482
+	iters: 700, epoch: 3 | L 1056 H 336 | future mse 0.44780 hist mse 0.80822 | mem g 0.621 delta_rms 0.355 ent_norm 0.567
+	iters: 800, epoch: 3 | L 960 H 144 | future mse 0.26384 hist mse 0.41645 | mem g 0.664 delta_rms 0.508 ent_norm 0.444
+	iters: 900, epoch: 3 | L 960 H 192 | future mse 0.85827 hist mse 1.19058 | mem g 0.653 delta_rms 0.491 ent_norm 0.441
+	iters: 1000, epoch: 3 | L 384 H 336 | future mse 0.63361 hist mse 0.33076 | mem g 0.644 delta_rms 0.465 ent_norm 0.236
+	iters: 1100, epoch: 3 | L 576 H 192 | future mse 0.78953 hist mse 0.45029 | mem g 0.651 delta_rms 0.519 ent_norm 0.391
+	iters: 1200, epoch: 3 | L 912 H 144 | future mse 0.33165 hist mse 0.42300 | mem g 0.673 delta_rms 0.519 ent_norm 0.395
+	iters: 1300, epoch: 3 | L 720 H 288 | future mse 0.56317 hist mse 0.52824 | mem g 0.657 delta_rms 0.524 ent_norm 0.392
+	iters: 1400, epoch: 3 | L 624 H 144 | future mse 0.35428 hist mse 0.52352 | mem g 0.681 delta_rms 0.583 ent_norm 0.247
+	iters: 1500, epoch: 3 | L 1248 H 240 | future mse 0.31452 hist mse 0.49794 | mem g 0.66 delta_rms 0.442 ent_norm 0.443
+	iters: 1600, epoch: 3 | L 1248 H 192 | future mse 0.35673 hist mse 0.49679 | mem g 0.658 delta_rms 0.436 ent_norm 0.462
+	iters: 1700, epoch: 3 | L 672 H 288 | future mse 0.48364 hist mse 0.60106 | mem g 0.653 delta_rms 0.653 ent_norm 0.341
+	iters: 1800, epoch: 3 | L 384 H 288 | future mse 0.76799 hist mse 0.37389 | mem g 0.65 delta_rms 0.426 ent_norm 0.211
+	iters: 1900, epoch: 3 | L 480 H 240 | future mse 0.57639 hist mse 0.37585 | mem g 0.674 delta_rms 0.574 ent_norm 0.287
+	iters: 2000, epoch: 3 | L 1104 H 288 | future mse 0.35053 hist mse 0.48054 | mem g 0.67 delta_rms 0.592 ent_norm 0.446
+	iters: 2100, epoch: 3 | L 432 H 336 | future mse 0.41383 hist mse 0.54561 | mem g 0.622 delta_rms 0.495 ent_norm 0.368
+	iters: 2200, epoch: 3 | L 480 H 288 | future mse 0.45914 hist mse 0.65306 | mem g 0.64 delta_rms 0.456 ent_norm 0.399
+	iters: 2300, epoch: 3 | L 816 H 288 | future mse 0.54805 hist mse 0.47955 | mem g 0.638 delta_rms 0.532 ent_norm 0.432
+	iters: 2400, epoch: 3 | L 672 H 240 | future mse 0.54411 hist mse 0.42718 | mem g 0.674 delta_rms 0.538 ent_norm 0.332
+	iters: 2500, epoch: 3 | L 528 H 240 | future mse 0.49626 hist mse 0.42531 | mem g 0.703 delta_rms 0.654 ent_norm 0.269
+	iters: 2600, epoch: 3 | L 576 H 336 | future mse 0.68582 hist mse 0.52254 | mem g 0.654 delta_rms 0.514 ent_norm 0.249
+	iters: 2700, epoch: 3 | L 912 H 336 | future mse 0.49625 hist mse 0.80653 | mem g 0.625 delta_rms 0.435 ent_norm 0.431
+	iters: 2800, epoch: 3 | L 1344 H 240 | future mse 0.43115 hist mse 0.49497 | mem g 0.654 delta_rms 0.512 ent_norm 0.484
+	iters: 2900, epoch: 3 | L 1392 H 192 | future mse 0.73654 hist mse 0.59093 | mem g 0.687 delta_rms 0.618 ent_norm 0.419
+	iters: 3000, epoch: 3 | L 1104 H 288 | future mse 0.41103 hist mse 0.51247 | mem g 0.637 delta_rms 0.503 ent_norm 0.453
+	iters: 3100, epoch: 3 | L 1392 H 96 | future mse 0.42721 hist mse 0.79810 | mem g 0.684 delta_rms 0.462 ent_norm 0.528
+	iters: 3200, epoch: 3 | L 528 H 240 | future mse 0.42761 hist mse 0.39826 | mem g 0.659 delta_rms 0.58 ent_norm 0.298
+	iters: 3300, epoch: 3 | L 1152 H 336 | future mse 1.47818 hist mse 0.76779 | mem g 0.637 delta_rms 0.435 ent_norm 0.522
+	iters: 3400, epoch: 3 | L 1296 H 144 | future mse 0.41210 hist mse 0.57557 | mem g 0.656 delta_rms 0.483 ent_norm 0.457
+	iters: 3500, epoch: 3 | L 1152 H 192 | future mse 0.38015 hist mse 0.56304 | mem g 0.665 delta_rms 0.551 ent_norm 0.415
+	iters: 3600, epoch: 3 | L 384 H 240 | future mse 0.64572 hist mse 0.41114 | mem g 0.697 delta_rms 0.585 ent_norm 0.175
+	iters: 3700, epoch: 3 | L 528 H 288 | future mse 0.54157 hist mse 0.66295 | mem g 0.655 delta_rms 0.47 ent_norm 0.307
+	iters: 3800, epoch: 3 | L 1296 H 240 | future mse 0.45715 hist mse 0.82931 | mem g 0.661 delta_rms 0.504 ent_norm 0.472
+	iters: 3900, epoch: 3 | L 1056 H 336 | future mse 0.31906 hist mse 0.44298 | mem g 0.647 delta_rms 0.566 ent_norm 0.417
+	iters: 4000, epoch: 3 | L 1056 H 144 | future mse 0.39847 hist mse 0.65568 | mem g 0.691 delta_rms 0.59 ent_norm 0.344
+	iters: 4100, epoch: 3 | L 912 H 336 | future mse 0.55936 hist mse 0.65892 | mem g 0.661 delta_rms 0.584 ent_norm 0.387
+	iters: 4200, epoch: 3 | L 720 H 240 | future mse 0.42549 hist mse 0.46112 | mem g 0.676 delta_rms 0.621 ent_norm 0.332
+	iters: 4300, epoch: 3 | L 1008 H 336 | future mse 0.46331 hist mse 0.40090 | mem g 0.648 delta_rms 0.486 ent_norm 0.445
+[R1 ATSP] order [14, 16, 9, 6, 4, 13, 5, 0, 1, 11, 17, 8, 20, 10, 2, 7, 12, 15, 19, 18, 3] cost 78.2750
+val 5175
+val 5175
+val 5175
+val 4935
+val 4935
+val 4935
+Epoch: 3 cost time: 4534 | train future 0.54896 hist 0.57104 | val mean mse 0.50780 | 384/96:0.4432 720/96:0.4476 1440/96:0.4716 384/336:0.5700 720/336:0.5523 1440/336:0.5619
+Validation loss decreased (0.513533 --> 0.507796).  Saving model ...
+Updating learning rate to 0.000125
+	iters: 100, epoch: 4 | L 768 H 96 | future mse 0.32857 hist mse 0.61039 | mem g 0.694 delta_rms 0.534 ent_norm 0.414
+	iters: 200, epoch: 4 | L 1392 H 192 | future mse 0.30575 hist mse 0.45389 | mem g 0.699 delta_rms 0.621 ent_norm 0.397
+	iters: 300, epoch: 4 | L 912 H 240 | future mse 0.58089 hist mse 0.51117 | mem g 0.67 delta_rms 0.604 ent_norm 0.396
+	iters: 400, epoch: 4 | L 624 H 336 | future mse 0.41867 hist mse 0.36567 | mem g 0.656 delta_rms 0.461 ent_norm 0.417
+	iters: 500, epoch: 4 | L 864 H 144 | future mse 0.40465 hist mse 0.42048 | mem g 0.703 delta_rms 0.512 ent_norm 0.377
+	iters: 600, epoch: 4 | L 1248 H 144 | future mse 0.44825 hist mse 0.55122 | mem g 0.666 delta_rms 0.528 ent_norm 0.423
+	iters: 700, epoch: 4 | L 1440 H 144 | future mse 0.30534 hist mse 0.47660 | mem g 0.684 delta_rms 0.649 ent_norm 0.47
+	iters: 800, epoch: 4 | L 480 H 336 | future mse 1.62421 hist mse 0.39931 | mem g 0.662 delta_rms 0.527 ent_norm 0.263
+	iters: 900, epoch: 4 | L 576 H 192 | future mse 0.41182 hist mse 0.44381 | mem g 0.676 delta_rms 0.62 ent_norm 0.394
+	iters: 1000, epoch: 4 | L 1104 H 144 | future mse 0.32177 hist mse 0.46940 | mem g 0.684 delta_rms 0.536 ent_norm 0.402
+	iters: 1100, epoch: 4 | L 768 H 96 | future mse 0.59106 hist mse 0.43281 | mem g 0.723 delta_rms 0.611 ent_norm 0.373
+	iters: 1200, epoch: 4 | L 720 H 96 | future mse 0.48310 hist mse 0.47569 | mem g 0.705 delta_rms 0.535 ent_norm 0.34
+	iters: 1300, epoch: 4 | L 528 H 240 | future mse 0.52769 hist mse 0.43689 | mem g 0.686 delta_rms 0.581 ent_norm 0.321
+	iters: 1400, epoch: 4 | L 1008 H 336 | future mse 0.46079 hist mse 0.68009 | mem g 0.666 delta_rms 0.55 ent_norm 0.387
+	iters: 1500, epoch: 4 | L 1200 H 96 | future mse 0.32602 hist mse 0.57389 | mem g 0.733 delta_rms 0.644 ent_norm 0.404
+	iters: 1600, epoch: 4 | L 1248 H 192 | future mse 0.39057 hist mse 0.54517 | mem g 0.647 delta_rms 0.418 ent_norm 0.533
+	iters: 1700, epoch: 4 | L 816 H 144 | future mse 0.65667 hist mse 0.43643 | mem g 0.684 delta_rms 0.59 ent_norm 0.379
+	iters: 1800, epoch: 4 | L 864 H 336 | future mse 0.70251 hist mse 0.69990 | mem g 0.654 delta_rms 0.494 ent_norm 0.394
+	iters: 1900, epoch: 4 | L 624 H 96 | future mse 0.45951 hist mse 0.59646 | mem g 0.725 delta_rms 0.633 ent_norm 0.309
+	iters: 2000, epoch: 4 | L 672 H 288 | future mse 0.46495 hist mse 0.35254 | mem g 0.689 delta_rms 0.632 ent_norm 0.354
+	iters: 2100, epoch: 4 | L 1200 H 288 | future mse 0.39863 hist mse 0.49580 | mem g 0.669 delta_rms 0.574 ent_norm 0.429
+	iters: 2200, epoch: 4 | L 1008 H 144 | future mse 0.33419 hist mse 0.48140 | mem g 0.695 delta_rms 0.493 ent_norm 0.383
+	iters: 2300, epoch: 4 | L 1248 H 240 | future mse 0.45984 hist mse 0.59008 | mem g 0.656 delta_rms 0.468 ent_norm 0.49
+	iters: 2400, epoch: 4 | L 816 H 192 | future mse 0.65027 hist mse 0.41284 | mem g 0.695 delta_rms 0.567 ent_norm 0.404
+	iters: 2500, epoch: 4 | L 1056 H 192 | future mse 0.36754 hist mse 0.61383 | mem g 0.672 delta_rms 0.541 ent_norm 0.416
+	iters: 2600, epoch: 4 | L 1344 H 336 | future mse 0.43326 hist mse 0.54241 | mem g 0.657 delta_rms 0.526 ent_norm 0.496
+	iters: 2700, epoch: 4 | L 1056 H 336 | future mse 0.57629 hist mse 0.40181 | mem g 0.635 delta_rms 0.395 ent_norm 0.481
+	iters: 2800, epoch: 4 | L 1296 H 240 | future mse 2.10489 hist mse 0.48394 | mem g 0.662 delta_rms 0.477 ent_norm 0.433
+	iters: 2900, epoch: 4 | L 720 H 192 | future mse 0.35976 hist mse 0.50089 | mem g 0.697 delta_rms 0.642 ent_norm 0.241
+	iters: 3000, epoch: 4 | L 480 H 336 | future mse 0.64273 hist mse 0.34339 | mem g 0.681 delta_rms 0.586 ent_norm 0.262
+	iters: 3100, epoch: 4 | L 576 H 240 | future mse 0.48679 hist mse 0.40077 | mem g 0.687 delta_rms 0.572 ent_norm 0.276
+	iters: 3200, epoch: 4 | L 1440 H 192 | future mse 0.38942 hist mse 0.49184 | mem g 0.658 delta_rms 0.523 ent_norm 0.409
+	iters: 3300, epoch: 4 | L 576 H 288 | future mse 0.46697 hist mse 1.27159 | mem g 0.661 delta_rms 0.504 ent_norm 0.41
+	iters: 3400, epoch: 4 | L 1200 H 96 | future mse 0.26234 hist mse 1.06343 | mem g 0.68 delta_rms 0.514 ent_norm 0.468
+	iters: 3500, epoch: 4 | L 1104 H 336 | future mse 0.40006 hist mse 0.70268 | mem g 0.624 delta_rms 0.315 ent_norm 0.59
+	iters: 3600, epoch: 4 | L 432 H 96 | future mse 0.74605 hist mse 0.62786 | mem g 0.693 delta_rms 0.461 ent_norm 0.347
+	iters: 3700, epoch: 4 | L 672 H 144 | future mse 0.53571 hist mse 0.57724 | mem g 0.663 delta_rms 0.407 ent_norm 0.39
+	iters: 3800, epoch: 4 | L 816 H 240 | future mse 0.35007 hist mse 0.71993 | mem g 0.674 delta_rms 0.493 ent_norm 0.413
+	iters: 3900, epoch: 4 | L 1104 H 192 | future mse 0.42596 hist mse 0.46626 | mem g 0.668 delta_rms 0.517 ent_norm 0.358
+	iters: 4000, epoch: 4 | L 528 H 336 | future mse 0.61781 hist mse 0.41276 | mem g 0.654 delta_rms 0.513 ent_norm 0.283
+	iters: 4100, epoch: 4 | L 912 H 288 | future mse 0.38645 hist mse 0.47114 | mem g 0.646 delta_rms 0.47 ent_norm 0.436
+	iters: 4200, epoch: 4 | L 624 H 288 | future mse 0.28487 hist mse 0.97883 | mem g 0.662 delta_rms 0.509 ent_norm 0.357
+	iters: 4300, epoch: 4 | L 1200 H 336 | future mse 0.27583 hist mse 0.54751 | mem g 0.642 delta_rms 0.529 ent_norm 0.417
+[R1 ATSP] order [14, 6, 18, 1, 15, 5, 3, 8, 20, 4, 16, 0, 9, 12, 7, 17, 11, 10, 2, 19, 13] cost 77.3559
+val 5175
+val 5175
+val 5175
+val 4935
+val 4935
+val 4935
+Epoch: 4 cost time: 4452 | train future 0.54209 hist 0.56675 | val mean mse 0.49502 | 384/96:0.4377 720/96:0.4356 1440/96:0.4484 384/336:0.5695 720/336:0.5403 1440/336:0.5386
+Validation loss decreased (0.507796 --> 0.495018).  Saving model ...
+Updating learning rate to 6.25e-05
+	iters: 100, epoch: 5 | L 816 H 192 | future mse 0.80764 hist mse 0.55650 | mem g 0.687 delta_rms 0.646 ent_norm 0.371
+	iters: 200, epoch: 5 | L 1152 H 192 | future mse 0.32064 hist mse 0.46129 | mem g 0.696 delta_rms 0.605 ent_norm 0.352
+	iters: 300, epoch: 5 | L 1008 H 288 | future mse 0.34202 hist mse 0.39776 | mem g 0.657 delta_rms 0.531 ent_norm 0.427
+	iters: 400, epoch: 5 | L 1248 H 144 | future mse 0.57943 hist mse 0.47054 | mem g 0.683 delta_rms 0.501 ent_norm 0.432
+	iters: 500, epoch: 5 | L 1200 H 144 | future mse 0.31306 hist mse 0.47015 | mem g 0.701 delta_rms 0.539 ent_norm 0.382
+	iters: 600, epoch: 5 | L 384 H 192 | future mse 0.49918 hist mse 0.69271 | mem g 0.682 delta_rms 0.54 ent_norm 0.261
+	iters: 700, epoch: 5 | L 720 H 144 | future mse 0.43860 hist mse 0.47861 | mem g 0.684 delta_rms 0.546 ent_norm 0.389
+	iters: 800, epoch: 5 | L 1248 H 288 | future mse 0.34341 hist mse 0.72743 | mem g 0.655 delta_rms 0.546 ent_norm 0.47
+	iters: 900, epoch: 5 | L 384 H 192 | future mse 0.38982 hist mse 1.46338 | mem g 0.683 delta_rms 0.621 ent_norm 0.332
+	iters: 1000, epoch: 5 | L 432 H 192 | future mse 0.70695 hist mse 0.47162 | mem g 0.673 delta_rms 0.53 ent_norm 0.242
+	iters: 1100, epoch: 5 | L 432 H 240 | future mse 0.50182 hist mse 0.43343 | mem g 0.689 delta_rms 0.49 ent_norm 0.27
+	iters: 1200, epoch: 5 | L 768 H 240 | future mse 0.46679 hist mse 0.52201 | mem g 0.685 delta_rms 0.685 ent_norm 0.344
+	iters: 1300, epoch: 5 | L 960 H 144 | future mse 0.32764 hist mse 0.50494 | mem g 0.69 delta_rms 0.512 ent_norm 0.401
+	iters: 1400, epoch: 5 | L 432 H 192 | future mse 0.51985 hist mse 0.56637 | mem g 0.691 delta_rms 0.585 ent_norm 0.344
+	iters: 1500, epoch: 5 | L 912 H 96 | future mse 0.28918 hist mse 0.39058 | mem g 0.732 delta_rms 0.575 ent_norm 0.294
+	iters: 1600, epoch: 5 | L 576 H 192 | future mse 0.45064 hist mse 0.55699 | mem g 0.672 delta_rms 0.481 ent_norm 0.333
+	iters: 1700, epoch: 5 | L 1296 H 288 | future mse 0.48079 hist mse 0.53298 | mem g 0.671 delta_rms 0.544 ent_norm 0.408
+	iters: 1800, epoch: 5 | L 816 H 336 | future mse 0.43298 hist mse 0.51454 | mem g 0.654 delta_rms 0.535 ent_norm 0.363
+	iters: 1900, epoch: 5 | L 432 H 240 | future mse 0.67237 hist mse 1.07370 | mem g 0.666 delta_rms 0.4 ent_norm 0.319
+	iters: 2000, epoch: 5 | L 816 H 336 | future mse 0.53439 hist mse 0.82611 | mem g 0.668 delta_rms 0.677 ent_norm 0.391
+	iters: 2100, epoch: 5 | L 1248 H 192 | future mse 0.49441 hist mse 0.44680 | mem g 0.683 delta_rms 0.609 ent_norm 0.365
+	iters: 2200, epoch: 5 | L 768 H 96 | future mse 0.43684 hist mse 0.38370 | mem g 0.729 delta_rms 0.765 ent_norm 0.315
+	iters: 2300, epoch: 5 | L 864 H 192 | future mse 0.46512 hist mse 0.68796 | mem g 0.675 delta_rms 0.55 ent_norm 0.41
+	iters: 2400, epoch: 5 | L 1008 H 96 | future mse 0.36405 hist mse 0.40959 | mem g 0.722 delta_rms 0.758 ent_norm 0.411
+	iters: 2500, epoch: 5 | L 1296 H 240 | future mse 0.51162 hist mse 0.76144 | mem g 0.657 delta_rms 0.41 ent_norm 0.599
+	iters: 2600, epoch: 5 | L 1200 H 144 | future mse 0.31098 hist mse 0.75946 | mem g 0.716 delta_rms 0.663 ent_norm 0.372
+	iters: 2700, epoch: 5 | L 624 H 144 | future mse 0.63608 hist mse 0.42941 | mem g 0.723 delta_rms 0.668 ent_norm 0.26
+	iters: 2800, epoch: 5 | L 1104 H 240 | future mse 0.34086 hist mse 0.41927 | mem g 0.664 delta_rms 0.476 ent_norm 0.371
+	iters: 2900, epoch: 5 | L 1344 H 192 | future mse 0.43964 hist mse 0.81225 | mem g 0.668 delta_rms 0.444 ent_norm 0.477
+	iters: 3000, epoch: 5 | L 480 H 144 | future mse 0.40677 hist mse 0.27693 | mem g 0.722 delta_rms 0.686 ent_norm 0.303
+	iters: 3100, epoch: 5 | L 624 H 336 | future mse 0.44107 hist mse 0.48200 | mem g 0.675 delta_rms 0.565 ent_norm 0.334
+	iters: 3200, epoch: 5 | L 1200 H 240 | future mse 0.50952 hist mse 0.60614 | mem g 0.672 delta_rms 0.526 ent_norm 0.417
+	iters: 3300, epoch: 5 | L 576 H 192 | future mse 0.35472 hist mse 0.33231 | mem g 0.692 delta_rms 0.568 ent_norm 0.374
+	iters: 3400, epoch: 5 | L 768 H 96 | future mse 0.38972 hist mse 0.45558 | mem g 0.716 delta_rms 0.667 ent_norm 0.321
+	iters: 3500, epoch: 5 | L 960 H 192 | future mse 0.60042 hist mse 0.39397 | mem g 0.69 delta_rms 0.618 ent_norm 0.365
+	iters: 3600, epoch: 5 | L 432 H 288 | future mse 0.57887 hist mse 0.53766 | mem g 0.667 delta_rms 0.491 ent_norm 0.21
+	iters: 3700, epoch: 5 | L 912 H 192 | future mse 0.55475 hist mse 0.94651 | mem g 0.68 delta_rms 0.581 ent_norm 0.419
+	iters: 3800, epoch: 5 | L 864 H 288 | future mse 0.55712 hist mse 0.51021 | mem g 0.675 delta_rms 0.536 ent_norm 0.304
+	iters: 3900, epoch: 5 | L 912 H 336 | future mse 0.42051 hist mse 0.94716 | mem g 0.671 delta_rms 0.58 ent_norm 0.412
+	iters: 4000, epoch: 5 | L 480 H 144 | future mse 0.44873 hist mse 0.47443 | mem g 0.699 delta_rms 0.52 ent_norm 0.261
+	iters: 4100, epoch: 5 | L 1344 H 240 | future mse 0.42997 hist mse 0.55084 | mem g 0.68 delta_rms 0.556 ent_norm 0.412
+	iters: 4200, epoch: 5 | L 816 H 96 | future mse 0.35723 hist mse 0.43033 | mem g 0.732 delta_rms 0.665 ent_norm 0.346
+	iters: 4300, epoch: 5 | L 912 H 336 | future mse 0.41645 hist mse 0.36215 | mem g 0.69 delta_rms 0.548 ent_norm 0.367
+[R1 ATSP] order [14, 17, 13, 5, 0, 3, 18, 20, 12, 1, 9, 7, 6, 15, 8, 4, 16, 11, 19, 10, 2] cost 76.8343
+val 5175
+val 5175
+val 5175
+val 4935
+val 4935
+val 4935
+Epoch: 5 cost time: 4445 | train future 0.53978 hist 0.56394 | val mean mse 0.50004 | 384/96:0.4432 720/96:0.4408 1440/96:0.4531 384/336:0.5730 720/336:0.5466 1440/336:0.5434
+EarlyStopping counter: 1 out of 3
+Updating learning rate to 3.125e-05
+	iters: 100, epoch: 6 | L 816 H 144 | future mse 0.28126 hist mse 0.56975 | mem g 0.693 delta_rms 0.553 ent_norm 0.353
+	iters: 200, epoch: 6 | L 624 H 144 | future mse 0.35172 hist mse 1.04847 | mem g 0.693 delta_rms 0.534 ent_norm 0.376
+	iters: 300, epoch: 6 | L 1008 H 96 | future mse 0.22427 hist mse 0.87339 | mem g 0.704 delta_rms 0.502 ent_norm 0.44
+	iters: 400, epoch: 6 | L 528 H 288 | future mse 0.38278 hist mse 0.44936 | mem g 0.686 delta_rms 0.614 ent_norm 0.288
+	iters: 500, epoch: 6 | L 624 H 192 | future mse 0.33460 hist mse 1.18857 | mem g 0.672 delta_rms 0.535 ent_norm 0.4
+	iters: 600, epoch: 6 | L 480 H 144 | future mse 0.35521 hist mse 0.41445 | mem g 0.697 delta_rms 0.64 ent_norm 0.23
+	iters: 700, epoch: 6 | L 1056 H 144 | future mse 0.32688 hist mse 0.39406 | mem g 0.666 delta_rms 0.494 ent_norm 0.441
+	iters: 800, epoch: 6 | L 1008 H 96 | future mse 0.40170 hist mse 0.50636 | mem g 0.726 delta_rms 0.549 ent_norm 0.43
+	iters: 900, epoch: 6 | L 384 H 336 | future mse 0.53240 hist mse 0.35389 | mem g 0.67 delta_rms 0.51 ent_norm 0.264
+	iters: 1000, epoch: 6 | L 1344 H 336 | future mse 0.39149 hist mse 0.93303 | mem g 0.638 delta_rms 0.442 ent_norm 0.527
+	iters: 1100, epoch: 6 | L 864 H 288 | future mse 0.35380 hist mse 0.50396 | mem g 0.652 delta_rms 0.449 ent_norm 0.425
+	iters: 1200, epoch: 6 | L 1056 H 144 | future mse 0.21667 hist mse 0.51109 | mem g 0.701 delta_rms 0.708 ent_norm 0.349
+	iters: 1300, epoch: 6 | L 432 H 336 | future mse 0.41538 hist mse 0.39978 | mem g 0.666 delta_rms 0.481 ent_norm 0.202
+	iters: 1400, epoch: 6 | L 480 H 96 | future mse 0.40414 hist mse 0.35313 | mem g 0.735 delta_rms 0.484 ent_norm 0.262
+	iters: 1500, epoch: 6 | L 1152 H 336 | future mse 0.40321 hist mse 0.41579 | mem g 0.674 delta_rms 0.614 ent_norm 0.417
+	iters: 1600, epoch: 6 | L 1296 H 336 | future mse 1.48317 hist mse 0.40553 | mem g 0.664 delta_rms 0.564 ent_norm 0.504
+	iters: 1700, epoch: 6 | L 1200 H 96 | future mse 0.25716 hist mse 0.51686 | mem g 0.705 delta_rms 0.572 ent_norm 0.484
+	iters: 1800, epoch: 6 | L 1440 H 240 | future mse 0.36954 hist mse 0.52021 | mem g 0.643 delta_rms 0.414 ent_norm 0.513
+	iters: 1900, epoch: 6 | L 528 H 144 | future mse 0.41431 hist mse 1.14917 | mem g 0.692 delta_rms 0.508 ent_norm 0.3
+	iters: 2000, epoch: 6 | L 576 H 240 | future mse 0.69949 hist mse 0.36174 | mem g 0.685 delta_rms 0.546 ent_norm 0.355
+	iters: 2100, epoch: 6 | L 864 H 192 | future mse 0.32077 hist mse 0.44368 | mem g 0.691 delta_rms 0.56 ent_norm 0.397
+	iters: 2200, epoch: 6 | L 1344 H 336 | future mse 0.32043 hist mse 0.70413 | mem g 0.684 delta_rms 0.687 ent_norm 0.467
+	iters: 2300, epoch: 6 | L 1296 H 288 | future mse 0.44122 hist mse 0.79023 | mem g 0.66 delta_rms 0.414 ent_norm 0.557
+	iters: 2400, epoch: 6 | L 1104 H 240 | future mse 0.32134 hist mse 0.84692 | mem g 0.667 delta_rms 0.577 ent_norm 0.479
+	iters: 2500, epoch: 6 | L 624 H 336 | future mse 0.49590 hist mse 0.40583 | mem g 0.654 delta_rms 0.523 ent_norm 0.349
+	iters: 2600, epoch: 6 | L 528 H 336 | future mse 0.40642 hist mse 0.44561 | mem g 0.657 delta_rms 0.438 ent_norm 0.338
+	iters: 2700, epoch: 6 | L 624 H 288 | future mse 0.39256 hist mse 0.37732 | mem g 0.676 delta_rms 0.6 ent_norm 0.332
+	iters: 2800, epoch: 6 | L 384 H 96 | future mse 0.45714 hist mse 0.52483 | mem g 0.708 delta_rms 0.527 ent_norm 0.318
+	iters: 2900, epoch: 6 | L 432 H 192 | future mse 2.37668 hist mse 0.44684 | mem g 0.712 delta_rms 0.534 ent_norm 0.29
+	iters: 3000, epoch: 6 | L 1440 H 192 | future mse 0.51791 hist mse 0.67070 | mem g 0.677 delta_rms 0.562 ent_norm 0.484
+	iters: 3100, epoch: 6 | L 576 H 288 | future mse 0.41662 hist mse 0.39378 | mem g 0.678 delta_rms 0.596 ent_norm 0.298
+	iters: 3200, epoch: 6 | L 624 H 240 | future mse 0.61694 hist mse 0.42714 | mem g 0.71 delta_rms 0.712 ent_norm 0.266
+	iters: 3300, epoch: 6 | L 912 H 336 | future mse 0.47857 hist mse 0.58102 | mem g 0.653 delta_rms 0.47 ent_norm 0.385
+	iters: 3400, epoch: 6 | L 912 H 192 | future mse 0.68961 hist mse 0.42795 | mem g 0.683 delta_rms 0.505 ent_norm 0.402
+	iters: 3500, epoch: 6 | L 528 H 336 | future mse 0.54507 hist mse 1.29049 | mem g 0.663 delta_rms 0.472 ent_norm 0.36
+	iters: 3600, epoch: 6 | L 960 H 192 | future mse 0.38761 hist mse 0.48244 | mem g 0.689 delta_rms 0.585 ent_norm 0.425
+	iters: 3700, epoch: 6 | L 432 H 288 | future mse 0.27449 hist mse 0.34797 | mem g 0.656 delta_rms 0.462 ent_norm 0.272
+	iters: 3800, epoch: 6 | L 960 H 240 | future mse 0.42800 hist mse 0.54177 | mem g 0.655 delta_rms 0.507 ent_norm 0.397
+	iters: 3900, epoch: 6 | L 480 H 96 | future mse 0.67587 hist mse 0.69523 | mem g 0.732 delta_rms 0.664 ent_norm 0.244
+	iters: 4000, epoch: 6 | L 624 H 144 | future mse 0.54980 hist mse 0.55588 | mem g 0.688 delta_rms 0.596 ent_norm 0.315
+	iters: 4100, epoch: 6 | L 624 H 336 | future mse 0.36708 hist mse 0.48095 | mem g 0.65 delta_rms 0.468 ent_norm 0.393
+	iters: 4200, epoch: 6 | L 1056 H 144 | future mse 0.39608 hist mse 1.10406 | mem g 0.674 delta_rms 0.427 ent_norm 0.501
+	iters: 4300, epoch: 6 | L 576 H 144 | future mse 0.44646 hist mse 0.74093 | mem g 0.692 delta_rms 0.526 ent_norm 0.378
+[R1 ATSP] order [9, 17, 20, 7, 18, 3, 16, 19, 10, 1, 12, 15, 4, 5, 0, 6, 14, 8, 13, 11, 2] cost 76.5536
+val 5175
+val 5175
+val 5175
+val 4935
+val 4935
+val 4935
+Epoch: 6 cost time: 4543 | train future 0.53496 hist 0.56436 | val mean mse 0.51339 | 384/96:0.4590 720/96:0.4566 1440/96:0.4643 384/336:0.5866 720/336:0.5603 1440/336:0.5536
+EarlyStopping counter: 2 out of 3
+Updating learning rate to 1.5625e-05
+	iters: 100, epoch: 7 | L 672 H 192 | future mse 0.41121 hist mse 0.39597 | mem g 0.696 delta_rms 0.612 ent_norm 0.283
+	iters: 200, epoch: 7 | L 1104 H 192 | future mse 0.39022 hist mse 0.35688 | mem g 0.72 delta_rms 0.723 ent_norm 0.376
+	iters: 300, epoch: 7 | L 432 H 96 | future mse 0.80197 hist mse 0.45120 | mem g 0.702 delta_rms 0.496 ent_norm 0.356
+	iters: 400, epoch: 7 | L 1344 H 336 | future mse 0.38496 hist mse 0.37026 | mem g 0.644 delta_rms 0.439 ent_norm 0.503
+	iters: 500, epoch: 7 | L 384 H 144 | future mse 0.31290 hist mse 0.44395 | mem g 0.703 delta_rms 0.493 ent_norm 0.237
+	iters: 600, epoch: 7 | L 1248 H 96 | future mse 0.26223 hist mse 0.39930 | mem g 0.7 delta_rms 0.582 ent_norm 0.45
+	iters: 700, epoch: 7 | L 1008 H 144 | future mse 0.25872 hist mse 0.80219 | mem g 0.701 delta_rms 0.535 ent_norm 0.429
+	iters: 800, epoch: 7 | L 480 H 96 | future mse 0.46170 hist mse 0.71602 | mem g 0.72 delta_rms 0.607 ent_norm 0.227
+	iters: 900, epoch: 7 | L 960 H 336 | future mse 0.46824 hist mse 0.42313 | mem g 0.648 delta_rms 0.468 ent_norm 0.458
+	iters: 1000, epoch: 7 | L 912 H 192 | future mse 0.28192 hist mse 0.48413 | mem g 0.703 delta_rms 0.634 ent_norm 0.363
+	iters: 1100, epoch: 7 | L 432 H 336 | future mse 0.65450 hist mse 0.61656 | mem g 0.675 delta_rms 0.466 ent_norm 0.299
+	iters: 1200, epoch: 7 | L 1152 H 192 | future mse 0.31635 hist mse 0.96944 | mem g 0.68 delta_rms 0.573 ent_norm 0.424
+	iters: 1300, epoch: 7 | L 1248 H 144 | future mse 2.56956 hist mse 0.65791 | mem g 0.679 delta_rms 0.439 ent_norm 0.479
+	iters: 1400, epoch: 7 | L 960 H 336 | future mse 0.49457 hist mse 0.45576 | mem g 0.651 delta_rms 0.516 ent_norm 0.393
+	iters: 1500, epoch: 7 | L 432 H 240 | future mse 0.66047 hist mse 0.31894 | mem g 0.68 delta_rms 0.599 ent_norm 0.25
+	iters: 1600, epoch: 7 | L 912 H 240 | future mse 0.48720 hist mse 0.30440 | mem g 0.665 delta_rms 0.558 ent_norm 0.422
+	iters: 1700, epoch: 7 | L 1344 H 288 | future mse 0.58296 hist mse 0.43177 | mem g 0.665 delta_rms 0.58 ent_norm 0.43
+	iters: 1800, epoch: 7 | L 1248 H 144 | future mse 0.35269 hist mse 0.45717 | mem g 0.705 delta_rms 0.597 ent_norm 0.436
+	iters: 1900, epoch: 7 | L 1200 H 240 | future mse 0.28534 hist mse 0.41952 | mem g 0.661 delta_rms 0.502 ent_norm 0.435
+	iters: 2000, epoch: 7 | L 576 H 240 | future mse 0.33377 hist mse 0.36530 | mem g 0.696 delta_rms 0.568 ent_norm 0.302
+	iters: 2100, epoch: 7 | L 480 H 144 | future mse 0.43072 hist mse 0.40866 | mem g 0.719 delta_rms 0.558 ent_norm 0.254
+	iters: 2200, epoch: 7 | L 432 H 336 | future mse 0.51465 hist mse 1.23051 | mem g 0.656 delta_rms 0.443 ent_norm 0.251
+	iters: 2300, epoch: 7 | L 432 H 240 | future mse 0.48234 hist mse 0.39613 | mem g 0.681 delta_rms 0.568 ent_norm 0.258
+	iters: 2400, epoch: 7 | L 1104 H 240 | future mse 0.55586 hist mse 0.58130 | mem g 0.707 delta_rms 0.707 ent_norm 0.359
+	iters: 2500, epoch: 7 | L 1248 H 192 | future mse 0.26153 hist mse 0.75060 | mem g 0.669 delta_rms 0.431 ent_norm 0.506
+	iters: 2600, epoch: 7 | L 432 H 96 | future mse 0.28589 hist mse 0.39860 | mem g 0.714 delta_rms 0.473 ent_norm 0.254
+	iters: 2700, epoch: 7 | L 1296 H 240 | future mse 0.39974 hist mse 0.47269 | mem g 0.646 delta_rms 0.447 ent_norm 0.515
+	iters: 2800, epoch: 7 | L 1440 H 192 | future mse 2.32252 hist mse 0.48857 | mem g 0.694 delta_rms 0.57 ent_norm 0.407
+	iters: 2900, epoch: 7 | L 480 H 336 | future mse 0.57099 hist mse 0.31399 | mem g 0.646 delta_rms 0.422 ent_norm 0.3
+	iters: 3000, epoch: 7 | L 1008 H 240 | future mse 0.35745 hist mse 0.62875 | mem g 0.667 delta_rms 0.485 ent_norm 0.428
+	iters: 3100, epoch: 7 | L 1296 H 336 | future mse 0.43460 hist mse 0.45132 | mem g 0.668 delta_rms 0.543 ent_norm 0.474
+	iters: 3200, epoch: 7 | L 576 H 240 | future mse 0.60887 hist mse 0.98245 | mem g 0.682 delta_rms 0.529 ent_norm 0.318
+	iters: 3300, epoch: 7 | L 384 H 192 | future mse 0.55817 hist mse 0.43068 | mem g 0.692 delta_rms 0.546 ent_norm 0.274
+	iters: 3400, epoch: 7 | L 384 H 240 | future mse 0.35577 hist mse 0.47793 | mem g 0.68 delta_rms 0.525 ent_norm 0.301
+	iters: 3500, epoch: 7 | L 720 H 240 | future mse 0.37165 hist mse 0.55753 | mem g 0.673 delta_rms 0.536 ent_norm 0.311
+	iters: 3600, epoch: 7 | L 576 H 192 | future mse 0.41415 hist mse 0.46262 | mem g 0.676 delta_rms 0.514 ent_norm 0.367
+	iters: 3700, epoch: 7 | L 1344 H 240 | future mse 0.42821 hist mse 0.85175 | mem g 0.673 delta_rms 0.55 ent_norm 0.459
+	iters: 3800, epoch: 7 | L 1344 H 96 | future mse 0.44708 hist mse 1.14993 | mem g 0.687 delta_rms 0.391 ent_norm 0.557
+	iters: 3900, epoch: 7 | L 624 H 336 | future mse 0.74994 hist mse 0.39592 | mem g 0.673 delta_rms 0.485 ent_norm 0.29
+	iters: 4000, epoch: 7 | L 1440 H 240 | future mse 1.91843 hist mse 0.72645 | mem g 0.674 delta_rms 0.579 ent_norm 0.471
+	iters: 4100, epoch: 7 | L 624 H 240 | future mse 0.52114 hist mse 0.64042 | mem g 0.672 delta_rms 0.532 ent_norm 0.327
+	iters: 4200, epoch: 7 | L 1248 H 240 | future mse 0.42700 hist mse 0.63283 | mem g 0.683 delta_rms 0.513 ent_norm 0.451
+	iters: 4300, epoch: 7 | L 432 H 240 | future mse 0.38709 hist mse 0.28137 | mem g 0.711 delta_rms 0.563 ent_norm 0.285
+[R1 ATSP] order [9, 6, 15, 5, 11, 2, 10, 12, 16, 14, 3, 7, 18, 1, 0, 19, 20, 4, 13, 17, 8] cost 76.1690
+val 5175
+val 5175
+val 5175
+val 4935
+val 4935
+val 4935
+Epoch: 7 cost time: 4588 | train future 0.53463 hist 0.56342 | val mean mse 0.49691 | 384/96:0.4423 720/96:0.4387 1440/96:0.4515 384/336:0.5689 720/336:0.5387 1440/336:0.5413
+EarlyStopping counter: 3 out of 3
+Early stopping
+[R1 best] epoch 4 step 17556 of 30723 steps
+===== [param snapshot] event=checkpoint_loaded | 2026-10-23T21:36:33.068607+02:00 | commit bea5af8e6da0f42a73e322b69d70717edf1c6bfa (laptop) | R1Obs torch.float32 cuda:0
+  meta: {"seed": 3048, "model_id": "weather_r1", "des": "R1WObK0.5Q8PVsh0s3048", "patch_len": 48, "VPT": 1, "checkpoint": "./checkpoints/long_term_forecast_weather_r1_MambaTS_custom_ftM_sl1440_ll48_pl336_dm32_nh16_el3_dl2_df512_fc1_ebtimeF_dtTrue_R1WObK0.5Q8PVsh0s3048_0/checkpoint.pth", "source": "train: early-stopping best", "best_epoch": 4, "best_step": 17556, "total_steps": 30723, "setting": "long_term_forecast_weather_r1_MambaTS_custom_ftM_sl1440_ll48_pl336_dm32_nh16_el3_dl2_df512_fc1_ebtimeF_dtTrue_R1WObK0.5Q8PVsh0s3048_0"}
+  env: R1_LAMBDA_HIST=0
+  params: total 1414685 | trainable 1413782 | frozen 903 | extra vs R1 (corr_net+mem_net) 0 | 44 tensors, 0 buffers | files patchmem/logs/param_snapshots/weather_r1_R1WObK0.5Q8PVsh0s3048_s3048/20261023T213633068607_checkpoint_loaded.jsonl / .csv
+  name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
+  base.value_embedding.1.weight                          1536       True 2.0020e-03 9.9123e-02-3.1174e-01 2.9330e-01 3.1174e-01 9.9143e-02 3.8856e+00 0.0000e+00          0  (32, 48)
+  base.encoder.adjacency_matrix                           441      False 1.3142e+04 2.0173e+02 1.2510e+04 1.3671e+04 1.3671e+04 1.3143e+04 2.7601e+05 0.0000e+00          0  (21, 21)
+  base.encoder.count_matrix                               441      False 6.6880e+03 8.8372e+01 6.4280e+03 6.9350e+03 6.9350e+03 6.6886e+03 1.4046e+05 0.0000e+00          0  (21, 21)
+  base.encoder.ending_points                               21      False 1.3142e+04 1.9412e+02 1.2642e+04 1.3450e+04 1.3450e+04 1.3143e+04 6.0230e+04 0.0000e+00          0  (21,)
+  base.encoder.layers.0.norm.weight                        32       True 1.0166e+00 4.6103e-02 9.4410e-01 1.1154e+00 1.1154e+00 1.0177e+00 5.7569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.0.norm.bias                          32       True 1.1790e-02 4.8873e-02-8.7483e-02 1.2784e-01 1.2784e-01 5.0275e-02 2.8440e-01 0.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.A_log                      1024       True 1.9276e+00 7.6191e-01-9.8842e-02 2.9851e+00 2.9851e+00 2.0727e+00 6.6327e+01 0.0000e+00          0  (64, 16)
+  base.encoder.layers.0.mixer.D                            64       True 1.0298e+00 4.5913e-02 9.1623e-01 1.1639e+00 1.1639e+00 1.0309e+00 8.2470e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.0.mixer.in_proj.weight             4096       True 2.6077e-03 1.1731e-01-3.3809e-01 3.2493e-01 3.3809e-01 1.1734e-01 7.5097e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.0.mixer.x_proj.0.weight            2176       True 2.6213e-03 7.7512e-02-2.3533e-01 2.2294e-01 2.3533e-01 7.7557e-02 3.6178e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.0.mixer.dt_proj.weight              128       True-1.7476e-02 4.3934e-01-7.4270e-01 8.2909e-01 8.2909e-01 4.3969e-01 4.9745e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.0.mixer.dt_proj.bias                 64       True-4.7315e+00 1.2920e+00-6.8246e+00-2.5543e+00 6.8246e+00 4.9048e+00 3.9238e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.0.mixer.out_proj.weight            2048       True 6.1982e-04 7.2114e-02-2.2105e-01 2.6136e-01 2.6136e-01 7.2116e-02 3.2636e+00 0.0000e+00          0  (32, 64)
+  base.encoder.layers.1.norm.weight                        32       True 1.0082e+00 3.3795e-02 9.3808e-01 1.0915e+00 1.0915e+00 1.0088e+00 5.7066e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.1.norm.bias                          32       True-9.8359e-03 5.5758e-02-1.0457e-01 9.5805e-02 1.0457e-01 5.6619e-02 3.2028e-01 0.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.A_log                      1024       True 1.9198e+00 7.7530e-01-4.1290e-01 3.0579e+00 3.0579e+00 2.0704e+00 6.6253e+01 0.0000e+00          0  (64, 16)
+  base.encoder.layers.1.mixer.D                            64       True 1.0295e+00 6.3335e-02 8.9425e-01 1.2213e+00 1.2213e+00 1.0314e+00 8.2512e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.1.mixer.in_proj.weight             4096       True 5.4152e-04 1.1948e-01-3.8620e-01 3.2820e-01 3.8620e-01 1.1948e-01 7.6467e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.1.mixer.x_proj.0.weight            2176       True-2.1648e-03 9.1262e-02-2.8379e-01 2.6791e-01 2.8379e-01 9.1288e-02 4.2584e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.1.mixer.dt_proj.weight              128       True-3.6068e-02 4.5196e-01-8.5908e-01 9.3706e-01 9.3706e-01 4.5339e-01 5.1296e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.1.mixer.dt_proj.bias                 64       True-4.4038e+00 1.2149e+00-6.6363e+00-2.2098e+00 6.6363e+00 4.5683e+00 3.6547e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.1.mixer.out_proj.weight            2048       True-4.5852e-06 7.4600e-02-2.8085e-01 2.4319e-01 2.8085e-01 7.4600e-02 3.3760e+00 0.0000e+00          0  (32, 64)
+  base.encoder.layers.2.norm.weight                        32       True 9.3830e-01 4.9176e-02 8.1014e-01 1.0110e+00 1.0110e+00 9.3959e-01 5.3151e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.2.norm.bias                          32       True 1.8333e-02 5.8395e-02-8.6744e-02 1.2479e-01 1.2479e-01 6.1206e-02 3.4623e-01 0.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.A_log                      1024       True 1.9919e+00 7.7067e-01-1.5180e-01 3.7699e+00 3.7699e+00 2.1358e+00 6.8345e+01 0.0000e+00          0  (64, 16)
+  base.encoder.layers.2.mixer.D                            64       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 8.0000e+00 0.0000e+00          0  (64,)
+  base.encoder.layers.2.mixer.in_proj.weight             4096       True-3.0738e-03 1.0331e-01-2.6896e-01 2.5984e-01 2.6896e-01 1.0336e-01 6.6149e+00 0.0000e+00          0  (128, 32)
+  base.encoder.layers.2.mixer.x_proj.0.weight            2176       True-8.1633e-04 8.0080e-02-3.5019e-01 2.4689e-01 3.5019e-01 8.0084e-02 3.7357e+00 0.0000e+00          0  (34, 64)
+  base.encoder.layers.2.mixer.dt_proj.weight              128       True-7.2253e-03 4.5508e-01-1.0915e+00 8.7856e-01 1.0915e+00 4.5514e-01 5.1493e+00 0.0000e+00          0  (64, 2)
+  base.encoder.layers.2.mixer.dt_proj.bias                 64       True-4.8115e+00 1.2818e+00-7.1171e+00-1.8808e+00 7.1171e+00 4.9793e+00 3.9834e+01 0.0000e+00          0  (64,)
+  base.encoder.layers.2.mixer.out_proj.weight            2048       True 1.0378e-03 4.1942e-02-7.2121e-02 7.2140e-02 7.2140e-02 4.1955e-02 1.8987e+00 0.0000e+00          0  (32, 64)
+  base.encoder.norm_f.weight                               32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.norm_f.bias                                 32       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (32,)
+  readout.weight                                      1032192       True 4.9474e-04 4.9895e-02-5.0702e-01 4.9190e-01 5.0702e-01 4.9898e-02 5.0695e+01 0.0000e+00          0  (1008, 1024)
+  readout.bias                                           1008       True-6.4745e-04 1.3620e-02-3.7909e-02 4.4551e-02 4.4551e-02 1.3636e-02 4.3292e-01 0.0000e+00          0  (1008,)
+  obs_net.log_tau                                          16       True-1.3745e+00 4.2060e-01-2.3720e+00-6.6509e-01 2.3720e+00 1.4374e+00 5.7497e+00 0.0000e+00          0  (16,)
+  obs_net.W                                             16128       True 1.9272e-02 1.5480e-01-4.9527e-01 6.5709e-01 6.5709e-01 1.5600e-01 1.9811e+01 0.0000e+00          0  (16, 21, 48)
+  obs_net.Wwv.weight                                    49152       True-5.3375e-04 5.1425e-02-6.3057e-01 5.8038e-01 6.3057e-01 5.1427e-02 1.1402e+01 0.0000e+00          0  (48, 1024)
+  obs_net.Wbv.weight                                     1024       True-1.2078e-03 1.2904e-01-5.2862e-01 4.5865e-01 5.2862e-01 1.2904e-01 4.1294e+00 0.0000e+00          0  (1, 1024)
+  obs_net.Wbv.bias                                          1       True-2.5759e-01 0.0000e+00-2.5759e-01-2.5759e-01 2.5759e-01 2.5759e-01 2.5759e-01 0.0000e+00          0  (1,)
+  obs_net.Wq.weight                                    131072       True-4.9166e-05 2.9942e-01-1.5391e+00 1.5587e+00 1.5587e+00 2.9942e-01 1.0840e+02 0.0000e+00          0  (128, 1024)
+  obs_net.Wk.weight                                    131072       True 5.2432e-04 2.1818e-01-3.3200e+00 3.3363e+00 3.3363e+00 2.1818e-01 7.8991e+01 0.0000e+00          0  (128, 1024)
+  obs_net.Wg.weight                                     21504       True-8.8690e-04 2.5956e-01-1.1370e+00 1.5048e+00 1.5048e+00 2.5956e-01 3.8063e+01 0.0000e+00          0  (21, 1024)
+  obs_net.Wg.bias                                          21       True 2.2258e-01 2.8174e-01-5.4021e-01 6.0931e-01 6.0931e-01 3.5906e-01 1.6454e+00 0.0000e+00          0  (21,)
+  -- module subtotals:
+  base.value_embedding                             numel      1536 | l2 3.8856e+00 | rms 9.9143e-02
+  base.encoder                                     numel       967 | l2 3.1550e+05 | rms 1.0146e+04
+  base.encoder.layers.0                            numel      9664 | l2 7.8390e+01 | rms 7.9741e-01
+  base.encoder.layers.1                            numel      9664 | l2 7.7073e+01 | rms 7.8401e-01
+  base.encoder.layers.2                            numel      9664 | l2 8.0237e+01 | rms 8.1620e-01
+  readout                                          numel   1033200 | l2 5.0697e+01 | rms 4.9875e-02
+  obs_net                                          numel     16144 | l2 2.0628e+01 | rms 1.6235e-01
+  obs_net.Wwv                                      numel     49152 | l2 1.1402e+01 | rms 5.1427e-02
+  obs_net.Wbv                                      numel      1025 | l2 4.1374e+00 | rms 1.2923e-01
+  obs_net.Wq                                       numel    131072 | l2 1.0840e+02 | rms 2.9942e-01
+  obs_net.Wk                                       numel    131072 | l2 7.8991e+01 | rms 2.1818e-01
+  obs_net.Wg                                       numel     21525 | l2 3.8099e+01 | rms 2.5968e-01
+  -- buffers (0; not parameters):
+===== [param snapshot end] event=checkpoint_loaded
+resetting ids shuffle...
+>>>>>>>testing : long_term_forecast_weather_r1_MambaTS_custom_ftM_sl1440_ll48_pl336_dm32_nh16_el3_dl2_df512_fc1_ebtimeF_dtTrue_R1WObK0.5Q8PVsh0s3048_0<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+[R1 ATSP] order [14, 6, 18, 1, 15, 5, 3, 8, 20, 4, 16, 0, 9, 12, 7, 17, 11, 10, 2, 19, 13] cost 77.3559
+val 5175
+val 5079
+val 4935
+val 5175
+[R1 val per-variable L=720 H=96] scan order [14, 6, 18, 1, 15, 5, 3, 8, 20, 4, 16, 0, 9, 12, 7, 17, 11, 10, 2, 19, 13]: pos0:v14=3.0976 pos1:v6=0.1438 pos2:v18=0.1146 pos3:v1=0.1109 pos4:v15=2.2002 pos5:v5=0.1239 pos6:v3=0.1087 pos7:v8=0.1453 pos8:v20=0.0030 pos9:v4=0.3856 pos10:v16=0.1423 pos11:v0=0.2657 pos12:v9=0.1454 pos13:v12=0.6659 pos14:v7=0.1735 pos15:v17=0.1343 pos16:v11=0.0008 pos17:v10=0.1487 pos18:v2=0.1134 pos19:v19=0.1204 pos20:v13=0.8073
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+[R1 val] L= 384 H= 96 | mse 0.437692 mae 0.321668 | naive last-patch mse 1.077054 linear mse 3.766753 | 13.8s peak 192MB | per-patch mse 0.4044 0.4710
+[R1 val] L= 384 H=192 | mse 0.494012 mae 0.356403 | naive last-patch mse 1.051860 linear mse 9.212140 | 25.3s peak 193MB | per-patch mse 0.4102 0.4779 0.5123 0.5757
+[R1 val] L= 384 H=336 | mse 0.568847 mae 0.401196 | naive last-patch mse 1.121879 linear mse 24.363196 | 39.3s peak 198MB | per-patch mse 0.4179 0.4856 0.5203 0.5852 0.6223 0.6473 0.7033
+[R1 val] L= 720 H= 96 | mse 0.435777 mae 0.322142 | naive last-patch mse 1.077054 linear mse 3.766753 | 14.2s peak 335MB | per-patch mse 0.4050 0.4665
+[R1 val] L= 720 H=192 | mse 0.482586 mae 0.352081 | naive last-patch mse 1.051860 linear mse 9.212140 | 26.2s peak 337MB | per-patch mse 0.4091 0.4715 0.5006 0.5491
+[R1 val] L= 720 H=336 | mse 0.540647 mae 0.387756 | naive last-patch mse 1.121879 linear mse 24.363196 | 43.7s peak 341MB | per-patch mse 0.4145 0.4779 0.5076 0.5565 0.5847 0.6039 0.6394
+[R1 val] L=1440 H= 96 | mse 0.448647 mae 0.335067 | naive last-patch mse 1.077054 linear mse 3.766753 | 17.1s peak 641MB | per-patch mse 0.4245 0.4728
+[R1 val] L=1440 H=192 | mse 0.486023 mae 0.357326 | naive last-patch mse 1.051860 linear mse 9.212140 | 25.7s peak 643MB | per-patch mse 0.4300 0.4784 0.4983 0.5374
+[R1 val] L=1440 H=336 | mse 0.538492 mae 0.387649 | naive last-patch mse 1.121879 linear mse 24.363196 | 43.4s peak 646MB | per-patch mse 0.4386 0.4880 0.5079 0.5480 0.5788 0.5888 0.6194
+test 10444
+test 10348
+test 10204
+test 10444
+[R1 test per-variable L=720 H=96] scan order [14, 6, 18, 1, 15, 5, 3, 8, 20, 4, 16, 0, 9, 12, 7, 17, 11, 10, 2, 19, 13]: pos0:v14=0.0506 pos1:v6=0.0872 pos2:v18=0.0429 pos3:v1=0.1225 pos4:v15=1.0739 pos5:v5=0.0654 pos6:v3=0.1093 pos7:v8=0.0878 pos8:v20=0.0014 pos9:v4=0.3144 pos10:v16=0.0596 pos11:v0=0.2806 pos12:v9=0.0877 pos13:v12=0.5460 pos14:v7=0.0549 pos15:v17=0.0547 pos16:v11=0.0007 pos17:v10=0.1780 pos18:v2=0.1314 pos19:v19=0.1003 pos20:v13=0.3891
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+[R1 test] L= 384 H= 96 | mse 0.181123 mae 0.239547 | naive last-patch mse 0.316195 linear mse 1.006707 | 26.4s peak 192MB | per-patch mse 0.1576 0.2047
+[R1 test] L= 384 H=192 | mse 0.219170 mae 0.269481 | naive last-patch mse 0.348927 linear mse 2.593278 | 44.5s peak 193MB | per-patch mse 0.1583 0.2059 0.2359 0.2765
+[R1 test] L= 384 H=336 | mse 0.265946 mae 0.300832 | naive last-patch mse 0.403388 linear mse 6.791393 | 79.4s peak 198MB | per-patch mse 0.1595 0.2072 0.2372 0.2781 0.3072 0.3235 0.3490
+[R1 test] L= 720 H= 96 | mse 0.182775 mae 0.242358 | naive last-patch mse 0.316195 linear mse 1.006707 | 33.6s peak 335MB | per-patch mse 0.1596 0.2060
+[R1 test] L= 720 H=192 | mse 0.217303 mae 0.269763 | naive last-patch mse 0.348927 linear mse 2.593278 | 59.0s peak 337MB | per-patch mse 0.1604 0.2073 0.2334 0.2681
+[R1 test] L= 720 H=336 | mse 0.261439 mae 0.300352 | naive last-patch mse 0.403388 linear mse 6.791393 | 86.0s peak 340MB | per-patch mse 0.1617 0.2089 0.2352 0.2702 0.3008 0.3158 0.3373
+[R1 test] L=1440 H= 96 | mse 0.195512 mae 0.256711 | naive last-patch mse 0.316195 linear mse 1.006707 | 33.4s peak 641MB | per-patch mse 0.1753 0.2157
+[R1 test] L=1440 H=192 | mse 0.226378 mae 0.280919 | naive last-patch mse 0.348927 linear mse 2.593278 | 58.6s peak 643MB | per-patch mse 0.1756 0.2168 0.2402 0.2728
+[R1 test] L=1440 H=336 | mse 0.266165 mae 0.308454 | naive last-patch mse 0.403388 linear mse 6.791393 | 95.0s peak 646MB | per-patch mse 0.1768 0.2184 0.2419 0.2749 0.3011 0.3139 0.3361
+val 5175
+[R1 val state L=384] |h_T| RMS mean 0.0323 q10/50/90 0.0206/0.0299/0.0486 max 0.0769
+val 5175
+[R1 val state L=720] |h_T| RMS mean 0.0313 q10/50/90 0.0201/0.0292/0.0454 max 0.0721
+val 5175
+[R1 val state L=1440] |h_T| RMS mean 0.0304 q10/50/90 0.0193/0.0284/0.0456 max 0.0682
+[R1 VPT] skipped cost updates 0 | edge counts min 6428 | adjacency (mean transition cost):
+[[3.876 3.879 3.901 3.863 3.888 3.878 3.87  3.863 3.905 3.857 3.895 3.917
+  3.873 3.896 3.857 3.903 3.901 3.875 3.886 3.892 3.903]
+ [3.881 3.867 3.884 3.888 3.889 3.87  3.894 3.873 3.885 3.877 3.899 3.876
+  3.888 3.892 3.905 3.87  3.887 3.873 3.896 3.872 3.904]
+ [3.88  3.888 3.904 3.884 3.884 3.885 3.887 3.874 3.887 3.864 3.877 3.9
+  3.894 3.879 3.89  3.897 3.884 3.892 3.906 3.876 3.871]
+ [3.89  3.875 3.901 3.9   3.885 3.901 3.873 3.876 3.865 3.884 3.878 3.902
+  3.897 3.901 3.903 3.862 3.882 3.874 3.871 3.874 3.898]
+ [3.866 3.902 3.91  3.889 3.873 3.881 3.902 3.885 3.873 3.9   3.87  3.876
+  3.884 3.864 3.887 3.886 3.874 3.877 3.874 3.895 3.906]
+ [3.855 3.876 3.88  3.858 3.881 3.876 3.913 3.884 3.904 3.891 3.894 3.881
+  3.874 3.882 3.898 3.899 3.893 3.866 3.862 3.888 3.907]
+ [3.903 3.876 3.867 3.885 3.879 3.88  3.89  3.876 3.89  3.866 3.896 3.898
+  3.878 3.893 3.862 3.868 3.889 3.906 3.871 3.878 3.915]
+ [3.892 3.906 3.875 3.892 3.905 3.88  3.86  3.92  3.899 3.884 3.891 3.868
+  3.892 3.895 3.875 3.907 3.87  3.871 3.866 3.893 3.896]
+ [3.903 3.859 3.891 3.899 3.865 3.873 3.899 3.856 3.876 3.902 3.893 3.902
+  3.887 3.878 3.888 3.857 3.871 3.899 3.894 3.902 3.862]
+ [3.897 3.901 3.903 3.882 3.873 3.914 3.861 3.879 3.884 3.86  3.9   3.865
+  3.876 3.881 3.888 3.87  3.884 3.878 3.889 3.892 3.876]
+ [3.897 3.844 3.85  3.884 3.904 3.903 3.894 3.898 3.877 3.881 3.873 3.87
+  3.9   3.87  3.897 3.87  3.884 3.887 3.885 3.911 3.887]
+ [3.87  3.903 3.866 3.873 3.911 3.863 3.884 3.907 3.9   3.898 3.867 3.888
+  3.879 3.886 3.893 3.901 3.921 3.864 3.875 3.86  3.858]
+ [3.895 3.863 3.886 3.874 3.896 3.901 3.852 3.868 3.883 3.881 3.901 3.917
+  3.891 3.889 3.885 3.857 3.891 3.897 3.924 3.877 3.882]
+ [3.881 3.913 3.879 3.921 3.891 3.871 3.885 3.886 3.895 3.906 3.887 3.863
+  3.862 3.89  3.859 3.91  3.866 3.868 3.861 3.914 3.881]
+ [3.891 3.897 3.875 3.869 3.897 3.865 3.898 3.894 3.873 3.907 3.861 3.88
+  3.894 3.886 3.84  3.877 3.861 3.881 3.884 3.89  3.897]
+ [3.851 3.912 3.886 3.903 3.867 3.868 3.882 3.9   3.879 3.896 3.891 3.908
+  3.876 3.868 3.889 3.869 3.905 3.894 3.879 3.873 3.868]
+ [3.875 3.876 3.904 3.892 3.906 3.9   3.881 3.885 3.892 3.856 3.875 3.866
+  3.897 3.908 3.877 3.884 3.91  3.888 3.88  3.875 3.884]
+ [3.896 3.9   3.877 3.874 3.887 3.906 3.885 3.892 3.859 3.896 3.886 3.867
+  3.884 3.887 3.894 3.874 3.886 3.908 3.896 3.884 3.887]
+ [3.898 3.854 3.871 3.86  3.863 3.885 3.866 3.918 3.879 3.894 3.893 3.884
+  3.884 3.902 3.913 3.941 3.875 3.91  3.914 3.876 3.852]
+ [3.886 3.896 3.896 3.898 3.862 3.884 3.902 3.891 3.893 3.895 3.879 3.86
+  3.898 3.849 3.911 3.908 3.879 3.885 3.859 3.881 3.876]
+ [3.899 3.891 3.874 3.894 3.878 3.896 3.901 3.857 3.883 3.889 3.876 3.894
+  3.875 3.884 3.87  3.872 3.868 3.889 3.909 3.88  3.875]]
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+val 5175
+val 5079
+val 4935
+[R1Mem audit val] L= 384 H= 96 | normal mse 0.437692 mae 0.321668 | zero dMSE +0.164838 dMAE +0.130474 | uniform dMSE +0.161949 dMAE +0.129293 | perm0 dMSE +0.216579 dMAE +0.148305 | perm1 dMSE +0.237784 dMAE +0.158538 | perm2 dMSE +0.203538 dMAE +0.139224 | noH dMSE +0.011216 dMAE +0.004790
+[R1Mem audit val per-patch] L= 384 H= 96 zero     dMSE_k +0.18601 +0.14367
+[R1Mem audit val per-patch] L= 384 H= 96 uniform  dMSE_k +0.17964 +0.14426
+[R1Mem audit val per-patch] L= 384 H= 96 perm0    dMSE_k +0.24964 +0.18352
+[R1Mem audit val per-patch] L= 384 H= 96 perm1    dMSE_k +0.26650 +0.20907
+[R1Mem audit val per-patch] L= 384 H= 96 perm2    dMSE_k +0.21926 +0.18781
+[R1Mem audit val per-patch] L= 384 H= 96 noH      dMSE_k +0.01226 +0.01017
+[R1Mem audit val] L= 384 H=192 | normal mse 0.494012 mae 0.356403 | zero dMSE +0.158072 dMAE +0.120080 | uniform dMSE +0.153718 dMAE +0.117997 | perm0 dMSE +0.202529 dMAE +0.136274 | perm1 dMSE +0.189735 dMAE +0.129242 | perm2 dMSE +0.203480 dMAE +0.135350 | noH dMSE +0.010723 dMAE +0.005332
+[R1Mem audit val per-patch] L= 384 H=192 zero     dMSE_k +0.18909 +0.14539 +0.14532 +0.15250
+[R1Mem audit val per-patch] L= 384 H=192 uniform  dMSE_k +0.18264 +0.14600 +0.13663 +0.14960
+[R1Mem audit val per-patch] L= 384 H=192 perm0    dMSE_k +0.23760 +0.19232 +0.19939 +0.18081
+[R1Mem audit val per-patch] L= 384 H=192 perm1    dMSE_k +0.23400 +0.17918 +0.16342 +0.18234
+[R1Mem audit val per-patch] L= 384 H=192 perm2    dMSE_k +0.24421 +0.19598 +0.19066 +0.18307
+[R1Mem audit val per-patch] L= 384 H=192 noH      dMSE_k +0.01248 +0.01029 +0.00804 +0.01209
+[R1Mem audit val] L= 384 H=336 | normal mse 0.568847 mae 0.401196 | zero dMSE +0.143889 dMAE +0.104698 | uniform dMSE +0.140386 dMAE +0.103287 | perm0 dMSE +0.181511 dMAE +0.117884 | perm1 dMSE +0.193090 dMAE +0.124924 | perm2 dMSE +0.163536 dMAE +0.110632 | noH dMSE +0.007971 dMAE +0.004102
+[R1Mem audit val per-patch] L= 384 H=336 zero     dMSE_k +0.19352 +0.14797 +0.14776 +0.15542 +0.11670 +0.11487 +0.13099
+[R1Mem audit val per-patch] L= 384 H=336 uniform  dMSE_k +0.18699 +0.14888 +0.13906 +0.15259 +0.11988 +0.10799 +0.12731
+[R1Mem audit val per-patch] L= 384 H=336 perm0    dMSE_k +0.25162 +0.20521 +0.19112 +0.18357 +0.15698 +0.14144 +0.14063
+[R1Mem audit val per-patch] L= 384 H=336 perm1    dMSE_k +0.27958 +0.20475 +0.19316 +0.20136 +0.16487 +0.14900 +0.15891
+[R1Mem audit val per-patch] L= 384 H=336 perm2    dMSE_k +0.22898 +0.18135 +0.15784 +0.17295 +0.14686 +0.11695 +0.13983
+[R1Mem audit val per-patch] L= 384 H=336 noH      dMSE_k +0.01282 +0.01051 +0.00826 +0.01241 +0.00719 +0.00233 +0.00227
+[R1Mem audit val] L= 720 H= 96 | normal mse 0.435777 mae 0.322142 | zero dMSE +0.197559 dMAE +0.153874 | uniform dMSE +0.195933 dMAE +0.153683 | perm0 dMSE +0.230180 dMAE +0.162658 | perm1 dMSE +0.231587 dMAE +0.161909 | perm2 dMSE +0.258225 dMAE +0.179169 | noH dMSE +0.012438 dMAE +0.005148
+[R1Mem audit val per-patch] L= 720 H= 96 zero     dMSE_k +0.20810 +0.18702
+[R1Mem audit val per-patch] L= 720 H= 96 uniform  dMSE_k +0.20830 +0.18357
+[R1Mem audit val per-patch] L= 720 H= 96 perm0    dMSE_k +0.25039 +0.20997
+[R1Mem audit val per-patch] L= 720 H= 96 perm1    dMSE_k +0.25613 +0.20704
+[R1Mem audit val per-patch] L= 720 H= 96 perm2    dMSE_k +0.27407 +0.24238
+[R1Mem audit val per-patch] L= 720 H= 96 noH      dMSE_k +0.01334 +0.01153
+[R1Mem audit val] L= 720 H=192 | normal mse 0.482586 mae 0.352081 | zero dMSE +0.183212 dMAE +0.138277 | uniform dMSE +0.182347 dMAE +0.138678 | perm0 dMSE +0.226542 dMAE +0.153077 | perm1 dMSE +0.236953 dMAE +0.158961 | perm2 dMSE +0.237663 dMAE +0.161611 | noH dMSE +0.012125 dMAE +0.005756
+[R1Mem audit val per-patch] L= 720 H=192 zero     dMSE_k +0.21134 +0.18883 +0.18119 +0.15149
+[R1Mem audit val per-patch] L= 720 H=192 uniform  dMSE_k +0.21154 +0.18532 +0.17775 +0.15479
+[R1Mem audit val per-patch] L= 720 H=192 perm0    dMSE_k +0.27148 +0.24062 +0.21881 +0.17526
+[R1Mem audit val per-patch] L= 720 H=192 perm1    dMSE_k +0.28507 +0.23092 +0.22570 +0.20613
+[R1Mem audit val per-patch] L= 720 H=192 perm2    dMSE_k +0.28049 +0.24137 +0.23705 +0.19174
+[R1Mem audit val per-patch] L= 720 H=192 noH      dMSE_k +0.01359 +0.01165 +0.01019 +0.01308
+[R1Mem audit val] L= 720 H=336 | normal mse 0.540647 mae 0.387756 | zero dMSE +0.161612 dMAE +0.118380 | uniform dMSE +0.161205 dMAE +0.119019 | perm0 dMSE +0.208729 dMAE +0.140594 | perm1 dMSE +0.197214 dMAE +0.132022 | perm2 dMSE +0.179322 dMAE +0.123240 | noH dMSE +0.011201 dMAE +0.005482
+[R1Mem audit val per-patch] L= 720 H=336 zero     dMSE_k +0.21657 +0.19234 +0.18451 +0.15460 +0.14202 +0.13071 +0.11054
+[R1Mem audit val per-patch] L= 720 H=336 uniform  dMSE_k +0.21674 +0.18849 +0.18074 +0.15771 +0.14112 +0.12943 +0.11420
+[R1Mem audit val per-patch] L= 720 H=336 perm0    dMSE_k +0.29374 +0.23993 +0.24236 +0.19821 +0.16887 +0.17068 +0.14732
+[R1Mem audit val per-patch] L= 720 H=336 perm1    dMSE_k +0.28051 +0.22661 +0.22991 +0.18729 +0.16059 +0.16239 +0.13319
+[R1Mem audit val per-patch] L= 720 H=336 perm2    dMSE_k +0.24846 +0.20681 +0.20501 +0.17463 +0.15171 +0.14198 +0.12667
+[R1Mem audit val per-patch] L= 720 H=336 noH      dMSE_k +0.01397 +0.01187 +0.01039 +0.01346 +0.01204 +0.00842 +0.00826
+[R1Mem audit val] L=1440 H= 96 | normal mse 0.448647 mae 0.335067 | zero dMSE +0.182125 dMAE +0.137796 | uniform dMSE +0.181502 dMAE +0.138159 | perm0 dMSE +0.227683 dMAE +0.151694 | perm1 dMSE +0.206740 dMAE +0.143872 | perm2 dMSE +0.227379 dMAE +0.157534 | noH dMSE +0.015103 dMAE +0.006736
+[R1Mem audit val per-patch] L=1440 H= 96 zero     dMSE_k +0.19263 +0.17162
+[R1Mem audit val per-patch] L=1440 H= 96 uniform  dMSE_k +0.19311 +0.16989
+[R1Mem audit val per-patch] L=1440 H= 96 perm0    dMSE_k +0.24960 +0.20577
+[R1Mem audit val per-patch] L=1440 H= 96 perm1    dMSE_k +0.22263 +0.19085
+[R1Mem audit val per-patch] L=1440 H= 96 perm2    dMSE_k +0.25502 +0.19974
+[R1Mem audit val per-patch] L=1440 H= 96 noH      dMSE_k +0.01602 +0.01418
+[R1Mem audit val] L=1440 H=192 | normal mse 0.486023 mae 0.357326 | zero dMSE +0.167996 dMAE +0.125990 | uniform dMSE +0.167471 dMAE +0.126447 | perm0 dMSE +0.213757 dMAE +0.145536 | perm1 dMSE +0.201807 dMAE +0.140316 | perm2 dMSE +0.195423 dMAE +0.136947 | noH dMSE +0.015614 dMAE +0.007513
+[R1Mem audit val per-patch] L=1440 H=192 zero     dMSE_k +0.19601 +0.17432 +0.16323 +0.13841
+[R1Mem audit val per-patch] L=1440 H=192 uniform  dMSE_k +0.19651 +0.17258 +0.16154 +0.13926
+[R1Mem audit val per-patch] L=1440 H=192 perm0    dMSE_k +0.26295 +0.21908 +0.19741 +0.17558
+[R1Mem audit val per-patch] L=1440 H=192 perm1    dMSE_k +0.24610 +0.20756 +0.19078 +0.16279
+[R1Mem audit val per-patch] L=1440 H=192 perm2    dMSE_k +0.24295 +0.20159 +0.18140 +0.15575
+[R1Mem audit val per-patch] L=1440 H=192 noH      dMSE_k +0.01628 +0.01441 +0.01386 +0.01790
+[R1Mem audit val] L=1440 H=336 | normal mse 0.538492 mae 0.387649 | zero dMSE +0.144192 dMAE +0.109398 | uniform dMSE +0.143230 dMAE +0.109617 | perm0 dMSE +0.175109 dMAE +0.123120 | perm1 dMSE +0.165395 dMAE +0.119864 | perm2 dMSE +0.167485 dMAE +0.120072 | noH dMSE +0.014841 dMAE +0.007009
+[R1Mem audit val per-patch] L=1440 H=336 zero     dMSE_k +0.20112 +0.17858 +0.16769 +0.14142 +0.11620 +0.11071 +0.09361
+[R1Mem audit val per-patch] L=1440 H=336 uniform  dMSE_k +0.20162 +0.17674 +0.16588 +0.14221 +0.11412 +0.10893 +0.09310
+[R1Mem audit val per-patch] L=1440 H=336 perm0    dMSE_k +0.25152 +0.22979 +0.20733 +0.16015 +0.14440 +0.13171 +0.10087
+[R1Mem audit val per-patch] L=1440 H=336 perm1    dMSE_k +0.25183 +0.19419 +0.19148 +0.16418 +0.12430 +0.12412 +0.10767
+[R1Mem audit val per-patch] L=1440 H=336 perm2    dMSE_k +0.24658 +0.20462 +0.18847 +0.16747 +0.13421 +0.12245 +0.10859
+[R1Mem audit val per-patch] L=1440 H=336 noH      dMSE_k +0.01671 +0.01472 +0.01420 +0.01833 +0.01589 +0.01163 +0.01241
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
+test 10444
+test 10348
+test 10204
