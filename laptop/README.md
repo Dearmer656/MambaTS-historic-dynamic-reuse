@@ -26,7 +26,23 @@ Any data/seed: `bash laptop/run_errpath_shared.sh E|W SEED`. Settings are identi
 
 ErrPath-shared = O-ErrPath with the Householder path in the P-dim patch space, the same reflection for every variable (no cross-variable mixing; `R1_OBS_VSHARE=1`). See Linear PAT-307 / PAT-312.
 
-### Task 5 (current, assigned 2026-10-24, runs in parallel with task 4): tefl_att joint training
+### Task 6 (current, assigned 2026-10-24, can run in parallel with task 5): TEFL compiled into ICL
+
+```bash
+git pull origin laptop && conda activate mambats
+bash laptop/run_tefl_icl.sh       # stages 0 smoke, 1 offline, 2 frozen A1, 3 ETTh2 joint, 4 Weather; pushes after every stage and on failure
+bash laptop/run_tefl_icl.sh "1 2" # only some stages
+```
+
+R1TeflICL (`patchmem/r1_tefl_icl.py`). TEFL = T0-MS: eps = the full-horizon error of the forecast issued one horizon ago,
+delta = W2 ReLU(W1 eps). ICL: W2 replaced (or corrected) by the one-step-GD map of a linear attention over demos inside the
+lookback (key = error of the forecast from origin j, value = error of the forecast from origin j+K):
+`id` (no learned map, eta 1, test-only), `tied` (Wq = Wk = W1 with ReLU, W2 implicit), `qk` (separate low-rank Wq, Wk), `hyb`
+(TEFL's trained W2 + one GD step on the demos). Stage 1 needs no training (A1 / T0-MS checkpoints in `checkpoints/`); stage 2 trains
+only the low-rank map on a frozen A1 backbone (TEFL vs tied). Every ICL run also reports `icloff` (term removed) and `iclperm`
+(values shuffled across the demos). Logs: `patchmem/logs/laptop/icl6_*`. A finished run is skipped on a rerun.
+
+### Task 5 (assigned 2026-10-24, runs in parallel with task 4): tefl_att joint training
 
 ```bash
 git pull origin laptop && conda activate mambats
