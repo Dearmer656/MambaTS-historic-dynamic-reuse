@@ -51,6 +51,12 @@ Env:
                          R1_TEFL_FEED=0 feeds the backbone patch back, R1_TEFL_EXTRAP last|zero beyond Hmax patches (default last)
   R1_DIAG_EVERY          training diagnostics (JSONL) every N steps (default 100; 0 = off)
   R1_DIAG_VAL_BATCHES    eval batches per (L, H) with memory diagnostics at every validation (default 2)
+  R1_TEFL=ms R1_ICL=id|tied|qk|hyb  R1TeflICL (patchmem/r1_tefl_icl.py): T0-MS with W2 replaced ('id', 'tied', 'qk') or corrected ('hyb')
+                         by the one-step-GD map of a linear attention over in-window demos (error of origin j -> error of origin j+K);
+                         R1_ICL_ETA0 (eta init, default 0), R1_ICL_ETA_FIX=1 (eta not trained), R1_ICL_KH=1 ('id' only: error length
+                         K = the forecast's H instead of Hmax). Extra audits icloff / iclperm<s>
+  R1_EVAL_FROM           test-only runs (--is_training 0): load this checkpoint (strict=False, missing keys keep their init) instead of
+                         the setting's own (offline arms on a trained A1 / T0-MS checkpoint)
   R1_AUDIT=0             skip the same-checkpoint inference audits after test (memory runs; default 1)
   R1_AUDIT_GRID          audit grid 'L:H,...' (default: the test grid); R1_AUDIT_PERM_REPS random key-value pairings (default 3)
   R1_LOG_DIR             root for param snapshots / diagnostics (default patchmem/logs)
@@ -69,6 +75,8 @@ from patchmem.r1_obsmem import R1Obs
 from patchmem.r1_tefl import R1Tefl
 from patchmem.r1_pathres import R1PathRes
 from patchmem.r1_msres import R1ObsMS, R1TeflMS
+from patchmem.r1_tefl_icl import R1TeflICL
+FROZEN_MOD = ('obs_net.', 'W1.', 'W2.', 'Wq.', 'Wk.', 'eta')                          # correction-module parameters (frozen-R1 runs)
 from patchmem.param_snapshot import log_model_parameter_stats
 from utils.tools import EarlyStopping, adjust_learning_rate
 
@@ -169,6 +177,16 @@ class Exp_R1(Exp_Long_Term_Forecast):
                         feed=os.environ.get('R1_OBS_FEED', '1') == '1', kmax=int(os.environ.get('R1_HMAX', '7'))).float()
             print(f'R1ObsMS: lead-matched multi-step residual retrieval, K {m.kmax} | ObsMem heads {m.obs_net.nh} qk_dim {m.obs_net.dh} '
                   f'({sum(p.numel() for p in m.obs_net.parameters())} params) | train slot keep {m.slot_keep} | feed forecast {m.feed}', flush=True)
+        elif os.environ.get('R1_TEFL') == 'ms' and os.environ.get('R1_ICL'):            # PAT-307 TEFL compiled into ICL
+            m = R1TeflICL(a, variant=os.environ['R1_ICL'], eta0=float(os.environ.get('R1_ICL_ETA0', '0')),
+                          eta_learn=os.environ.get('R1_ICL_ETA_FIX', '0') != '1', k_follow=os.environ.get('R1_ICL_KH', '0') == '1',
+                          readout_ln=ro_ln,
+                          rank=int(os.environ.get('R1_TEFL_RANK', '64')), hmax=int(os.environ.get('R1_HMAX', '7')),
+                          feed=os.environ.get('R1_TEFL_FEED', '1') == '1', tmax=int(os.environ.get('R1_LMAX', '1440')) // a.patch_len,
+                          extrap=os.environ.get('R1_TEFL_EXTRAP', 'last')).float()
+            print(f'R1TeflICL: variant {m.variant} | K follows H {m.k_follow} | eta0 {m.eta.data[0].item()} learned {m.eta.requires_grad} | eps = lead 1..{m.hmax} '
+                  f'errors of origin T-1-{m.hmax} (input {m.din}) rank {m.W1.out_features} | trainable '
+                  f'{sum(p.numel() for p in m.parameters() if p.requires_grad)} | feed forecast {m.feed}', flush=True)
         elif os.environ.get('R1_TEFL') == 'ms':
             m = R1TeflMS(a, readout_ln=ro_ln, rank=int(os.environ.get('R1_TEFL_RANK', '64')), hmax=int(os.environ.get('R1_HMAX', '7')),
                          feed=os.environ.get('R1_TEFL_FEED', '1') == '1', tmax=int(os.environ.get('R1_LMAX', '1440')) // a.patch_len,
@@ -213,11 +231,11 @@ class Exp_R1(Exp_Long_Term_Forecast):
         if os.environ.get('R1_FREEZE_FROM'):
             ck = os.environ['R1_FREEZE_FROM']
             res = m.load_state_dict(torch.load(ck, map_location='cpu'), strict=False)
-            mod = ('obs_net.', 'W1.', 'W2.')
+            mod = FROZEN_MOD
             assert not res.unexpected_keys, res.unexpected_keys
             assert res.missing_keys and all(k.startswith(mod) for k in res.missing_keys), res.missing_keys
             for n_, p_ in m.named_parameters():
-                p_.requires_grad_(n_.startswith(mod))
+                p_.requires_grad_(n_.startswith(mod) and p_.requires_grad)                  # modules frozen by design stay frozen
             self.frozen = dict(ckpt=ck, train_children=sorted({k.split('.')[0] for k in res.missing_keys}))
             print(f'[frozen] backbone loaded from {ck} and frozen | trained children {self.frozen["train_children"]} '
                   f'({sum(p_.numel() for p_ in m.parameters() if p_.requires_grad)} params)', flush=True)
@@ -391,7 +409,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
             self._fix_eval_order(); m.fixed_scan = True
             order0 = self.eval_order()
             print(f'[frozen] training scan order fixed to the eval order {order0}', flush=True)
-            frozen_ref = {k: v.detach().clone() for k, v in m.state_dict().items() if not k.startswith(('obs_net.', 'W1.', 'W2.'))}
+            frozen_ref = {k: v.detach().clone() for k, v in m.state_dict().items() if not k.startswith(FROZEN_MOD)}
         early = EarlyStopping(patience=a.patience, verbose=True)
         step, best_epoch, best_step = 0, None, None
         for epoch in range(a.train_epochs):
@@ -441,7 +459,8 @@ class Exp_R1(Exp_Long_Term_Forecast):
                 corr = m.corr_loss if lam_c > 0 else None                              # writer loss, trains CorrNet only
                 if corr is not None:
                     loss = loss + lam_c * corr
-                loss.backward()
+                if loss.requires_grad:                                                 # frozen backbone + no trainable term in this batch
+                    loss.backward()                                                    # (R1TeflICL tied / qk with L < 2K+1: no demos)
                 if do_diag:
                     rec = dict(record='train', epoch=epoch + 1, iter=i + 1, step=step + 1, L=L, H=nH * P,
                                L_mean=float(lens.float().mean()) if lens is not None else L,
@@ -503,7 +522,13 @@ class Exp_R1(Exp_Long_Term_Forecast):
 
     def test(self, setting, test=0):
         m = self.model
-        if test:
+        if test and os.environ.get('R1_EVAL_FROM'):
+            ck = os.environ['R1_EVAL_FROM']
+            res = m.load_state_dict(torch.load(ck, map_location=self.device), strict=False)
+            assert not res.unexpected_keys, res.unexpected_keys
+            print(f'[eval-from] {ck} | missing (kept at init) {res.missing_keys}', flush=True)
+            self.snapshot('checkpoint_loaded', checkpoint=ck, source='test: R1_EVAL_FROM', setting=setting)
+        elif test:
             ck = os.path.join(self.args.checkpoints, setting, 'checkpoint.pth')
             m.load_state_dict(torch.load(ck))
             self.snapshot('checkpoint_loaded', checkpoint=ck, source='test: reload', setting=setting)
@@ -538,6 +563,8 @@ class Exp_R1(Exp_Long_Term_Forecast):
         reps = int(os.environ.get('R1_AUDIT_PERM_REPS', '3'))
         if isinstance(m, R1Tefl):                                                       # no attention; perm = errors of distant windows
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('perm', 'perm', 0)] + ([('recent2', 'recent', 0)] if m.hc == 0 else [])
+            if isinstance(m, R1TeflICL):
+                modes += [('icloff', 'icloff', 0)] + [(f'iclperm{s}', 'iclperm', s) for s in range(reps)]
         else:
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('uniform', 'uniform', 0)] + [(f'perm{s}', 'perm', s) for s in range(reps)]
             if getattr(m.obs_net, 'path', False) or getattr(m.obs_net, 'vpath', False):                                       # O-PaTH: path removed at inference
