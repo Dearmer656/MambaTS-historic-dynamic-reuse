@@ -21,6 +21,10 @@ so one model covers every H. 'hyb' with eta fixed at 0 is plain TEFL with this i
   variant 'qk'  : q = Wq eps, k = Wk k_j (independent low-rank linear maps, rank = TEFL rank), W1 / W2 unused
   variant 'hyb' : delta = W2 phi(q) + eta_k sum_j (v_j - W2 phi(k_j)) <phi(k_j), phi(q)> / (...): one GD step on the demos starting
                   from TEFL's trained W2 (TEFL + test-time correction), phi = ReLU(W1 .)
+key='ced' ('id' / 'ridge' only; the 2x2 vs EFC-CET: row vs anti-diagonal feature x window-local vs stream): the key of a demo
+  origin o is EFC's causal error diagonal inside the lookback, D_o[l] = E[:, o-l, lead l] (l = 1..K: the K earlier origins' errors on
+  the same patch o), value v_o = E[:, o] (leads 1..K, targets o+1..o+K), o = K..T-1-K (n = T-2K, as 'row'); query D_{T-1} (errors of
+  origins T-1-l on the last observed patch T-1). The default key='row' is k_j = E[:, j] above.
 Variables share the maps (as TEFL). eta (Hmax,) is learned (init eta0; eta0 = 0 -> the model is R1 / T0-MS at init) or fixed.
 Errors are detached (stop-gradient, as T0-MS). If the query origin is invalid (padded sample), every demo origin (< query origin) is
 too, so the ICL term is 0. Inference audits (on top of R1Tefl's zero / perm; 'perm' swaps only the query for a distant window's,
@@ -46,11 +50,28 @@ def demos(E, avail, K):
     return eps, dict(k=flat(E[:, j]).detach(), v=flat(E[:, j + K]).detach(), mask=avail[:, j, K - 1] & avail[:, j + K, K - 1])
 
 
+def demos_ced(E, avail, K):
+    """As demos() with EFC's anti-diagonal keys: query D_{T-1}, demos k = D_o, v = E[:, o], o = K..T-1-K (None when n < 1)."""
+    b, M, _, c, P = E.shape
+    T = M + 1
+    l = torch.arange(1, K + 1, device=E.device)
+    flat = lambda e: e.permute(0, 1, 3, 2, 4).reshape(b, e.shape[1], c, K * P)        # (b, n, K, C, P) -> (b, n, C, K*P)
+    diag = lambda o: E[:, o[:, None] - l[None], l[None] - 1]                            # (b, n, K, C, P): E[:, o-l, l-1]
+    eps = flat(diag(torch.tensor([T - 1], device=E.device)))[:, 0].detach()
+    n = T - 2 * K
+    if n < 1:
+        return eps, None
+    o = torch.arange(K, T - K, device=E.device)
+    mask = avail[:, o[:, None] - l[None], l[None] - 1].all(-1) & avail[:, o, K - 1]
+    return eps, dict(k=flat(diag(o)).detach(), v=flat(E[:, o]).detach(), mask=mask)
+
+
 class R1TeflICL(R1TeflMS):
-    def __init__(self, cfg, variant='tied', eta0=0.0, eta_learn=True, k_follow=False, **kw):
+    def __init__(self, cfg, variant='tied', eta0=0.0, eta_learn=True, k_follow=False, key='row', **kw):
         super().__init__(cfg, **kw)
         assert variant in ('id', 'tied', 'qk', 'hyb', 'ridge'), variant
-        self.variant, self.k_follow, self.n_out = variant, k_follow, None
+        assert key == 'row' or (key == 'ced' and variant in ('id', 'ridge')), (key, variant)   # ced changes eps: no TEFL map on it
+        self.variant, self.k_follow, self.key, self.n_out = variant, k_follow, key, None
         r = self.W1.out_features
         if variant == 'qk':
             self.Wq, self.Wk = nn.Linear(self.din, r, bias=False), nn.Linear(self.din, r, bias=False)
@@ -82,7 +103,7 @@ class R1TeflICL(R1TeflMS):
         _, _, _, t0, tm = self.revin(x, lens)
         tok = self.embed(self.to_scan(xo, perm)).reshape(b, T * c, -1)
         E, avail = multistep_residuals(self, tok, xo, perm, tm, t0, K)                 # (b, T-1, K, C, P), (b, T-1, K)
-        eps, self.demo = demos(E, avail, K)
+        eps, self.demo = (demos_ced if self.key == 'ced' else demos)(E, avail, K)
         if K < self.hmax:                                                                # zero-pad leads K+1..Hmax: W1 input size fixed
             pad = lambda e: torch.cat([e, e.new_zeros(*e.shape[:-1], (self.hmax - K) * P)], -1)
             eps = pad(eps)

@@ -3,7 +3,7 @@ backbone needs the CUDA scan)."""
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
-from patchmem.r1_tefl_icl import R1TeflICL, demos
+from patchmem.r1_tefl_icl import R1TeflICL, demos, demos_ced
 
 
 def fake_E(b=2, T=20, K=3, C=2, P=4):
@@ -120,7 +120,29 @@ def test_ridge_matches_primal():
             assert torch.allclose(out[bi, ci], e[bi, ci] @ W, atol=1e-4)
 
 
+def test_demos_ced_anti_diagonal():
+    """key='ced': every key entry targets the same patch (query: the last observed patch T-1; demo o: patch o), values target the
+    next K patches o+1..o+K <= T-1, n = T-2K as 'row', masks follow padded origins, and the query is never a demo."""
+    T, K, P = 20, 3, 4
+    E, avail = fake_E(T=T, K=K, P=P)
+    eps, D = demos_ced(E, avail, K)
+    assert torch.equal(eps[0, 0], torch.full((K * P,), T - 1.))
+    n = T - 2 * K
+    o = torch.arange(K, T - K).float()
+    kt = D['k'][0, :, 0].reshape(n, K, P)[:, :, 0]
+    vt = D['v'][0, :, 0].reshape(n, K, P)[:, :, 0]
+    assert D['k'].shape[1] == n and bool(D['mask'].all())
+    assert torch.equal(kt, o[:, None].expand(n, K)) and torch.equal(vt, o[:, None] + 1 + torch.arange(K)[None]) and vt.max() <= T - 1
+    t0 = torch.tensor([0, 6])                                                                        # sample 1: origins < 6 invalid
+    avail2 = avail & (torch.arange(T - 1)[None, :] >= t0[:, None])[:, :, None]
+    _, D2 = demos_ced(E * avail2[..., None, None], avail2, K)
+    ok = (o - K >= 6)                                                                                # earliest key origin o-K valid
+    assert bool(D2['mask'][0].all()) and torch.equal(D2['mask'][1], ok)
+    assert demos_ced(*fake_E(T=2 * K, K=K), K)[1] is None
+
+
 if __name__ == '__main__':
+    test_demos_ced_anti_diagonal()
     test_ridge_matches_primal()
     test_k_follow_padding_invariant()
     test_demos_no_leak_and_query(); test_id_one_demo_equal_key_returns_value(); test_formula_bounded_and_mask()
