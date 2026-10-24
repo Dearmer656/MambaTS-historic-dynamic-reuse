@@ -11,8 +11,13 @@
 #     hyb (TEFL W2 + one ICL step) | teflFz / tiedFz (A1 backbone frozen, only the low-rank map trained)
 #   3 Weather, H = 96 only, the same 6 arms
 #   4 Weather, H = 192 only, the same 6 arms                                  (ETTh2 H = 192 runs on the cluster, job 6144)
+#   5 Weather, H = 96 only, 3 arms a1 / tefl / hyb (2026-10-25: replaces 3 / 4. ETTh2 H96 showed hyb < TEFL 3/3 seeds; this is the
+#     Weather check of that result. tied / frozen arms dropped: tied lost to TEFL by 17-21%)
+#   6 Weather, H = 192 only, the same 3 arms
+# Stages 1 / 3 / 4 are no longer needed (stage 1 duplicates cluster runs; stage 1 W id0 / idKH0 before laptop 6567438 were invalid:
+# r1_weather.sh dropped --is_training 0). DEFAULT = 5 6.
 # 3 seeds each. A finished run (log has its final test line) is skipped on a rerun, so after an interruption run it again.
-# usage (repo root, env active): bash laptop/run_tefl_icl.sh            [stage numbers to run, e.g. "1 2"; default all]
+# usage (repo root, env active): bash laptop/run_tefl_icl.sh            [stage numbers to run, e.g. "5"; default "5 6"]
 cd "$(dirname "$0")/.."
 OUT=patchmem/logs/laptop
 mkdir -p $OUT
@@ -51,7 +56,16 @@ fixh() {
   run $D H${H}_teflFz $s $H "${FX[@]}" R1_TEFL=ms R1_FREEZE_FROM=$A1 DES=${P}TfmsFzH${H}s$s
   run $D H${H}_tiedFz $s $H "${FX[@]}" R1_TEFL=ms R1_ICL=tied R1_FREEZE_FROM=$A1 DES=${P}IclTiedFzH${H}s$s
 }
-STAGES=${1:-0 1 2 3 4}
+# fix3 D H SEED: a1 / tefl / hyb at a fixed H (same names and settings as fixh, so finished runs are skipped)
+fix3() {
+  local D=$1 H=$2 s=$3 Hp=$(( $2 / 48 )) P=R1
+  [ $D = W ] && P=R1W
+  local FX=(R1_HMIN=$Hp R1_HMAX=$Hp R1_TEST_H=$H R1_VAL_GRID=384:$H,720:$H,1440:$H)
+  run $D H${H}_a1 $s $H "${FX[@]}" DES=${P}H${H}s$s
+  run $D H${H}_tefl $s $H "${FX[@]}" R1_TEFL=ms DES=${P}TfmsH${H}s$s
+  run $D H${H}_hyb $s $H "${FX[@]}" R1_TEFL=ms R1_ICL=hyb DES=${P}IclHybH${H}s$s
+}
+STAGES=${1:-5 6}
 echo "commit $(git rev-parse --short HEAD) tefl_icl stages $STAGES ($(date))"
 for ST in $STAGES; do case $ST in
 0) LOG=$OUT/icl6_smoke.txt
@@ -74,5 +88,7 @@ for ST in $STAGES; do case $ST in
 2) for s in $SEEDS; do fixh E 96 $s; push "stage 2 E H96 s$s"; done ;;
 3) for s in $SEEDS; do fixh W 96 $s; push "stage 3 W H96 s$s"; done ;;
 4) for s in $SEEDS; do fixh W 192 $s; push "stage 4 W H192 s$s"; done ;;
+5) for s in $SEEDS; do fix3 W 96 $s; push "stage 5 W H96 a1/tefl/hyb s$s"; done ;;
+6) for s in $SEEDS; do fix3 W 192 $s; push "stage 6 W H192 a1/tefl/hyb s$s"; done ;;
 esac; done
 echo "all done ($(date))"
