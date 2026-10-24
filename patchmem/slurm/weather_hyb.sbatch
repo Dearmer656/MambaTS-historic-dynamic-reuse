@@ -8,7 +8,7 @@
 #SBATCH --partition=gpu_long
 #SBATCH --nodelist=elm73
 #SBATCH --gres=gpu:6000:1
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=96G
 #SBATCH --time=4-00:00:00
 cd /project/nlp-work5/hongyu-s/state_path_attn/MambaTS-pytorch
