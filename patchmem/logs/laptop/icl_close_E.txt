@@ -1,0 +1,508 @@
+Use GPU: cuda:0
+VPT_mode: 1, ATSP_solver: SA
+R1Tefl: mode native Hc 2 patches (0 = all lookback, input 96) rank 64 Hmax 7 extrap last | g params 27648 | feed forecast True
+R1: d_inner 32 d_state 16 vars 7 patch 48 | readout 512 -> 336 (172368 params) | readout LN False | VPT True (SA) | trainable 216976
+===== [param snapshot] event=init | 2026-10-24T11:28:17.981317+02:00 | commit 52d0134fa978e43c3cfad78fb5e7afbacc4fa4eb (laptop) | R1Tefl torch.float32 cpu
+  meta: {"seed": 3047, "model_id": "ETTh2_r1", "des": "R1TfnH2R64h0s3047", "patch_len": 48, "VPT": 1}
+  env: 
+  params: total 217081 | trainable 216976 | frozen 105 | extra vs R1 (corr_net+mem_net) 0 | 55 tensors, 0 buffers | files patchmem/logs/param_snapshots/ETTh2_r1_R1TfnH2R64h0s3047_s3047/20261024T112817981317_init.jsonl / .csv
+  name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
+  base.value_embedding.1.weight                           768       True 4.3280e-03 8.0214e-02-1.4416e-01 1.4412e-01 1.4416e-01 8.0331e-02 2.2262e+00 0.0000e+00          0  (16, 48)
+  base.encoder.adjacency_matrix                            49      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (7, 7)
+  base.encoder.count_matrix                                49      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (7, 7)
+  base.encoder.ending_points                                7      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (7,)
+  base.encoder.layers.0.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.0.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.0.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.0.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.in_proj.weight             1024       True 5.5010e-03 1.4576e-01-2.4949e-01 2.4967e-01 2.4967e-01 1.4587e-01 4.6678e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.0.mixer.x_proj.0.weight            1056       True-1.1567e-03 1.0160e-01-1.7668e-01 1.7653e-01 1.7668e-01 1.0161e-01 3.3019e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.0.mixer.dt_proj.weight               32       True-2.7201e-02 6.1786e-01-9.6767e-01 9.2831e-01 9.6767e-01 6.1846e-01 3.4985e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.0.mixer.dt_proj.bias                 32       True-4.4821e+00 1.4204e+00-6.8193e+00-2.2882e+00 6.8193e+00 4.7018e+00 2.6597e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.out_proj.weight             512       True 5.3326e-04 4.3690e-02-7.8737e-02 7.8984e-02 7.8984e-02 4.3694e-02 9.8868e-01 0.0000e+00          0  (16, 32)
+  base.encoder.layers.1.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.1.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.1.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.1.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.in_proj.weight             1024       True-1.0432e-03 1.4567e-01-2.4980e-01 2.4986e-01 2.4986e-01 1.4567e-01 4.6614e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.1.mixer.x_proj.0.weight            1056       True-8.1623e-03 1.0024e-01-1.7499e-01 1.7659e-01 1.7659e-01 1.0057e-01 3.2682e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.1.mixer.dt_proj.weight               32       True-5.1542e-03 5.5536e-01-9.6946e-01 9.5486e-01 9.6946e-01 5.5539e-01 3.1417e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.1.mixer.dt_proj.bias                 32       True-4.4996e+00 1.2819e+00-6.6848e+00-2.2607e+00 6.6848e+00 4.6786e+00 2.6466e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.out_proj.weight             512       True 1.8000e-03 4.5078e-02-7.8736e-02 7.8568e-02 7.8736e-02 4.5114e-02 1.0208e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.2.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.2.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.2.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.2.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.in_proj.weight             1024       True 1.1764e-04 1.4876e-01-2.4970e-01 2.4936e-01 2.4970e-01 1.4876e-01 4.7603e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.2.mixer.x_proj.0.weight            1056       True 2.2554e-03 1.0248e-01-1.7621e-01 1.7613e-01 1.7621e-01 1.0250e-01 3.3309e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.2.mixer.dt_proj.weight               32       True-2.5959e-02 6.1686e-01-9.4624e-01 9.7410e-01 9.7410e-01 6.1741e-01 3.4926e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.2.mixer.dt_proj.bias                 32       True-4.7206e+00 1.3524e+00-6.7592e+00-2.2677e+00 6.7592e+00 4.9105e+00 2.7778e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.out_proj.weight             512       True-6.8862e-04 4.4808e-02-7.8354e-02 7.8741e-02 7.8741e-02 4.4813e-02 1.0140e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.3.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.3.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.3.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.3.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.3.mixer.in_proj.weight             1024       True-4.7337e-03 1.3938e-01-2.4961e-01 2.4926e-01 2.4961e-01 1.3946e-01 4.4628e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.3.mixer.x_proj.0.weight            1056       True 3.5384e-03 1.0326e-01-1.7674e-01 1.7649e-01 1.7674e-01 1.0332e-01 3.3575e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.3.mixer.dt_proj.weight               32       True 1.5983e-01 5.4147e-01-9.9810e-01 9.5851e-01 9.9810e-01 5.6456e-01 3.1937e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.3.mixer.dt_proj.bias                 32       True-5.3718e+00 1.0979e+00-6.8987e+00-2.3554e+00 6.8987e+00 5.4829e+00 3.1016e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.3.mixer.out_proj.weight             512       True 2.3359e-03 4.4833e-02-7.8926e-02 7.8939e-02 7.8939e-02 4.4894e-02 1.0158e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.4.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.4.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.4.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.4.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.4.mixer.in_proj.weight             1024       True-3.2524e-03 1.4598e-01-2.4995e-01 2.4983e-01 2.4995e-01 1.4602e-01 4.6726e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.4.mixer.x_proj.0.weight            1056       True-2.0072e-03 1.0116e-01-1.7661e-01 1.7675e-01 1.7675e-01 1.0118e-01 3.2880e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.4.mixer.dt_proj.weight               32       True-4.2949e-02 5.6643e-01-9.3130e-01 9.4320e-01 9.4320e-01 5.6806e-01 3.2134e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.4.mixer.dt_proj.bias                 32       True-4.8298e+00 1.5198e+00-6.9000e+00-2.4195e+00 6.9000e+00 5.0632e+00 2.8642e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.4.mixer.out_proj.weight             512       True 9.9404e-04 4.6829e-02-7.8592e-02 7.8612e-02 7.8612e-02 4.6840e-02 1.0599e+00 0.0000e+00          0  (16, 32)
+  base.encoder.norm_f.weight                               16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.norm_f.bias                                 16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  readout.weight                                       172032       True-4.5462e-05 2.5519e-02-4.4193e-02 4.4194e-02 4.4194e-02 2.5519e-02 1.0585e+01 0.0000e+00          0  (336, 512)
+  readout.bias                                            336       True 1.2143e-03 2.6136e-02-4.3633e-02 4.3923e-02 4.3923e-02 2.6164e-02 4.7960e-01 0.0000e+00          0  (336,)
+  W1.weight                                              6144       True-1.5062e-04 5.8948e-02-1.0203e-01 1.0202e-01 1.0203e-01 5.8948e-02 4.6206e+00 0.0000e+00          0  (64, 96)
+  W2.weight                                             21504       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (336, 64)
+  -- module subtotals:
+  base.value_embedding                             numel       768 | l2 2.2262e+00 | rms 8.0331e-02
+  base.encoder                                     numel       137 | l2 4.0000e+00 | rms 3.4174e-01
+  base.encoder.layers.0                            numel      3232 | l2 5.4606e+01 | rms 9.6051e-01
+  base.encoder.layers.1                            numel      3232 | l2 5.4518e+01 | rms 9.5897e-01
+  base.encoder.layers.2                            numel      3232 | l2 5.5200e+01 | rms 9.7097e-01
+  base.encoder.layers.3                            numel      3232 | l2 5.6858e+01 | rms 1.0001e+00
+  base.encoder.layers.4                            numel      3232 | l2 5.5614e+01 | rms 9.7825e-01
+  readout                                          numel    172368 | l2 1.0595e+01 | rms 2.5521e-02
+  W1                                               numel      6144 | l2 4.6206e+00 | rms 5.8948e-02
+  W2                                               numel     21504 | l2 0.0000e+00 | rms 0.0000e+00
+  -- buffers (0; not parameters):
+===== [param snapshot end] event=init
+[R1 ATSP] order [3, 5, 1, 6, 2, 0, 4] cost 11.8912
+[ckpt] long_term_forecast_ETTh2_r1_MambaTS_ETTh2_ftM_sl1440_ll48_pl336_dm16_nh16_el5_dl2_df2048_fc1_ebtimeF_dtTrue_R1TfnH2R64h0s3047_0 | model R1Tefl hc=2
+train 1153
+val 2545
+test 2545
+  [sanity] L=1440 T0r official test MSE 0.3929 (backbone 0.4599) | queries train 3841 val 2545 test 2545 | 85s
+===== A bias memory | E T0 s3047 L=1440 | val / test MSEred (eta / coefficients fit on val)
+  H= 96 v=own | mean1H=+0.017/-0.008 mean2H=+0.049/-0.038 mean3H=+0.085/-0.062 mean5H=+0.086/+0.001 mean8H=+0.098/+0.015 mean12H=+0.076/+0.032 mean16H=+0.061/+0.024 exp0.5H=+0.033/-0.020 exp1.0H=+0.058/-0.033 exp2.0H=+0.084/-0.025 exp4.0H=+0.096/-0.002 exp8.0H=+0.089/+0.012 comb=+0.108/-0.028
+  H= 96 v=own | val-best fixed mean8H test +0.0147 | val-best adaptive comb test -0.0284 | adaptive - fixed -0.0431
+  H= 96 v=bb  | mean1H=+0.035/-0.025 mean2H=+0.048/-0.027 mean3H=+0.050/-0.017 mean5H=+0.043/+0.011 mean8H=+0.035/+0.009 mean12H=+0.020/+0.013 mean16H=+0.007/+0.009 exp0.5H=+0.042/-0.025 exp1.0H=+0.047/-0.019 exp2.0H=+0.047/-0.005 exp4.0H=+0.039/+0.005 exp8.0H=+0.026/+0.010 comb=+0.053/-0.031
+  H= 96 v=bb  | val-best fixed mean3H test -0.0170 | val-best adaptive comb test -0.0306 | adaptive - fixed -0.0136
+  H=192 v=own | mean1H=+0.068/-0.116 mean2H=+0.090/-0.085 mean3H=+0.112/+0.022 mean5H=+0.092/+0.002 mean8H=+0.053/+0.013 mean12H=+0.004/+0.010 mean16H=+0.001/+0.006 exp0.5H=+0.104/-0.116 exp1.0H=+0.115/-0.065 exp2.0H=+0.110/-0.023 exp4.0H=+0.076/-0.003 exp8.0H=+0.033/+0.012 comb=+0.127/-0.017
+  H=192 v=own | val-best fixed mean3H test +0.0224 | val-best adaptive comb test -0.0172 | adaptive - fixed -0.0396
+  H=192 v=bb  | mean1H=+0.078/-0.064 mean2H=+0.070/-0.007 mean3H=+0.065/+0.023 mean5H=+0.039/+0.014 mean8H=+0.008/+0.010 mean12H=+0.003/-0.010 mean16H=+0.008/-0.023 exp0.5H=+0.079/-0.027 exp1.0H=+0.071/-0.003 exp2.0H=+0.052/+0.010 exp4.0H=+0.021/+0.013 exp8.0H=+0.002/+0.007 comb=+0.095/-0.031
+  H=192 v=bb  | val-best fixed mean1H test -0.0643 | val-best adaptive comb test -0.0312 | adaptive - fixed +0.0331
+  H=336 v=own | mean1H=+0.049/-0.044 mean2H=+0.087/+0.071 mean3H=+0.068/+0.028 mean5H=+0.022/+0.017 mean8H=+0.005/-0.015 mean12H=+0.000/+0.004 mean16H=+0.001/+0.004 exp0.5H=+0.084/+0.035 exp1.0H=+0.080/+0.039 exp2.0H=+0.048/+0.028 exp4.0H=+0.015/+0.020 exp8.0H=+0.004/+0.013 comb=+0.118/+0.052
+  H=336 v=own | val-best fixed mean2H test +0.0714 | val-best adaptive comb test +0.0524 | adaptive - fixed -0.0190
+  H=336 v=bb  | mean1H=+0.067/-0.008 mean2H=+0.063/+0.033 mean3H=+0.036/+0.015 mean5H=+0.001/+0.004 mean8H=+0.022/-0.031 mean12H=+0.006/-0.021 mean16H=+0.004/-0.012 exp0.5H=+0.066/+0.026 exp1.0H=+0.046/+0.021 exp2.0H=+0.015/+0.014 exp4.0H=+0.000/+0.003 exp8.0H=+0.002/-0.009 comb=+0.105/+0.023
+  H=336 v=bb  | val-best fixed mean1H test -0.0079 | val-best adaptive comb test +0.0235 | adaptive - fixed +0.0314
+  A criterion H=96: adaptive ('own', 'comb') test -0.0284 - fixed ('own', 'mean8H') test +0.0147 = -0.0431 (>= 0.005)
+  A criterion H=192: adaptive ('own', 'comb') test -0.0172 - fixed ('own', 'mean3H') test +0.0224 = -0.0396 (>= 0.005)
+  A criterion H=336: adaptive ('own', 'comb') test +0.0524 - fixed ('own', 'mean2H') test +0.0714 = -0.0190 (>= 0.005)
+===== B H->H fixed key | E T0 s3047 L=1440 | test real / shuffle (eta fit on val)
+  M=2H v=own | mean +0.0714 | att +0.0703 sh +0.0702 ('rbf', 1.0) | ridge +0.0598 sh +0.0588 ('rdg', 10.0)
+  M=2H v=bb  | mean +0.0326 | att +0.0315 sh +0.0326 ('rbf', 3.0) | ridge +0.0125 sh +0.0183 ('rdg', 10.0)
+  M=8H v=own | mean -0.0154 | att -0.0086 sh -0.0086 ('cos', 1.0) | ridge -0.0163 sh -0.0064 ('rdg', 0.3)
+  M=8H v=bb  | mean -0.0307 | att -0.0218 sh -0.0203 ('rbf', 3.0) | ridge +0.0046 sh -0.0059 ('rdg', 1.0)
+  B criterion [(2, 'own', 'rbf', 1.0)] test +0.0703 | - matched mean -0.0011 (>= 0.01) | - shuffle +0.0001 (>= 0.01)
+===== C learned low-rank Wq/Wk (r=8) | E T0 s3047 L=1440 | test real / shuffle | matched uniform mean
+  [tr] M=2H v=own x=eps | att +0.0356 sh +0.0382 | mean +0.0417 | sel +0.0635 (mean +0.0561) | T 1.16 ep 16 2s
+  [tr] M=2H v=own x=ehh | att +0.0285 sh +0.0277 | mean +0.0417 | sel +0.0393 (mean +0.0561) | T 0.98 ep 8 1s
+  [tr] M=2H v=bb  x=eps | att +0.0024 sh +0.0027 | mean +0.0038 | sel +0.0035 (mean +0.0043) | T 0.97 ep 7 1s
+  [tr] M=2H v=bb  x=ehh | att -0.0106 sh -0.0099 | mean +0.0038 | sel -0.0255 (mean +0.0043) | T 0.93 ep 6 1s
+  [tr] M=8H v=own x=eps | att +0.0059 sh +0.0032 | mean +0.0075 | sel -0.0124 (mean -0.0026) | T 1.03 ep 6 1s
+  [tr] M=8H v=own x=ehh | att -0.0113 sh -0.0086 | mean +0.0075 | sel +0.0197 (mean -0.0026) | T 0.87 ep 7 2s
+  [tr] M=8H v=bb  x=eps | att -0.0078 sh -0.0071 | mean -0.0023 | sel +0.0071 (mean +0.0113) | T 0.96 ep 8 2s
+  [tr] M=8H v=bb  x=ehh | att -0.0047 sh -0.0051 | mean -0.0023 | sel +0.0189 (mean +0.0113) | T 0.99 ep 6 2s
+  C criterion [tr] [(2, 'own', 'eps')] test +0.0356 | - matched mean -0.0061 (>= 0.01) | - shuffle -0.0027 (>= 0.01)
+  [vh] M=2H v=own x=eps | att +0.0026 sh +0.0306 | mean +0.0665 | sel +0.0803 (mean +0.0913) | T 0.85 ep 14 1s
+  [vh] M=2H v=own x=ehh | att +0.0146 sh +0.0293 | mean +0.0665 | sel +0.0482 (mean +0.0913) | T 0.78 ep 13 1s
+  [vh] M=2H v=bb  x=eps | att +0.0157 sh +0.0220 | mean +0.0288 | sel +0.0771 (mean +0.0677) | T 0.72 ep 15 1s
+  [vh] M=2H v=bb  x=ehh | att +0.0158 sh +0.0191 | mean +0.0288 | sel +0.0706 (mean +0.0677) | T 0.76 ep 22 1s
+  [vh] M=8H v=own x=eps | att -0.0272 sh -0.0134 | mean -0.0078 | sel +0.0082 (mean +0.0068) | T 0.74 ep 28 2s
+  [vh] M=8H v=own x=ehh | att -0.0040 sh -0.0016 | mean -0.0078 | sel +0.0006 (mean +0.0068) | T 0.98 ep 6 1s
+  [vh] M=8H v=bb  x=eps | att -0.0076 sh -0.0075 | mean -0.0060 | sel +0.0231 (mean +0.0230) | T 1.00 ep 11 1s
+  [vh] M=8H v=bb  x=ehh | att -0.0091 sh -0.0047 | mean -0.0060 | sel +0.0262 (mean +0.0230) | T 0.98 ep 7 1s
+  C criterion [vh] [(2, 'own', 'eps')] test +0.0026 | - matched mean -0.0639 (>= 0.01) | - shuffle -0.0280 (>= 0.01)
+train 1873
+val 2545
+test 2545
+  [sanity] L=720 T0r official test MSE 0.3928 (backbone 0.4172) | queries train 4561 val 2545 test 2545 | 85s
+===== A bias memory | E T0 s3047 L=720 | val / test MSEred (eta / coefficients fit on val)
+  H= 96 v=own | mean1H=+0.007/-0.003 mean2H=+0.027/-0.026 mean3H=+0.051/-0.050 mean5H=+0.045/-0.000 mean8H=+0.049/+0.012 mean12H=+0.043/+0.026 mean16H=+0.046/+0.023 exp0.5H=+0.017/-0.012 exp1.0H=+0.031/-0.023 exp2.0H=+0.047/-0.019 exp4.0H=+0.055/-0.002 exp8.0H=+0.056/+0.012 comb=+0.068/-0.035
+  H= 96 v=own | val-best fixed mean3H test -0.0496 | val-best adaptive comb test -0.0347 | adaptive - fixed +0.0149
+  H= 96 v=bb  | mean1H=+0.014/-0.017 mean2H=+0.023/-0.025 mean3H=+0.025/-0.019 mean5H=+0.017/+0.006 mean8H=+0.014/+0.004 mean12H=+0.013/+0.009 mean16H=+0.012/+0.009 exp0.5H=+0.019/-0.020 exp1.0H=+0.022/-0.018 exp2.0H=+0.022/-0.009 exp4.0H=+0.021/+0.001 exp8.0H=+0.018/+0.006 comb=+0.030/-0.035
+  H= 96 v=bb  | val-best fixed mean3H test -0.0188 | val-best adaptive comb test -0.0348 | adaptive - fixed -0.0160
+  H=192 v=own | mean1H=+0.039/-0.084 mean2H=+0.042/-0.060 mean3H=+0.046/+0.013 mean5H=+0.031/+0.000 mean8H=+0.033/+0.008 mean12H=+0.010/+0.007 mean16H=+0.002/+0.008 exp0.5H=+0.054/-0.086 exp1.0H=+0.055/-0.049 exp2.0H=+0.051/-0.018 exp4.0H=+0.040/-0.001 exp8.0H=+0.023/+0.008 comb=+0.067/-0.033
+  H=192 v=own | val-best fixed mean3H test +0.0133 | val-best adaptive comb test -0.0331 | adaptive - fixed -0.0464
+  H=192 v=bb  | mean1H=+0.036/-0.054 mean2H=+0.023/-0.011 mean3H=+0.018/+0.013 mean5H=+0.011/+0.004 mean8H=+0.010/+0.007 mean12H=+0.000/+0.002 mean16H=+0.001/-0.006 exp0.5H=+0.032/-0.027 exp1.0H=+0.026/-0.008 exp2.0H=+0.021/+0.002 exp4.0H=+0.012/+0.006 exp8.0H=+0.003/+0.006 comb=+0.046/-0.050
+  H=192 v=bb  | val-best fixed mean1H test -0.0541 | val-best adaptive comb test -0.0504 | adaptive - fixed +0.0037
+  H=336 v=own | mean1H=+0.018/-0.022 mean2H=+0.025/+0.038 mean3H=+0.015/+0.011 mean5H=+0.014/+0.009 mean8H=+0.002/-0.004 mean12H=+0.002/+0.007 mean16H=+0.002/+0.009 exp0.5H=+0.026/+0.020 exp1.0H=+0.025/+0.022 exp2.0H=+0.018/+0.017 exp4.0H=+0.008/+0.012 exp8.0H=+0.004/+0.010 comb=+0.054/+0.038
+  H=336 v=own | val-best fixed mean2H test +0.0382 | val-best adaptive comb test +0.0385 | adaptive - fixed +0.0003
+  H=336 v=bb  | mean1H=+0.017/-0.004 mean2H=+0.013/+0.016 mean3H=+0.009/+0.005 mean5H=+0.005/+0.004 mean8H=+0.008/-0.009 mean12H=+0.000/-0.004 mean16H=+0.000/-0.001 exp0.5H=+0.015/+0.014 exp1.0H=+0.013/+0.011 exp2.0H=+0.007/+0.007 exp4.0H=+0.001/+0.004 exp8.0H=+0.000/+0.000 comb=+0.045/+0.004
+  H=336 v=bb  | val-best fixed mean1H test -0.0041 | val-best adaptive comb test +0.0043 | adaptive - fixed +0.0084
+  A criterion H=96: adaptive ('own', 'comb') test -0.0347 - fixed ('own', 'mean3H') test -0.0496 = +0.0149 (>= 0.005)
+  A criterion H=192: adaptive ('own', 'comb') test -0.0331 - fixed ('own', 'mean3H') test +0.0133 = -0.0464 (>= 0.005)
+  A criterion H=336: adaptive ('own', 'comb') test +0.0385 - fixed ('own', 'mean2H') test +0.0382 = +0.0003 (>= 0.005)
+===== B H->H fixed key | E T0 s3047 L=720 | test real / shuffle (eta fit on val)
+  M=2H v=own | mean +0.0382 | att +0.0361 sh +0.0373 ('rbf', 1.0) | ridge +0.0255 sh +0.0274 ('rdg', 10.0)
+  M=2H v=bb  | mean +0.0164 | att +0.0140 sh +0.0170 ('rbf', 1.0) | ridge +0.0079 sh +0.0129 ('rdg', 10.0)
+  M=8H v=own | mean -0.0045 | att -0.0051 sh -0.0044 ('cos', 0.3) | ridge -0.0375 sh -0.0152 ('rdg', 0.3)
+  M=8H v=bb  | mean -0.0092 | att -0.0076 sh -0.0068 ('rbf', 3.0) | ridge -0.0003 sh +0.0002 ('rdg', 1.0)
+  B criterion [(2, 'own', 'rbf', 1.0)] test +0.0361 | - matched mean -0.0021 (>= 0.01) | - shuffle -0.0012 (>= 0.01)
+===== C learned low-rank Wq/Wk (r=8) | E T0 s3047 L=720 | test real / shuffle | matched uniform mean
+  [tr] M=2H v=own x=eps | att +0.0274 sh +0.0198 | mean +0.0198 | sel +0.0126 (mean +0.0156) | T 0.93 ep 16 2s
+  [tr] M=2H v=own x=ehh | att +0.0069 sh +0.0032 | mean +0.0198 | sel -0.0045 (mean +0.0156) | T 0.90 ep 6 1s
+  [tr] M=2H v=bb  x=eps | att -0.0076 sh -0.0083 | mean -0.0007 | sel -0.0117 (mean -0.0040) | T 0.95 ep 6 1s
+  [tr] M=2H v=bb  x=ehh | att -0.0201 sh -0.0176 | mean -0.0007 | sel -0.0259 (mean -0.0040) | T 1.01 ep 6 1s
+  [tr] M=8H v=own x=eps | att +0.0007 sh +0.0007 | mean +0.0040 | sel +0.0015 (mean +0.0061) | T 1.04 ep 6 1s
+  [tr] M=8H v=own x=ehh | att -0.0015 sh -0.0063 | mean +0.0040 | sel +0.0080 (mean +0.0061) | T 1.17 ep 7 2s
+  [tr] M=8H v=bb  x=eps | att -0.0056 sh -0.0033 | mean -0.0027 | sel -0.0047 (mean +0.0095) | T 0.98 ep 6 1s
+  [tr] M=8H v=bb  x=ehh | att +0.0043 sh -0.0032 | mean -0.0027 | sel -0.0026 (mean +0.0095) | T 1.01 ep 6 2s
+  C criterion [tr] [(2, 'own', 'eps')] test +0.0274 | - matched mean +0.0076 (>= 0.01) | - shuffle +0.0077 (>= 0.01)
+  [vh] M=2H v=own x=eps | att +0.0224 sh +0.0194 | mean +0.0308 | sel +0.0151 (mean +0.0285) | T 0.89 ep 10 0s
+  [vh] M=2H v=own x=ehh | att +0.0121 sh +0.0168 | mean +0.0308 | sel +0.0043 (mean +0.0285) | T 0.89 ep 9 0s
+  [vh] M=2H v=bb  x=eps | att +0.0101 sh +0.0093 | mean +0.0077 | sel +0.0164 (mean +0.0118) | T 0.88 ep 12 1s
+  [vh] M=2H v=bb  x=ehh | att +0.0014 sh +0.0088 | mean +0.0077 | sel +0.0149 (mean +0.0118) | T 0.58 ep 21 1s
+  [vh] M=8H v=own x=eps | att -0.0092 sh -0.0040 | mean +0.0018 | sel +0.0150 (mean +0.0056) | T 0.86 ep 15 1s
+  [vh] M=8H v=own x=ehh | att +0.0005 sh +0.0006 | mean +0.0018 | sel -0.0011 (mean +0.0056) | T 1.00 ep 6 1s
+  [vh] M=8H v=bb  x=eps | att +0.0003 sh +0.0008 | mean +0.0016 | sel -0.0005 (mean +0.0078) | T 0.99 ep 6 1s
+  [vh] M=8H v=bb  x=ehh | att -0.0020 sh +0.0002 | mean +0.0016 | sel +0.0024 (mean +0.0078) | T 0.98 ep 6 1s
+  C criterion [vh] [(2, 'bb', 'eps')] test +0.0101 | - matched mean +0.0024 (>= 0.01) | - shuffle +0.0008 (>= 0.01)
+Use GPU: cuda:0
+VPT_mode: 1, ATSP_solver: SA
+R1Tefl: mode native Hc 2 patches (0 = all lookback, input 96) rank 64 Hmax 7 extrap last | g params 27648 | feed forecast True
+R1: d_inner 32 d_state 16 vars 7 patch 48 | readout 512 -> 336 (172368 params) | readout LN False | VPT True (SA) | trainable 216976
+===== [param snapshot] event=init | 2026-10-24T11:34:00.626514+02:00 | commit 52d0134fa978e43c3cfad78fb5e7afbacc4fa4eb (laptop) | R1Tefl torch.float32 cpu
+  meta: {"seed": 3048, "model_id": "ETTh2_r1", "des": "R1TfnH2R64h0s3048", "patch_len": 48, "VPT": 1}
+  env: 
+  params: total 217081 | trainable 216976 | frozen 105 | extra vs R1 (corr_net+mem_net) 0 | 55 tensors, 0 buffers | files patchmem/logs/param_snapshots/ETTh2_r1_R1TfnH2R64h0s3048_s3048/20261024T113400626514_init.jsonl / .csv
+  name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
+  base.value_embedding.1.weight                           768       True-3.2500e-03 8.3524e-02-1.4402e-01 1.4415e-01 1.4415e-01 8.3587e-02 2.3164e+00 0.0000e+00          0  (16, 48)
+  base.encoder.adjacency_matrix                            49      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (7, 7)
+  base.encoder.count_matrix                                49      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (7, 7)
+  base.encoder.ending_points                                7      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (7,)
+  base.encoder.layers.0.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.0.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.0.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.0.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.in_proj.weight             1024       True 2.5257e-04 1.4409e-01-2.4922e-01 2.4990e-01 2.4990e-01 1.4409e-01 4.6109e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.0.mixer.x_proj.0.weight            1056       True 2.3895e-03 1.0176e-01-1.7645e-01 1.7673e-01 1.7673e-01 1.0179e-01 3.3077e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.0.mixer.dt_proj.weight               32       True-5.1578e-02 6.2660e-01-9.6684e-01 9.9453e-01 9.9453e-01 6.2871e-01 3.5565e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.0.mixer.dt_proj.bias                 32       True-4.5980e+00 1.2640e+00-6.6909e+00-2.4518e+00 6.6909e+00 4.7686e+00 2.6975e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.out_proj.weight             512       True 3.3983e-03 4.6185e-02-7.8837e-02 7.8842e-02 7.8842e-02 4.6310e-02 1.0479e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.1.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.1.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.1.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.1.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.in_proj.weight             1024       True-3.5931e-03 1.4192e-01-2.4963e-01 2.4960e-01 2.4963e-01 1.4196e-01 4.5427e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.1.mixer.x_proj.0.weight            1056       True-5.2310e-03 1.0229e-01-1.7652e-01 1.7663e-01 1.7663e-01 1.0243e-01 3.3285e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.1.mixer.dt_proj.weight               32       True 1.0338e-01 5.7825e-01-8.2836e-01 9.9179e-01 9.9179e-01 5.8741e-01 3.3229e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.1.mixer.dt_proj.bias                 32       True-4.5750e+00 1.4542e+00-6.8014e+00-2.2700e+00 6.8014e+00 4.8005e+00 2.7156e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.out_proj.weight             512       True 2.4236e-03 4.6672e-02-7.8381e-02 7.8767e-02 7.8767e-02 4.6735e-02 1.0575e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.2.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.2.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.2.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.2.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.in_proj.weight             1024       True 4.7291e-03 1.4301e-01-2.4828e-01 2.4965e-01 2.4965e-01 1.4308e-01 4.5787e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.2.mixer.x_proj.0.weight            1056       True 4.1394e-03 1.0074e-01-1.7595e-01 1.7625e-01 1.7625e-01 1.0083e-01 3.2765e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.2.mixer.dt_proj.weight               32       True 4.2393e-02 5.8421e-01-9.6034e-01 9.2153e-01 9.6034e-01 5.8575e-01 3.3135e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.2.mixer.dt_proj.bias                 32       True-4.7585e+00 1.2966e+00-6.8792e+00-2.2860e+00 6.8792e+00 4.9319e+00 2.7899e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.out_proj.weight             512       True-2.1040e-03 4.4667e-02-7.8999e-02 7.9012e-02 7.9012e-02 4.4717e-02 1.0118e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.3.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.3.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.3.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.3.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.3.mixer.in_proj.weight             1024       True-3.7281e-03 1.4408e-01-2.4998e-01 2.4963e-01 2.4998e-01 1.4413e-01 4.6121e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.3.mixer.x_proj.0.weight            1056       True 1.8597e-03 1.0069e-01-1.7665e-01 1.7672e-01 1.7672e-01 1.0071e-01 3.2727e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.3.mixer.dt_proj.weight               32       True-1.5815e-01 5.4806e-01-9.5629e-01 9.4708e-01 9.5629e-01 5.7042e-01 3.2268e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.3.mixer.dt_proj.bias                 32       True-4.1136e+00 1.2852e+00-6.7061e+00-2.2964e+00 6.7061e+00 4.3097e+00 2.4379e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.3.mixer.out_proj.weight             512       True 1.9901e-03 4.5471e-02-7.8807e-02 7.7806e-02 7.8807e-02 4.5514e-02 1.0299e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.4.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.4.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.4.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.4.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.4.mixer.in_proj.weight             1024       True-3.6251e-03 1.4360e-01-2.4989e-01 2.4869e-01 2.4989e-01 1.4365e-01 4.5968e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.4.mixer.x_proj.0.weight            1056       True-1.1552e-03 1.0114e-01-1.7555e-01 1.7587e-01 1.7587e-01 1.0115e-01 3.2870e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.4.mixer.dt_proj.weight               32       True 1.7373e-02 5.0997e-01-8.4105e-01 9.0233e-01 9.0233e-01 5.1026e-01 2.8865e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.4.mixer.dt_proj.bias                 32       True-4.7631e+00 1.3458e+00-6.8600e+00-2.4306e+00 6.8600e+00 4.9496e+00 2.7999e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.4.mixer.out_proj.weight             512       True 8.7478e-04 4.6396e-02-7.8955e-02 7.8998e-02 7.8998e-02 4.6405e-02 1.0500e+00 0.0000e+00          0  (16, 32)
+  base.encoder.norm_f.weight                               16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.norm_f.bias                                 16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  readout.weight                                       172032       True 6.3885e-05 2.5538e-02-4.4193e-02 4.4193e-02 4.4193e-02 2.5538e-02 1.0592e+01 0.0000e+00          0  (336, 512)
+  readout.bias                                            336       True-2.9447e-04 2.5949e-02-4.3907e-02 4.4107e-02 4.4107e-02 2.5951e-02 4.7569e-01 0.0000e+00          0  (336,)
+  W1.weight                                              6144       True-9.8159e-05 5.8588e-02-1.0202e-01 1.0196e-01 1.0202e-01 5.8588e-02 4.5924e+00 0.0000e+00          0  (64, 96)
+  W2.weight                                             21504       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (336, 64)
+  -- module subtotals:
+  base.value_embedding                             numel       768 | l2 2.3164e+00 | rms 8.3587e-02
+  base.encoder                                     numel       137 | l2 4.0000e+00 | rms 3.4174e-01
+  base.encoder.layers.0                            numel      3232 | l2 5.4791e+01 | rms 9.6377e-01
+  base.encoder.layers.1                            numel      3232 | l2 5.4861e+01 | rms 9.6501e-01
+  base.encoder.layers.2                            numel      3232 | l2 5.5232e+01 | rms 9.7152e-01
+  base.encoder.layers.3                            numel      3232 | l2 5.3537e+01 | rms 9.4172e-01
+  base.encoder.layers.4                            numel      3232 | l2 5.5261e+01 | rms 9.7204e-01
+  readout                                          numel    172368 | l2 1.0603e+01 | rms 2.5539e-02
+  W1                                               numel      6144 | l2 4.5924e+00 | rms 5.8588e-02
+  W2                                               numel     21504 | l2 0.0000e+00 | rms 0.0000e+00
+  -- buffers (0; not parameters):
+===== [param snapshot end] event=init
+[R1 ATSP] order [2, 3, 0, 4, 5, 6, 1] cost 11.8510
+[ckpt] long_term_forecast_ETTh2_r1_MambaTS_ETTh2_ftM_sl1440_ll48_pl336_dm16_nh16_el5_dl2_df2048_fc1_ebtimeF_dtTrue_R1TfnH2R64h0s3048_0 | model R1Tefl hc=2
+train 1153
+val 2545
+test 2545
+  [sanity] L=1440 T0r official test MSE 0.4119 (backbone 0.6673) | queries train 3841 val 2545 test 2545 | 92s
+===== A bias memory | E T0 s3048 L=1440 | val / test MSEred (eta / coefficients fit on val)
+  H= 96 v=own | mean1H=+0.031/-0.004 mean2H=+0.076/-0.034 mean3H=+0.110/-0.060 mean5H=+0.092/+0.009 mean8H=+0.091/+0.014 mean12H=+0.068/+0.023 mean16H=+0.061/+0.020 exp0.5H=+0.056/-0.013 exp1.0H=+0.084/-0.024 exp2.0H=+0.103/-0.015 exp4.0H=+0.103/+0.003 exp8.0H=+0.091/+0.013 comb=+0.121/-0.062
+  H= 96 v=own | val-best fixed mean3H test -0.0600 | val-best adaptive comb test -0.0617 | adaptive - fixed -0.0018
+  H= 96 v=bb  | mean1H=+0.038/-0.014 mean2H=+0.045/-0.018 mean3H=+0.042/-0.010 mean5H=+0.031/+0.010 mean8H=+0.023/+0.007 mean12H=+0.015/+0.009 mean16H=+0.007/+0.007 exp0.5H=+0.042/-0.015 exp1.0H=+0.042/-0.010 exp2.0H=+0.037/-0.001 exp4.0H=+0.027/+0.007 exp8.0H=+0.017/+0.009 comb=+0.059/-0.052
+  H= 96 v=bb  | val-best fixed mean2H test -0.0180 | val-best adaptive comb test -0.0517 | adaptive - fixed -0.0337
+  H=192 v=own | mean1H=+0.057/-0.098 mean2H=+0.076/-0.069 mean3H=+0.081/+0.019 mean5H=+0.067/-0.008 mean8H=+0.049/+0.004 mean12H=+0.013/+0.006 mean16H=+0.004/+0.007 exp0.5H=+0.090/-0.100 exp1.0H=+0.094/-0.055 exp2.0H=+0.087/-0.022 exp4.0H=+0.064/-0.005 exp8.0H=+0.034/+0.005 comb=+0.098/-0.041
+  H=192 v=own | val-best fixed mean3H test +0.0190 | val-best adaptive comb test -0.0406 | adaptive - fixed -0.0596
+  H=192 v=bb  | mean1H=+0.040/-0.033 mean2H=+0.031/-0.000 mean3H=+0.026/+0.011 mean5H=+0.015/+0.005 mean8H=+0.003/+0.004 mean12H=+0.000/-0.001 mean16H=+0.003/-0.005 exp0.5H=+0.037/-0.011 exp1.0H=+0.030/+0.001 exp2.0H=+0.019/+0.006 exp4.0H=+0.006/+0.005 exp8.0H=+0.000/+0.001 comb=+0.071/-0.051
+  H=192 v=bb  | val-best fixed mean1H test -0.0327 | val-best adaptive comb test -0.0511 | adaptive - fixed -0.0184
+  H=336 v=own | mean1H=+0.034/-0.022 mean2H=+0.057/+0.052 mean3H=+0.050/+0.013 mean5H=+0.029/+0.007 mean8H=+0.000/-0.001 mean12H=+0.001/+0.004 mean16H=+0.001/+0.004 exp0.5H=+0.056/+0.030 exp1.0H=+0.058/+0.028 exp2.0H=+0.041/+0.017 exp4.0H=+0.017/+0.013 exp8.0H=+0.005/+0.010 comb=+0.083/+0.041
+  H=336 v=own | val-best fixed mean2H test +0.0523 | val-best adaptive comb test +0.0413 | adaptive - fixed -0.0110
+  H=336 v=bb  | mean1H=+0.026/+0.004 mean2H=+0.024/+0.014 mean3H=+0.014/+0.006 mean5H=+0.000/+0.001 mean8H=+0.010/-0.005 mean12H=+0.010/-0.017 mean16H=+0.010/-0.021 exp0.5H=+0.024/+0.013 exp1.0H=+0.015/+0.010 exp2.0H=+0.003/+0.004 exp4.0H=+0.001/-0.002 exp8.0H=+0.005/-0.009 comb=+0.078/+0.002
+  H=336 v=bb  | val-best fixed mean1H test +0.0036 | val-best adaptive comb test +0.0021 | adaptive - fixed -0.0015
+  A criterion H=96: adaptive ('own', 'comb') test -0.0617 - fixed ('own', 'mean3H') test -0.0600 = -0.0018 (>= 0.005)
+  A criterion H=192: adaptive ('own', 'comb') test -0.0406 - fixed ('own', 'mean3H') test +0.0190 = -0.0596 (>= 0.005)
+  A criterion H=336: adaptive ('own', 'comb') test +0.0413 - fixed ('own', 'mean2H') test +0.0523 = -0.0110 (>= 0.005)
+===== B H->H fixed key | E T0 s3048 L=1440 | test real / shuffle (eta fit on val)
+  M=2H v=own | mean +0.0523 | att +0.0507 sh +0.0522 ('rbf', 3.0) | ridge +0.0403 sh +0.0433 ('rdg', 10.0)
+  M=2H v=bb  | mean +0.0143 | att +0.0135 sh +0.0142 ('rbf', 3.0) | ridge +0.0084 sh +0.0106 ('rdg', 10.0)
+  M=8H v=own | mean -0.0006 | att +0.0002 sh -0.0004 ('cos', 0.03) | ridge -0.0190 sh -0.0070 ('rdg', 0.3)
+  M=8H v=bb  | mean -0.0051 | att -0.0046 sh -0.0043 ('rbf', 3.0) | ridge +0.0026 sh +0.0012 ('rdg', 1.0)
+  B criterion [(2, 'own', 'rbf', 3.0)] test +0.0507 | - matched mean -0.0016 (>= 0.01) | - shuffle -0.0015 (>= 0.01)
+===== C learned low-rank Wq/Wk (r=8) | E T0 s3048 L=1440 | test real / shuffle | matched uniform mean
+  [tr] M=2H v=own x=eps | att +0.0328 sh +0.0315 | mean +0.0363 | sel +0.0368 (mean +0.0430) | T 1.21 ep 19 2s
+  [tr] M=2H v=own x=ehh | att +0.0161 sh +0.0215 | mean +0.0363 | sel +0.0405 (mean +0.0430) | T 0.88 ep 7 1s
+  [tr] M=2H v=bb  x=eps | att +0.0068 sh +0.0073 | mean +0.0067 | sel +0.0151 (mean +0.0117) | T 1.01 ep 8 1s
+  [tr] M=2H v=bb  x=ehh | att +0.0104 sh +0.0100 | mean +0.0067 | sel +0.0146 (mean +0.0117) | T 0.64 ep 12 1s
+  [tr] M=8H v=own x=eps | att +0.0054 sh -0.0004 | mean +0.0006 | sel -0.0222 (mean -0.0107) | T 0.94 ep 6 1s
+  [tr] M=8H v=own x=ehh | att -0.0058 sh -0.0000 | mean +0.0006 | sel -0.0125 (mean -0.0107) | T 0.99 ep 6 2s
+  [tr] M=8H v=bb  x=eps | att +0.0003 sh +0.0008 | mean +0.0019 | sel -0.0045 (mean -0.0253) | T 1.02 ep 6 1s
+  [tr] M=8H v=bb  x=ehh | att -0.0066 sh +0.0008 | mean +0.0019 | sel -0.0234 (mean -0.0253) | T 0.97 ep 6 2s
+  C criterion [tr] [(2, 'own', 'ehh')] test +0.0161 | - matched mean -0.0202 (>= 0.01) | - shuffle -0.0054 (>= 0.01)
+  [vh] M=2H v=own x=eps | att +0.0131 sh +0.0179 | mean +0.0538 | sel +0.0220 (mean +0.0465) | T 0.94 ep 9 0s
+  [vh] M=2H v=own x=ehh | att +0.0086 sh +0.0206 | mean +0.0538 | sel +0.0207 (mean +0.0465) | T 0.89 ep 9 0s
+  [vh] M=2H v=bb  x=eps | att +0.0084 sh +0.0118 | mean +0.0157 | sel +0.0102 (mean +0.0076) | T 1.01 ep 9 0s
+  [vh] M=2H v=bb  x=ehh | att +0.0091 sh +0.0104 | mean +0.0157 | sel +0.0123 (mean +0.0076) | T 0.93 ep 8 0s
+  [vh] M=8H v=own x=eps | att -0.0135 sh -0.0051 | mean +0.0037 | sel +0.0034 (mean -0.0080) | T 0.93 ep 8 1s
+  [vh] M=8H v=own x=ehh | att -0.0001 sh +0.0008 | mean +0.0037 | sel -0.0015 (mean -0.0080) | T 0.99 ep 6 1s
+  [vh] M=8H v=bb  x=eps | att -0.0014 sh +0.0001 | mean +0.0027 | sel +0.0045 (mean -0.0424) | T 0.96 ep 10 1s
+  [vh] M=8H v=bb  x=ehh | att +0.0036 sh +0.0009 | mean +0.0027 | sel -0.0113 (mean -0.0424) | T 0.98 ep 6 1s
+  C criterion [vh] [(2, 'own', 'eps')] test +0.0131 | - matched mean -0.0407 (>= 0.01) | - shuffle -0.0048 (>= 0.01)
+train 1873
+val 2545
+test 2545
+  [sanity] L=720 T0r official test MSE 0.4073 (backbone 0.5318) | queries train 4561 val 2545 test 2545 | 81s
+===== A bias memory | E T0 s3048 L=720 | val / test MSEred (eta / coefficients fit on val)
+  H= 96 v=own | mean1H=+0.012/+0.000 mean2H=+0.038/-0.017 mean3H=+0.057/-0.037 mean5H=+0.046/+0.008 mean8H=+0.055/+0.015 mean12H=+0.044/+0.028 mean16H=+0.051/+0.026 exp0.5H=+0.025/-0.004 exp1.0H=+0.041/-0.012 exp2.0H=+0.055/-0.008 exp4.0H=+0.062/+0.007 exp8.0H=+0.061/+0.019 comb=+0.078/-0.033
+  H= 96 v=own | val-best fixed mean3H test -0.0370 | val-best adaptive comb test -0.0330 | adaptive - fixed +0.0040
+  H= 96 v=bb  | mean1H=+0.012/-0.002 mean2H=+0.018/-0.008 mean3H=+0.017/-0.005 mean5H=+0.011/+0.010 mean8H=+0.008/+0.007 mean12H=+0.007/+0.009 mean16H=+0.006/+0.008 exp0.5H=+0.016/-0.004 exp1.0H=+0.017/-0.003 exp2.0H=+0.015/+0.003 exp4.0H=+0.012/+0.007 exp8.0H=+0.009/+0.009 comb=+0.022/-0.030
+  H= 96 v=bb  | val-best fixed mean2H test -0.0082 | val-best adaptive comb test -0.0299 | adaptive - fixed -0.0217
+  H=192 v=own | mean1H=+0.029/-0.062 mean2H=+0.033/-0.048 mean3H=+0.039/+0.015 mean5H=+0.028/+0.002 mean8H=+0.038/+0.009 mean12H=+0.016/+0.008 mean16H=+0.003/+0.007 exp0.5H=+0.045/-0.070 exp1.0H=+0.047/-0.041 exp2.0H=+0.046/-0.013 exp4.0H=+0.038/+0.002 exp8.0H=+0.023/+0.009 comb=+0.066/-0.020
+  H=192 v=own | val-best fixed mean3H test +0.0146 | val-best adaptive comb test -0.0198 | adaptive - fixed -0.0344
+  H=192 v=bb  | mean1H=+0.015/-0.024 mean2H=+0.007/-0.000 mean3H=+0.006/+0.010 mean5H=+0.003/+0.004 mean8H=+0.003/+0.005 mean12H=+0.000/+0.000 mean16H=+0.002/-0.004 exp0.5H=+0.012/-0.009 exp1.0H=+0.009/+0.001 exp2.0H=+0.006/+0.004 exp4.0H=+0.002/+0.004 exp8.0H=+0.000/+0.001 comb=+0.038/-0.035
+  H=192 v=bb  | val-best fixed mean1H test -0.0239 | val-best adaptive comb test -0.0348 | adaptive - fixed -0.0109
+  H=336 v=own | mean1H=+0.013/-0.014 mean2H=+0.019/+0.035 mean3H=+0.012/+0.013 mean5H=+0.020/+0.011 mean8H=+0.000/+0.000 mean12H=+0.001/+0.004 mean16H=+0.001/+0.006 exp0.5H=+0.019/+0.020 exp1.0H=+0.021/+0.023 exp2.0H=+0.018/+0.018 exp4.0H=+0.009/+0.013 exp8.0H=+0.003/+0.010 comb=+0.043/+0.038
+  H=336 v=own | val-best fixed mean5H test +0.0107 | val-best adaptive comb test +0.0378 | adaptive - fixed +0.0271
+  H=336 v=bb  | mean1H=+0.004/+0.004 mean2H=+0.003/+0.010 mean3H=+0.002/+0.004 mean5H=+0.002/+0.004 mean8H=+0.005/-0.005 mean12H=+0.006/-0.013 mean16H=+0.006/-0.017 exp0.5H=+0.003/+0.009 exp1.0H=+0.003/+0.007 exp2.0H=+0.001/+0.003 exp4.0H=+0.000/-0.003 exp8.0H=+0.003/-0.009 comb=+0.037/+0.003
+  H=336 v=bb  | val-best fixed mean12H test -0.0130 | val-best adaptive comb test +0.0034 | adaptive - fixed +0.0164
+  A criterion H=96: adaptive ('own', 'comb') test -0.0330 - fixed ('own', 'mean3H') test -0.0370 = +0.0040 (>= 0.005)
+  A criterion H=192: adaptive ('own', 'comb') test -0.0198 - fixed ('own', 'mean3H') test +0.0146 = -0.0344 (>= 0.005)
+  A criterion H=336: adaptive ('own', 'comb') test +0.0378 - fixed ('own', 'mean5H') test +0.0107 = +0.0271 (>= 0.005)
+===== B H->H fixed key | E T0 s3048 L=720 | test real / shuffle (eta fit on val)
+  M=2H v=own | mean +0.0347 | att +0.0341 sh +0.0346 ('rbf', 3.0) | ridge +0.0273 sh +0.0280 ('rdg', 10.0)
+  M=2H v=bb  | mean +0.0096 | att +0.0086 sh +0.0102 ('rbf', 1.0) | ridge +0.0053 sh +0.0086 ('rdg', 10.0)
+  M=8H v=own | mean +0.0003 | att +0.0023 sh +0.0009 ('rbf', 0.3) | ridge -0.0206 sh -0.0060 ('rdg', 0.3)
+  M=8H v=bb  | mean -0.0048 | att -0.0048 sh -0.0046 ('cos', 1.0) | ridge -0.0034 sh -0.0025 ('rdg', 0.3)
+  B criterion [(2, 'own', 'rbf', 3.0)] test +0.0341 | - matched mean -0.0005 (>= 0.01) | - shuffle -0.0005 (>= 0.01)
+===== C learned low-rank Wq/Wk (r=8) | E T0 s3048 L=720 | test real / shuffle | matched uniform mean
+  [tr] M=2H v=own x=eps | att +0.0081 sh +0.0111 | mean +0.0203 | sel +0.0045 (mean +0.0136) | T 0.94 ep 6 1s
+  [tr] M=2H v=own x=ehh | att +0.0173 sh +0.0166 | mean +0.0203 | sel +0.0091 (mean +0.0136) | T 0.96 ep 6 1s
+  [tr] M=2H v=bb  x=eps | att +0.0095 sh +0.0109 | mean +0.0102 | sel +0.0006 (mean +0.0031) | T 0.98 ep 6 1s
+  [tr] M=2H v=bb  x=ehh | att +0.0140 sh +0.0132 | mean +0.0102 | sel -0.0071 (mean +0.0031) | T 0.95 ep 6 1s
+  [tr] M=8H v=own x=eps | att +0.0024 sh +0.0012 | mean +0.0059 | sel -0.0073 (mean +0.0012) | T 0.98 ep 6 1s
+  [tr] M=8H v=own x=ehh | att +0.0009 sh -0.0004 | mean +0.0059 | sel -0.0081 (mean +0.0012) | T 0.96 ep 6 2s
+  [tr] M=8H v=bb  x=eps | att -0.0004 sh +0.0015 | mean +0.0043 | sel -0.0165 (mean -0.0218) | T 1.04 ep 6 1s
+  [tr] M=8H v=bb  x=ehh | att +0.0006 sh +0.0016 | mean +0.0043 | sel -0.0296 (mean -0.0218) | T 0.98 ep 6 2s
+  C criterion [tr] [(2, 'own', 'ehh')] test +0.0173 | - matched mean -0.0030 (>= 0.01) | - shuffle +0.0008 (>= 0.01)
+  [vh] M=2H v=own x=eps | att +0.0091 sh +0.0108 | mean +0.0443 | sel +0.0014 (mean +0.0039) | T 0.96 ep 7 0s
+  [vh] M=2H v=own x=ehh | att +0.0040 sh +0.0061 | mean +0.0443 | sel +0.0025 (mean +0.0039) | T 0.98 ep 6 0s
+  [vh] M=2H v=bb  x=eps | att +0.0061 sh +0.0059 | mean +0.0155 | sel -0.0022 (mean -0.0090) | T 0.98 ep 6 0s
+  [vh] M=2H v=bb  x=ehh | att +0.0055 sh +0.0058 | mean +0.0155 | sel -0.0007 (mean -0.0090) | T 0.99 ep 6 0s
+  [vh] M=8H v=own x=eps | att -0.0036 sh -0.0050 | mean +0.0054 | sel +0.0189 (mean -0.0090) | T 0.53 ep 28 2s
+  [vh] M=8H v=own x=ehh | att -0.0001 sh +0.0007 | mean +0.0054 | sel -0.0011 (mean -0.0090) | T 1.00 ep 6 1s
+  [vh] M=8H v=bb  x=eps | att +0.0009 sh +0.0012 | mean +0.0038 | sel -0.0153 (mean -0.0292) | T 0.99 ep 6 1s
+  [vh] M=8H v=bb  x=ehh | att +0.0008 sh +0.0014 | mean +0.0038 | sel -0.0054 (mean -0.0292) | T 0.99 ep 6 1s
+  C criterion [vh] [(8, 'own', 'eps')] test -0.0036 | - matched mean -0.0090 (>= 0.01) | - shuffle +0.0014 (>= 0.01)
+Use GPU: cuda:0
+VPT_mode: 1, ATSP_solver: SA
+R1Tefl: mode native Hc 2 patches (0 = all lookback, input 96) rank 64 Hmax 7 extrap last | g params 27648 | feed forecast True
+R1: d_inner 32 d_state 16 vars 7 patch 48 | readout 512 -> 336 (172368 params) | readout LN False | VPT True (SA) | trainable 216976
+===== [param snapshot] event=init | 2026-10-24T11:39:42.673958+02:00 | commit 52d0134fa978e43c3cfad78fb5e7afbacc4fa4eb (laptop) | R1Tefl torch.float32 cpu
+  meta: {"seed": 3049, "model_id": "ETTh2_r1", "des": "R1TfnH2R64h0s3049", "patch_len": 48, "VPT": 1}
+  env: 
+  params: total 217081 | trainable 216976 | frozen 105 | extra vs R1 (corr_net+mem_net) 0 | 55 tensors, 0 buffers | files patchmem/logs/param_snapshots/ETTh2_r1_R1TfnH2R64h0s3049_s3049/20261024T113942673958_init.jsonl / .csv
+  name                                                   numel        grad        mean         std         min         max      absmax         rms          l2   zero_frac   nonfinite
+  base.value_embedding.1.weight                           768       True-2.4016e-03 8.1860e-02-1.4416e-01 1.4327e-01 1.4416e-01 8.1896e-02 2.2696e+00 0.0000e+00          0  (16, 48)
+  base.encoder.adjacency_matrix                            49      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (7, 7)
+  base.encoder.count_matrix                                49      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (7, 7)
+  base.encoder.ending_points                                7      False 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (7,)
+  base.encoder.layers.0.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.0.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.0.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.0.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.in_proj.weight             1024       True-5.9887e-03 1.4697e-01-2.4992e-01 2.4989e-01 2.4992e-01 1.4709e-01 4.7069e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.0.mixer.x_proj.0.weight            1056       True 3.2877e-03 1.0291e-01-1.7634e-01 1.7674e-01 1.7674e-01 1.0297e-01 3.3460e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.0.mixer.dt_proj.weight               32       True 8.9448e-02 5.7086e-01-9.2581e-01 9.3780e-01 9.3780e-01 5.7782e-01 3.2687e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.0.mixer.dt_proj.bias                 32       True-4.4140e+00 1.3932e+00-6.8752e+00-2.2895e+00 6.8752e+00 4.6287e+00 2.6184e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.0.mixer.out_proj.weight             512       True 3.1107e-04 4.7267e-02-7.8816e-02 7.8268e-02 7.8816e-02 4.7268e-02 1.0696e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.1.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.1.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.1.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.1.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.in_proj.weight             1024       True 5.5143e-03 1.4774e-01-2.4948e-01 2.4949e-01 2.4949e-01 1.4784e-01 4.7309e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.1.mixer.x_proj.0.weight            1056       True-2.4099e-03 1.0041e-01-1.7649e-01 1.7647e-01 1.7649e-01 1.0044e-01 3.2639e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.1.mixer.dt_proj.weight               32       True-1.1242e-02 6.3676e-01-9.1698e-01 8.3141e-01 9.1698e-01 6.3686e-01 3.6026e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.1.mixer.dt_proj.bias                 32       True-5.1022e+00 1.1479e+00-6.7035e+00-2.8478e+00 6.7035e+00 5.2297e+00 2.9584e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.1.mixer.out_proj.weight             512       True 4.4463e-04 4.6541e-02-7.8678e-02 7.8682e-02 7.8682e-02 4.6543e-02 1.0531e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.2.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.2.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.2.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.2.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.in_proj.weight             1024       True 2.3680e-04 1.4186e-01-2.4883e-01 2.4954e-01 2.4954e-01 1.4186e-01 4.5396e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.2.mixer.x_proj.0.weight            1056       True 1.1560e-03 1.0287e-01-1.7677e-01 1.7669e-01 1.7677e-01 1.0288e-01 3.3432e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.2.mixer.dt_proj.weight               32       True-7.3804e-02 5.5876e-01-9.4085e-01 9.9282e-01 9.9282e-01 5.6362e-01 3.1883e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.2.mixer.dt_proj.bias                 32       True-4.4182e+00 1.4320e+00-6.8710e+00-2.2982e+00 6.8710e+00 4.6445e+00 2.6273e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.2.mixer.out_proj.weight             512       True-4.3488e-03 4.3675e-02-7.8797e-02 7.7724e-02 7.8797e-02 4.3891e-02 9.9313e-01 0.0000e+00          0  (16, 32)
+  base.encoder.layers.3.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.3.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.3.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.3.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.3.mixer.in_proj.weight             1024       True-3.5218e-03 1.4366e-01-2.4998e-01 2.4969e-01 2.4998e-01 1.4370e-01 4.5984e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.3.mixer.x_proj.0.weight            1056       True-4.9631e-03 1.0188e-01-1.7664e-01 1.7677e-01 1.7677e-01 1.0200e-01 3.3147e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.3.mixer.dt_proj.weight               32       True-1.3745e-02 5.7779e-01-8.7903e-01 9.9095e-01 9.9095e-01 5.7795e-01 3.2694e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.3.mixer.dt_proj.bias                 32       True-4.9358e+00 1.5685e+00-6.8745e+00-2.2867e+00 6.8745e+00 5.1791e+00 2.9297e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.3.mixer.out_proj.weight             512       True-1.4250e-03 4.4909e-02-7.9036e-02 7.8550e-02 7.9036e-02 4.4931e-02 1.0167e+00 0.0000e+00          0  (16, 32)
+  base.encoder.layers.4.norm.weight                        16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.layers.4.norm.bias                          16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  base.encoder.layers.4.mixer.A_log                       512       True 1.9170e+00 7.6410e-01 0.0000e+00 2.7726e+00 2.7726e+00 2.0637e+00 4.6695e+01 6.2500e-02          0  (32, 16)
+  base.encoder.layers.4.mixer.D                            32       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 5.6569e+00 0.0000e+00          0  (32,)
+  base.encoder.layers.4.mixer.in_proj.weight             1024       True-9.8414e-04 1.4425e-01-2.4983e-01 2.4876e-01 2.4983e-01 1.4425e-01 4.6160e+00 0.0000e+00          0  (64, 16)
+  base.encoder.layers.4.mixer.x_proj.0.weight            1056       True-1.5555e-03 1.0107e-01-1.7676e-01 1.7661e-01 1.7676e-01 1.0108e-01 3.2847e+00 0.0000e+00          0  (33, 32)
+  base.encoder.layers.4.mixer.dt_proj.weight               32       True-1.8822e-01 4.9939e-01-9.8576e-01 8.0890e-01 9.8576e-01 5.3369e-01 3.0190e+00 0.0000e+00          0  (32, 1)
+  base.encoder.layers.4.mixer.dt_proj.bias                 32       True-4.0976e+00 1.2911e+00-6.7777e+00-2.2928e+00 6.7777e+00 4.2962e+00 2.4303e+01 0.0000e+00          0  (32,)
+  base.encoder.layers.4.mixer.out_proj.weight             512       True-2.7209e-04 4.4549e-02-7.8872e-02 7.8859e-02 7.8872e-02 4.4550e-02 1.0081e+00 0.0000e+00          0  (16, 32)
+  base.encoder.norm_f.weight                               16       True 1.0000e+00 0.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 1.0000e+00 4.0000e+00 0.0000e+00          0  (16,)
+  base.encoder.norm_f.bias                                 16       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (16,)
+  readout.weight                                       172032       True-2.5984e-05 2.5554e-02-4.4194e-02 4.4192e-02 4.4194e-02 2.5554e-02 1.0599e+01 0.0000e+00          0  (336, 512)
+  readout.bias                                            336       True 6.5263e-04 2.5668e-02-4.3948e-02 4.4143e-02 4.4143e-02 2.5676e-02 4.7065e-01 0.0000e+00          0  (336,)
+  W1.weight                                              6144       True 4.8093e-04 5.9169e-02-1.0206e-01 1.0203e-01 1.0206e-01 5.9171e-02 4.6380e+00 0.0000e+00          0  (64, 96)
+  W2.weight                                             21504       True 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 0.0000e+00 1.0000e+00          0  (336, 64)
+  -- module subtotals:
+  base.value_embedding                             numel       768 | l2 2.2696e+00 | rms 8.1896e-02
+  base.encoder                                     numel       137 | l2 4.0000e+00 | rms 3.4174e-01
+  base.encoder.layers.0                            numel      3232 | l2 5.4399e+01 | rms 9.5687e-01
+  base.encoder.layers.1                            numel      3232 | l2 5.6132e+01 | rms 9.8735e-01
+  base.encoder.layers.2                            numel      3232 | l2 5.4421e+01 | rms 9.5727e-01
+  base.encoder.layers.3                            numel      3232 | l2 5.5952e+01 | rms 9.8419e-01
+  base.encoder.layers.4                            numel      3232 | l2 5.3491e+01 | rms 9.4091e-01
+  readout                                          numel    172368 | l2 1.0610e+01 | rms 2.5554e-02
+  W1                                               numel      6144 | l2 4.6380e+00 | rms 5.9171e-02
+  W2                                               numel     21504 | l2 0.0000e+00 | rms 0.0000e+00
+  -- buffers (0; not parameters):
+===== [param snapshot end] event=init
+[R1 ATSP] order [6, 2, 5, 1, 0, 3, 4] cost 11.9294
+[ckpt] long_term_forecast_ETTh2_r1_MambaTS_ETTh2_ftM_sl1440_ll48_pl336_dm16_nh16_el5_dl2_df2048_fc1_ebtimeF_dtTrue_R1TfnH2R64h0s3049_0 | model R1Tefl hc=2
+train 1153
+val 2545
+test 2545
+  [sanity] L=1440 T0r official test MSE 0.3878 (backbone 0.4774) | queries train 3841 val 2545 test 2545 | 91s
+===== A bias memory | E T0 s3049 L=1440 | val / test MSEred (eta / coefficients fit on val)
+  H= 96 v=own | mean1H=+0.084/-0.049 mean2H=+0.175/-0.057 mean3H=+0.211/-0.060 mean5H=+0.190/+0.012 mean8H=+0.171/+0.013 mean12H=+0.119/+0.019 mean16H=+0.084/+0.012 exp0.5H=+0.138/-0.049 exp1.0H=+0.183/-0.042 exp2.0H=+0.205/-0.018 exp4.0H=+0.192/-0.000 exp8.0H=+0.157/+0.001 comb=+0.218/-0.051
+  H= 96 v=own | val-best fixed mean3H test -0.0600 | val-best adaptive comb test -0.0507 | adaptive - fixed +0.0093
+  H= 96 v=bb  | mean1H=+0.106/-0.046 mean2H=+0.126/-0.042 mean3H=+0.117/-0.027 mean5H=+0.091/+0.012 mean8H=+0.060/+0.012 mean12H=+0.030/+0.019 mean16H=+0.009/+0.013 exp0.5H=+0.120/-0.040 exp1.0H=+0.120/-0.028 exp2.0H=+0.105/-0.008 exp4.0H=+0.074/+0.009 exp8.0H=+0.042/+0.017 comb=+0.138/-0.061
+  H= 96 v=bb  | val-best fixed mean2H test -0.0419 | val-best adaptive comb test -0.0612 | adaptive - fixed -0.0194
+  H=192 v=own | mean1H=+0.131/-0.172 mean2H=+0.164/-0.100 mean3H=+0.169/+0.019 mean5H=+0.124/-0.011 mean8H=+0.069/-0.002 mean12H=+0.007/+0.013 mean16H=+0.002/+0.010 exp0.5H=+0.184/-0.137 exp1.0H=+0.186/-0.074 exp2.0H=+0.164/-0.037 exp4.0H=+0.111/-0.028 exp8.0H=+0.050/-0.002 comb=+0.193/-0.056
+  H=192 v=own | val-best fixed mean3H test +0.0186 | val-best adaptive comb test -0.0557 | adaptive - fixed -0.0743
+  H=192 v=bb  | mean1H=+0.117/-0.094 mean2H=+0.098/-0.018 mean3H=+0.081/+0.018 mean5H=+0.040/+0.012 mean8H=+0.006/+0.010 mean12H=+0.006/-0.015 mean16H=+0.017/-0.032 exp0.5H=+0.112/-0.041 exp1.0H=+0.093/-0.011 exp2.0H=+0.059/+0.008 exp4.0H=+0.018/+0.014 exp8.0H=+0.000/+0.003 comb=+0.153/-0.092
+  H=192 v=bb  | val-best fixed mean1H test -0.0935 | val-best adaptive comb test -0.0916 | adaptive - fixed +0.0019
+  H=336 v=own | mean1H=+0.089/-0.067 mean2H=+0.118/+0.062 mean3H=+0.086/+0.012 mean5H=+0.027/+0.011 mean8H=+0.005/-0.018 mean12H=+0.001/+0.006 mean16H=+0.001/+0.005 exp0.5H=+0.123/+0.026 exp1.0H=+0.109/+0.023 exp2.0H=+0.065/+0.010 exp4.0H=+0.022/+0.013 exp8.0H=+0.006/+0.012 comb=+0.154/+0.037
+  H=336 v=own | val-best fixed mean2H test +0.0615 | val-best adaptive comb test +0.0371 | adaptive - fixed -0.0244
+  H=336 v=bb  | mean1H=+0.089/-0.019 mean2H=+0.071/+0.027 mean3H=+0.036/+0.013 mean5H=+0.000/+0.003 mean8H=+0.030/-0.037 mean12H=+0.015/-0.033 mean16H=+0.014/-0.022 exp0.5H=+0.077/+0.021 exp1.0H=+0.049/+0.019 exp2.0H=+0.013/+0.014 exp4.0H=+0.000/-0.003 exp8.0H=+0.007/-0.018 comb=+0.142/+0.002
+  H=336 v=bb  | val-best fixed mean1H test -0.0190 | val-best adaptive comb test +0.0022 | adaptive - fixed +0.0212
+  A criterion H=96: adaptive ('own', 'comb') test -0.0507 - fixed ('own', 'mean3H') test -0.0600 = +0.0093 (>= 0.005)
+  A criterion H=192: adaptive ('own', 'comb') test -0.0557 - fixed ('own', 'mean3H') test +0.0186 = -0.0743 (>= 0.005)
+  A criterion H=336: adaptive ('own', 'comb') test +0.0371 - fixed ('own', 'mean2H') test +0.0615 = -0.0244 (>= 0.005)
+===== B H->H fixed key | E T0 s3049 L=1440 | test real / shuffle (eta fit on val)
+  M=2H v=own | mean +0.0615 | att +0.0598 sh +0.0613 ('rbf', 3.0) | ridge +0.0540 sh +0.0543 ('rdg', 10.0)
+  M=2H v=bb  | mean +0.0271 | att +0.0255 sh +0.0271 ('rbf', 3.0) | ridge +0.0029 sh +0.0126 ('rdg', 10.0)
+  M=8H v=own | mean -0.0179 | att -0.0104 sh -0.0103 ('rbf', 3.0) | ridge +0.0074 sh +0.0027 ('rdg', 3.0)
+  M=8H v=bb  | mean -0.0370 | att -0.0276 sh -0.0263 ('rbf', 3.0) | ridge -0.0054 sh -0.0117 ('rdg', 1.0)
+  B criterion [(2, 'own', 'rbf', 3.0)] test +0.0598 | - matched mean -0.0017 (>= 0.01) | - shuffle -0.0015 (>= 0.01)
+===== C learned low-rank Wq/Wk (r=8) | E T0 s3049 L=1440 | test real / shuffle | matched uniform mean
+  [tr] M=2H v=own x=eps | att +0.0329 sh +0.0360 | mean +0.0431 | sel +0.0762 (mean +0.0782) | T 1.22 ep 11 1s
+  [tr] M=2H v=own x=ehh | att +0.0216 sh +0.0244 | mean +0.0431 | sel +0.0531 (mean +0.0782) | T 0.89 ep 12 2s
+  [tr] M=2H v=bb  x=eps | att +0.0133 sh +0.0115 | mean +0.0082 | sel +0.0243 (mean +0.0169) | T 0.64 ep 15 2s
+  [tr] M=2H v=bb  x=ehh | att +0.0110 sh +0.0135 | mean +0.0082 | sel +0.0271 (mean +0.0169) | T 0.71 ep 15 2s
+  [tr] M=8H v=own x=eps | att +0.0000 sh +0.0006 | mean +0.0043 | sel +0.0076 (mean -0.0103) | T 0.97 ep 6 1s
+  [tr] M=8H v=own x=ehh | att +0.0015 sh +0.0027 | mean +0.0043 | sel -0.0200 (mean -0.0103) | T 1.00 ep 6 2s
+  [tr] M=8H v=bb  x=eps | att -0.0197 sh -0.0092 | mean -0.0030 | sel +0.0136 (mean +0.0128) | T 0.94 ep 7 1s
+  [tr] M=8H v=bb  x=ehh | att -0.0042 sh -0.0068 | mean -0.0030 | sel +0.0239 (mean +0.0128) | T 0.97 ep 6 2s
+  C criterion [tr] [(2, 'own', 'eps')] test +0.0329 | - matched mean -0.0101 (>= 0.01) | - shuffle -0.0031 (>= 0.01)
+  [vh] M=2H v=own x=eps | att -0.0086 sh +0.0188 | mean +0.0530 | sel +0.1077 (mean +0.1228) | T 0.60 ep 24 1s
+  [vh] M=2H v=own x=ehh | att -0.0102 sh +0.0218 | mean +0.0530 | sel +0.1016 (mean +0.1228) | T 0.69 ep 16 1s
+  [vh] M=2H v=bb  x=eps | att +0.0230 sh +0.0164 | mean +0.0253 | sel +0.0537 (mean +0.0722) | T 0.68 ep 17 1s
+  [vh] M=2H v=bb  x=ehh | att +0.0129 sh +0.0154 | mean +0.0253 | sel +0.1071 (mean +0.0722) | T 0.70 ep 22 1s
+  [vh] M=8H v=own x=eps | att -0.0028 sh -0.0013 | mean -0.0192 | sel -0.0011 (mean +0.0048) | T 0.98 ep 6 1s
+  [vh] M=8H v=own x=ehh | att -0.0058 sh -0.0057 | mean -0.0192 | sel +0.0042 (mean +0.0048) | T 0.95 ep 7 1s
+  [vh] M=8H v=bb  x=eps | att -0.0103 sh -0.0042 | mean -0.0021 | sel +0.0060 (mean +0.0123) | T 0.96 ep 7 1s
+  [vh] M=8H v=bb  x=ehh | att -0.0301 sh -0.0131 | mean -0.0021 | sel +0.0291 (mean +0.0123) | T 1.08 ep 11 1s
+  C criterion [vh] [(2, 'own', 'eps')] test -0.0086 | - matched mean -0.0616 (>= 0.01) | - shuffle -0.0274 (>= 0.01)
+train 1873
+val 2545
+test 2545
+  [sanity] L=720 T0r official test MSE 0.3842 (backbone 0.4306) | queries train 4561 val 2545 test 2545 | 79s
+===== A bias memory | E T0 s3049 L=720 | val / test MSEred (eta / coefficients fit on val)
+  H= 96 v=own | mean1H=+0.033/-0.018 mean2H=+0.089/-0.036 mean3H=+0.113/-0.049 mean5H=+0.089/+0.005 mean8H=+0.076/+0.012 mean12H=+0.062/+0.021 mean16H=+0.060/+0.018 exp0.5H=+0.063/-0.024 exp1.0H=+0.091/-0.028 exp2.0H=+0.105/-0.016 exp4.0H=+0.101/+0.003 exp8.0H=+0.088/+0.012 comb=+0.121/-0.047
+  H= 96 v=own | val-best fixed mean3H test -0.0485 | val-best adaptive comb test -0.0469 | adaptive - fixed +0.0016
+  H= 96 v=bb  | mean1H=+0.046/-0.029 mean2H=+0.064/-0.038 mean3H=+0.056/-0.030 mean5H=+0.032/+0.002 mean8H=+0.017/+0.001 mean12H=+0.012/+0.006 mean16H=+0.008/+0.006 exp0.5H=+0.057/-0.031 exp1.0H=+0.058/-0.028 exp2.0H=+0.048/-0.015 exp4.0H=+0.033/-0.003 exp8.0H=+0.021/+0.004 comb=+0.071/-0.057
+  H= 96 v=bb  | val-best fixed mean2H test -0.0380 | val-best adaptive comb test -0.0569 | adaptive - fixed -0.0189
+  H=192 v=own | mean1H=+0.070/-0.115 mean2H=+0.076/-0.076 mean3H=+0.071/+0.009 mean5H=+0.047/-0.006 mean8H=+0.045/+0.001 mean12H=+0.012/+0.005 mean16H=+0.004/+0.009 exp0.5H=+0.095/-0.105 exp1.0H=+0.091/-0.059 exp2.0H=+0.079/-0.026 exp4.0H=+0.059/-0.011 exp8.0H=+0.034/+0.001 comb=+0.103/-0.064
+  H=192 v=own | val-best fixed mean2H test -0.0761 | val-best adaptive comb test -0.0643 | adaptive - fixed +0.0117
+  H=192 v=bb  | mean1H=+0.054/-0.074 mean2H=+0.032/-0.020 mean3H=+0.020/+0.007 mean5H=+0.009/+0.000 mean8H=+0.005/+0.004 mean12H=+0.000/-0.002 mean16H=+0.007/-0.015 exp0.5H=+0.045/-0.040 exp1.0H=+0.033/-0.017 exp2.0H=+0.020/-0.004 exp4.0H=+0.007/+0.003 exp8.0H=+0.000/+0.001 comb=+0.077/-0.098
+  H=192 v=bb  | val-best fixed mean1H test -0.0743 | val-best adaptive comb test -0.0978 | adaptive - fixed -0.0235
+  H=336 v=own | mean1H=+0.036/-0.037 mean2H=+0.036/+0.033 mean3H=+0.022/+0.006 mean5H=+0.017/+0.004 mean8H=+0.002/-0.004 mean12H=+0.002/+0.007 mean16H=+0.003/+0.007 exp0.5H=+0.042/+0.014 exp1.0H=+0.038/+0.015 exp2.0H=+0.026/+0.009 exp4.0H=+0.012/+0.007 exp8.0H=+0.005/+0.008 comb=+0.073/+0.022
+  H=336 v=own | val-best fixed mean2H test +0.0329 | val-best adaptive comb test +0.0221 | adaptive - fixed -0.0108
+  H=336 v=bb  | mean1H=+0.023/-0.010 mean2H=+0.012/+0.011 mean3H=+0.007/+0.002 mean5H=+0.002/+0.002 mean8H=+0.015/-0.012 mean12H=+0.006/-0.017 mean16H=+0.005/-0.014 exp0.5H=+0.017/+0.009 exp1.0H=+0.012/+0.006 exp2.0H=+0.004/+0.004 exp4.0H=+0.000/-0.001 exp8.0H=+0.003/-0.008 comb=+0.059/-0.019
+  H=336 v=bb  | val-best fixed mean1H test -0.0097 | val-best adaptive comb test -0.0189 | adaptive - fixed -0.0091
+  A criterion H=96: adaptive ('own', 'comb') test -0.0469 - fixed ('own', 'mean3H') test -0.0485 = +0.0016 (>= 0.005)
+  A criterion H=192: adaptive ('own', 'comb') test -0.0643 - fixed ('own', 'mean2H') test -0.0761 = +0.0117 (>= 0.005)
+  A criterion H=336: adaptive ('own', 'comb') test +0.0221 - fixed ('own', 'mean2H') test +0.0329 = -0.0108 (>= 0.005)
+===== B H->H fixed key | E T0 s3049 L=720 | test real / shuffle (eta fit on val)
+  M=2H v=own | mean +0.0329 | att +0.0315 sh +0.0329 ('rbf', 3.0) | ridge +0.0234 sh +0.0259 ('rdg', 10.0)
+  M=2H v=bb  | mean +0.0112 | att +0.0079 sh +0.0112 ('rbf', 1.0) | ridge +0.0019 sh +0.0079 ('rdg', 10.0)
+  M=8H v=own | mean -0.0039 | att -0.0026 sh -0.0025 ('cos', 1.0) | ridge -0.0214 sh -0.0089 ('rdg', 0.3)
+  M=8H v=bb  | mean -0.0121 | att -0.0109 sh -0.0100 ('rbf', 3.0) | ridge -0.0016 sh -0.0001 ('rdg', 1.0)
+  B criterion [(2, 'own', 'rbf', 3.0)] test +0.0315 | - matched mean -0.0014 (>= 0.01) | - shuffle -0.0013 (>= 0.01)
+===== C learned low-rank Wq/Wk (r=8) | E T0 s3049 L=720 | test real / shuffle | matched uniform mean
+  [tr] M=2H v=own x=eps | att +0.0154 sh +0.0130 | mean +0.0153 | sel +0.0115 (mean +0.0202) | T 0.82 ep 11 1s
+  [tr] M=2H v=own x=ehh | att +0.0049 sh +0.0130 | mean +0.0153 | sel +0.0151 (mean +0.0202) | T 0.88 ep 7 1s
+  [tr] M=2H v=bb  x=eps | att -0.0086 sh -0.0088 | mean -0.0010 | sel -0.0128 (mean -0.0032) | T 0.93 ep 6 1s
+  [tr] M=2H v=bb  x=ehh | att -0.0149 sh -0.0128 | mean -0.0010 | sel -0.0281 (mean -0.0032) | T 1.02 ep 6 1s
+  [tr] M=8H v=own x=eps | att -0.0021 sh -0.0033 | mean +0.0030 | sel -0.0125 (mean +0.0060) | T 0.92 ep 6 1s
+  [tr] M=8H v=own x=ehh | att +0.0073 sh -0.0022 | mean +0.0030 | sel +0.0046 (mean +0.0060) | T 0.96 ep 6 2s
+  [tr] M=8H v=bb  x=eps | att -0.0072 sh -0.0038 | mean -0.0044 | sel -0.0108 (mean +0.0154) | T 0.95 ep 6 1s
+  [tr] M=8H v=bb  x=ehh | att +0.0108 sh -0.0059 | mean -0.0044 | sel -0.0120 (mean +0.0154) | T 1.00 ep 6 2s
+  C criterion [tr] [(2, 'own', 'ehh')] test +0.0049 | - matched mean -0.0104 (>= 0.01) | - shuffle -0.0081 (>= 0.01)
+  [vh] M=2H v=own x=eps | att +0.0168 sh +0.0133 | mean +0.0186 | sel +0.0334 (mean +0.0362) | T 0.79 ep 15 1s
+  [vh] M=2H v=own x=ehh | att +0.0034 sh +0.0120 | mean +0.0186 | sel +0.0170 (mean +0.0362) | T 0.89 ep 9 0s
+  [vh] M=2H v=bb  x=eps | att +0.0069 sh +0.0060 | mean +0.0048 | sel +0.0208 (mean +0.0096) | T 0.83 ep 13 1s
+  [vh] M=2H v=bb  x=ehh | att -0.0024 sh +0.0050 | mean +0.0048 | sel +0.0245 (mean +0.0096) | T 0.77 ep 13 1s
+  [vh] M=8H v=own x=eps | att -0.0018 sh -0.0028 | mean -0.0006 | sel +0.0127 (mean +0.0054) | T 0.75 ep 16 1s
+  [vh] M=8H v=own x=ehh | att +0.0008 sh -0.0036 | mean -0.0006 | sel +0.0031 (mean +0.0054) | T 0.91 ep 9 1s
+  [vh] M=8H v=bb  x=eps | att -0.0045 sh -0.0042 | mean +0.0014 | sel +0.0141 (mean +0.0069) | T 0.45 ep 52 3s
+  [vh] M=8H v=bb  x=ehh | att -0.0006 sh +0.0004 | mean +0.0014 | sel +0.0003 (mean +0.0069) | T 0.98 ep 6 1s
+  C criterion [vh] [(2, 'own', 'eps')] test +0.0168 | - matched mean -0.0019 (>= 0.01) | - shuffle +0.0034 (>= 0.01)
+DONE
