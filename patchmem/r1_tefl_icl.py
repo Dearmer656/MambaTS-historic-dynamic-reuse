@@ -30,6 +30,9 @@ Training-time controls of 'hyb' (2026-10-26, fixed before results; the inference
                  <phi(k_j), phi(q)> / (|phi(q)| sum_j |phi(k_j)|), i.e. cos(q, k_j) -> 1 (a recent-residual mean; same scale, no selection).
   variant 'hybperm': as 'hyb' with the demo residuals v_j - W2 phi(k_j) permuted among the sample's valid demos at every forward
                  (training and evaluation; pairing broken, residual set kept). Its iclperm audit is not informative (already unpaired).
+Weight dump (2026-10-26, diagnostic): with R1_ICL_WDUMP=<prefix>, Exp_R1.audit records the GD-step demo weights
+  <phi(k_j), phi(q)> / (|phi(q)| sum_j |phi(k_j)|) (mean over variables) of the normal pass per split -> <prefix>_<split>_L<L>H<H>.pt
+  (demo j = in-window origin patch j; query origin T-1-K; lag in patches = T-1-K-j).
 Shrinkage (2026-10-25, fixed before results):
   ridge_rel = s: ridge lam = s * mean_j |k_j|^2 over the valid demos (per sample / variable) instead of the absolute RIDGE_LAM;
                  s in {1, 10, 100, 1000} traces closed-form ridge (small s) -> scaled one-step GD (large s); unset = old lam 1.
@@ -112,6 +115,7 @@ class R1TeflICL(R1TeflMS):
         self.eta = nn.Parameter(torch.full((self.hmax,), float(eta0)), requires_grad=eta_learn)
         self.demo, self.icl_gen = None, torch.Generator().manual_seed(0)
         self.perm_gen = torch.Generator().manual_seed(1)                                 # 'hybperm' training-time permutation
+        self.wlog = None                                                                  # list, set by Exp_R1.audit under R1_ICL_WDUMP
 
     def set_audit(self, mode=None, seed=0):
         if mode in ('icloff', 'iclperm'):
@@ -183,6 +187,8 @@ class R1TeflICL(R1TeflMS):
         else:
             s = (k * q[:, None]).sum(-1) * m                                             # (b, n, C)
             den = q.norm(dim=-1) * (k.norm(dim=-1) * m).sum(1) + 1e-6                   # (b, C)
+        if self.wlog is not None and self.audit is None:                                 # R1_ICL_WDUMP: demo weights of the normal pass
+            self.wlog.append((s / den[:, None, :]).mean(-1).detach().float().cpu())       # (b, n) mean over variables
         icl = (s[..., None] * v).sum(1) / den[..., None]                                 # (b, C, K*P)
         if self.nshrink:                                                                 # eta * n / (n + c), n = valid demos
             nv = m[..., 0].sum(1)[:, None, None]                                         # (b, 1, 1)

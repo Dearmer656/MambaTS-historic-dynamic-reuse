@@ -62,6 +62,7 @@ Env:
   R1_AUDIT_FLAGS         splits audited (default 'val,test'; 'train,val,test' adds the training split, every R1_AUDIT_TRAIN_STRIDE-th
                          window, default 8: is the in-context gain specific to the shifted test period?)
   R1_AUDIT_GRID          audit grid 'L:H,...' (default: the test grid); R1_AUDIT_PERM_REPS random key-value pairings (default 3)
+  R1_ICL_WDUMP=<prefix>  R1TeflICL: save the normal pass's demo weights per audited split and (L, H) (r1_tefl_icl.py)
   R1_LOG_DIR             root for param snapshots / diagnostics (default patchmem/logs)
 The training loss is the forecast MSE over the sampled horizon (+ lambda_hist * L_hist). L_hist is in-window auxiliary supervision:
 the lookback's RevIN statistics already include x_(t+1), so it is NOT an online per-origin evaluation. L_corr (writer loss) is in the
@@ -582,6 +583,15 @@ class Exp_R1(Exp_Long_Term_Forecast):
             st = int(os.environ.get('R1_AUDIT_TRAIN_STRIDE', '8')) if flag == 'train' else 1
             for name, mode, seed in modes:
                 m.set_audit(mode, seed)
+                dump = name == 'normal' and os.environ.get('R1_ICL_WDUMP') and isinstance(m, R1TeflICL)
+                if dump:                                                                 # one (L, H) per dump file: eval per cell
+                    out[name] = {}
+                    for cell in g:
+                        m.wlog = []
+                        out[name].update(self.eval_grid(flag, [cell], stride=st))
+                        torch.save(torch.cat(m.wlog), f"{os.environ['R1_ICL_WDUMP']}_{flag}_L{cell[0]}H{cell[1]}.pt")
+                    m.wlog = None
+                    continue
                 out[name] = self.eval_grid(flag, g, stride=st)
             m.set_audit(None)
             assert self.eval_order() == order, 'audit changed the scan order'

@@ -36,7 +36,7 @@ def test_demos_no_leak_and_query():
 def stub(variant, n=4, C=2, K=3, P=4, r=5, b=3):
     din = K * P
     s = SimpleNamespace(variant=variant, audit=None, hmax=K, ridge_rel=None, nshrink=0.0, icl_gen=torch.Generator().manual_seed(0),
-                        perm_gen=torch.Generator().manual_seed(1),
+                        perm_gen=torch.Generator().manual_seed(1), wlog=None,
                         W1=nn.Linear(din, r, bias=False), W2=nn.Linear(r, din, bias=False),
                         Wq=nn.Linear(din, r, bias=False), Wk=nn.Linear(din, r, bias=False), eta=nn.Parameter(torch.ones(K)))
     s.phi = lambda e, role: R1TeflICL.phi(s, e, role)
@@ -227,3 +227,17 @@ def test_hybperm_breaks_pairing_keeps_set():
     s1, _, _ = stub('hyb', n=6)
     s1.W1, s1.W2, s1.demo = s.W1, s.W2, s.demo
     assert not torch.allclose(R1TeflICL.extra_delta(s, d, e, None), R1TeflICL.extra_delta(s1, d, e, None))
+
+
+def test_wdump_records_weights_without_changing_output():
+    s, d, e = stub('hyb', n=5)
+    a = R1TeflICL.extra_delta(s, d, e, None)
+    s.wlog = []
+    b = R1TeflICL.extra_delta(s, d, e, None)
+    assert torch.equal(a, b) and len(s.wlog) == 1 and s.wlog[0].shape == (3, 5)
+    q, k = torch.relu(s.W1(e)), torch.relu(s.W1(s.demo['k']))
+    w = (k * q[:, None]).sum(-1) / (q.norm(dim=-1)[:, None] * k.norm(dim=-1).sum(1)[:, None] + 1e-6)
+    assert torch.allclose(s.wlog[0], w.mean(-1), atol=1e-5)
+    s.audit = 'iclperm'
+    R1TeflICL.extra_delta(s, d, e, None)
+    assert len(s.wlog) == 1                                                                         # audits are not recorded
