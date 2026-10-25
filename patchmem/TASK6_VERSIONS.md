@@ -129,3 +129,13 @@ architecture is used (dm32 el3 df512 nh16 dropout .2 bs8 lr 5e-4 patch 48; = Wea
 Eval args: CFG['T']['a0']. Codex: ckpt name matches win_check.a0_errors glob; eval args reproduce training. Logs A0_T_L{L}_H96_s{s}.txt.
 Then: win_check T a0 (ctrl and attn).
 - Repacked 2026-10-25 (user: two tasks per 3090): 8647 (L384 s3047) runs alone; pending 8648-8655 cancelled -> a0_pair.sbatch 8658 (384: s3048,s3049), 8659 (720: s3047,s3048), 8660 (720 s3049, 1440 s3047), 8661 (1440: s3048,s3049). Same args / logs.
+
+### gain_src batch: where does the gain come from (designed 2026-10-25, user "分析任务也请跑上 证明我们的收益来自于哪里"; fixed before results)
+`patchmem/gain_src.py` (tests patchmem/test_gain_src.py; 13 pass with win_check / efc tests), packed runs via patchmem/slurm/gain_src_pack.sbatch.
+Cells L 720/1440, H 96, 3 seeds; bases E a1/tefl/a0, W a1/tefl/a0, T a1/tefl (T a0 after its training).
+Diagnostics: per-lead gain, per-day gain (spread vs episodes), per-variable gain, in-sample oracle removable share (row / ced / bias; upper
+bound, cheating by design), oracle W structure (fresh 10% feature rows / diagonal / top-1 singular share), soft1 and krexp weight mass on
+day / week lags vs uniform.
+Unit-test finding: an exactly 6-periodic error gives soft1 day ratio 1.54 (max 6.1, effective neighbours 89%), krexp 3.65: the
+median-heuristic softmax is near uniform, kernel ridge sharpens selection.
+Codex: fixed min context (H + 1 as stream_ctrl), zero guards; day buckets not calendar-aligned (documented); env-order remark not a bug (exp_r1 reads env at model build).

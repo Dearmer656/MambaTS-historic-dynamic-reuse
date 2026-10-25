@@ -1,5 +1,6 @@
 #!/bin/bash
-# Two a0_job.sbatch trainings in parallel on ONE 3090 (user 2026-10-25: one 3090 holds two tasks). Same args / logs as a0_job.sbatch.
+# Several a0_job.sbatch trainings in parallel on ONE GPU (user 2026-10-25: pack tasks per card; other GPU types allowed when free,
+# override with sbatch --gres=gpu:TYPE:1 --cpus-per-task --mem). Same args / logs as a0_job.sbatch.
 # usage: sbatch patchmem/slurm/a0_pair.sbatch DATA H "SEED:L SEED:L"
 #SBATCH --job-name=pat307_a0x2
 #SBATCH --output=patchmem/logs/server/slurm_%j_a0x2.txt
