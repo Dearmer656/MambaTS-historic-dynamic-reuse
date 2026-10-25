@@ -3,7 +3,7 @@ backbone needs the CUDA scan)."""
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
-from patchmem.r1_tefl_icl import R1TeflICL, demos, demos_ced
+from patchmem.r1_tefl_icl import R1TeflICL, demos, demos_ced, permute_valid
 
 
 def fake_E(b=2, T=20, K=3, C=2, P=4):
@@ -36,6 +36,7 @@ def test_demos_no_leak_and_query():
 def stub(variant, n=4, C=2, K=3, P=4, r=5, b=3):
     din = K * P
     s = SimpleNamespace(variant=variant, audit=None, hmax=K, ridge_rel=None, nshrink=0.0, icl_gen=torch.Generator().manual_seed(0),
+                        perm_gen=torch.Generator().manual_seed(1),
                         W1=nn.Linear(din, r, bias=False), W2=nn.Linear(r, din, bias=False),
                         Wq=nn.Linear(din, r, bias=False), Wk=nn.Linear(din, r, bias=False), eta=nn.Parameter(torch.ones(K)))
     s.phi = lambda e, role: R1TeflICL.phi(s, e, role)
@@ -195,3 +196,34 @@ if __name__ == '__main__':
     test_k_follow_padding_invariant()
     test_demos_no_leak_and_query(); test_id_one_demo_equal_key_returns_value(); test_formula_bounded_and_mask()
     test_hyb_starts_from_w2_and_offs(); test_iclperm_keeps_values_set_and_grads_finite(); print('ok')
+
+
+def test_hybmean_query_free_and_formula():
+    s, d, e = stub('hybmean')
+    s.demo['mask'][0, 2:] = False
+    out = R1TeflICL.extra_delta(s, d, e, None)
+    k = torch.relu(s.W1(s.demo['k'])); r = s.demo['v'] - s.W2(k)
+    m = s.demo['mask'][:, :, None].float()
+    w = k.norm(dim=-1) * m                                                                          # |phi(k_j)| on valid demos
+    ref = (w[..., None] * r).sum(1) / (w.sum(1)[..., None] + 1e-6)
+    assert torch.allclose((out - d).reshape(e.shape), ref, atol=1e-4)
+    out2 = R1TeflICL.extra_delta(s, d, torch.randn_like(e) * 3, None)
+    assert torch.allclose(out, out2, atol=1e-4)                                                     # no query dependence
+
+
+def test_hybperm_breaks_pairing_keeps_set():
+    g = torch.Generator().manual_seed(5)
+    v = torch.arange(2 * 6).float().view(2, 6, 1, 1).expand(2, 6, 2, 3).clone()
+    mask = torch.ones(2, 6, dtype=torch.bool); mask[1, 4:] = False
+    pv = permute_valid(v, mask, g)
+    assert torch.equal(pv[0, :, 0, 0].sort().values, v[0, :, 0, 0])                                 # same multiset
+    assert torch.equal(pv[1, 4:], v[1, 4:]) and torch.equal(pv[1, :4, 0, 0].sort().values, v[1, :4, 0, 0])   # invalid rows fixed
+    assert not torch.equal(pv, v)
+    s, d, e = stub('hybperm', n=1)
+    s1, _, _ = stub('hyb', n=1)
+    s1.W1, s1.W2, s1.demo = s.W1, s.W2, s.demo
+    assert torch.allclose(R1TeflICL.extra_delta(s, d, e, None), R1TeflICL.extra_delta(s1, d, e, None))   # 1 demo: nothing to permute
+    s, d, e = stub('hybperm', n=6)
+    s1, _, _ = stub('hyb', n=6)
+    s1.W1, s1.W2, s1.demo = s.W1, s.W2, s.demo
+    assert not torch.allclose(R1TeflICL.extra_delta(s, d, e, None), R1TeflICL.extra_delta(s1, d, e, None))

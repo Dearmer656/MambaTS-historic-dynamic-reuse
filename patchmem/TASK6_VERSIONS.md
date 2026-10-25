@@ -158,3 +158,14 @@ Codex: fixed min context (H + 1 as stream_ctrl), zero guards; day buckets not ca
   latest observed error; Traffic not front-loaded (Q1 -35, Q4 -40), map high rank (top1 .14) + periodic retrieval (krexp day x3.8, week x9.8).
 - Oracle removable share (row, in-sample): A1 E .29 / W .38-.41 / T .31; TEFL E .04-.07 / W .09 / T .04; A0 E .06-.08 / W .02. Bias ~0.
 - soft1 weights ~uniform (day x1.02-1.17); krexp day x1.3-2.0 (E / W), x2.5-3.8 (T).
+
+### hyb main-method batch (2026-10-26 00:40; user: keep hyb as the main method, "做吧")
+- Existing evidence (no new runs): ETTh2 H96 trained hyb (laptop stage 2, `patchmem/logs/laptop/icl6_E_H96_*`): TEFL .2967/.2968/.2935 -> hyb
+  .2844/.2868/.2856 (-4.1/-3.4/-2.7%, 3/3). Inference audits in the training logs (L1440/96): icloff W +5.9..6.9%, T +10.8..11.4%,
+  E +1.9..3.3%; iclperm W +5.3..5.9%, T +1.0%, E ~0 -> pairing matters on W only; on T / E the ICL term acts mostly as a residual mean.
+- New training-time controls in `r1_tefl_icl.py` (fixed before results): hybmean (query-free weights |phi(k_j)| / sum, i.e. a recent TEFL-residual
+  mean, same scale) and hybperm (residuals permuted among valid demos at every forward, train + eval; its iclperm audit is uninformative).
+  Tests: test_tefl_icl.py 13 + others = 27 pass. Codex: no bug (iclperm on hybperm uninformative, documented).
+- Runs (patchmem/slurm/train_pack.sbatch, 3 per card): E/W/T H96 hybmean / hybperm x 3 seeds; Traffic H192 a1 / tefl / hyb x 3 seeds.
+- Criterion: hyb < hybmean and hyb < hybperm (3/3) => the gain needs query-dependent in-context pairing; otherwise report it as a
+  residual-mean correction.

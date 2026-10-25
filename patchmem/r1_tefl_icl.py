@@ -25,6 +25,11 @@ key='ced' ('id' / 'ridge' only; the 2x2 vs EFC-CET: row vs anti-diagonal feature
   origin o is EFC's causal error diagonal inside the lookback, D_o[l] = E[:, o-l, lead l] (l = 1..K: the K earlier origins' errors on
   the same patch o), value v_o = E[:, o] (leads 1..K, targets o+1..o+K), o = K..T-1-K (n = T-2K, as 'row'); query D_{T-1} (errors of
   origins T-1-l on the last observed patch T-1). The default key='row' is k_j = E[:, j] above.
+Training-time controls of 'hyb' (2026-10-26, fixed before results; the inference audits showed iclperm ~ +1% on Traffic / ~0 on ETTh2):
+  variant 'hybmean': as 'hyb' with the query similarity removed: weights |phi(k_j)| / sum_j |phi(k_j)| instead of
+                 <phi(k_j), phi(q)> / (|phi(q)| sum_j |phi(k_j)|), i.e. cos(q, k_j) -> 1 (a recent-residual mean; same scale, no selection).
+  variant 'hybperm': as 'hyb' with the demo residuals v_j - W2 phi(k_j) permuted among the sample's valid demos at every forward
+                 (training and evaluation; pairing broken, residual set kept). Its iclperm audit is not informative (already unpaired).
 Shrinkage (2026-10-25, fixed before results):
   ridge_rel = s: ridge lam = s * mean_j |k_j|^2 over the valid demos (per sample / variable) instead of the absolute RIDGE_LAM;
                  s in {1, 10, 100, 1000} traces closed-form ridge (small s) -> scaled one-step GD (large s); unset = old lam 1.
@@ -40,6 +45,22 @@ import torch
 import torch.nn as nn
 RIDGE_LAM = 1.0                                                                          # EFC-CET's lambda (normalised errors)
 from patchmem.r1_msres import R1TeflMS, multistep_residuals
+
+
+HYB = ('hyb', 'hybridge', 'hybmean', 'hybperm')                                       # variants with TEFL's trained W2 term
+
+
+def permute_valid(v, mask, gen):
+    """v (b, n, ...), mask (b, n): per sample, a random permutation of the rows among the valid demos (invalid rows stay in place)."""
+    b, n = mask.shape
+    r = torch.rand(b, n, generator=gen).to(v.device)
+    ar = (torch.arange(n, device=v.device, dtype=r.dtype)[None] / n).expand(b, n)
+    src = torch.argsort(torch.where(mask, r, 10 + ar), dim=1)                            # valid rows in random order, then invalid in place
+    dst = torch.argsort(torch.where(mask, ar, 10 + ar), dim=1)                           # valid rows in place order, then invalid in place
+    out = v.clone()
+    bi = torch.arange(b, device=v.device)[:, None]
+    out[bi, dst] = v[bi, src]
+    return out
 
 
 def demos(E, avail, K):
@@ -75,7 +96,7 @@ def demos_ced(E, avail, K):
 class R1TeflICL(R1TeflMS):
     def __init__(self, cfg, variant='tied', eta0=0.0, eta_learn=True, k_follow=False, key='row', ridge_rel=None, nshrink=0.0, **kw):
         super().__init__(cfg, **kw)
-        assert variant in ('id', 'tied', 'qk', 'hyb', 'ridge', 'hybridge'), variant
+        assert variant in ('id', 'tied', 'qk', 'hyb', 'ridge', 'hybridge', 'hybmean', 'hybperm'), variant
         assert variant != 'hybridge' or ridge_rel is not None, 'hybridge needs ridge_rel'
         self.ridge_rel, self.nshrink = ridge_rel, nshrink
         assert key == 'row' or (key == 'ced' and variant in ('id', 'ridge')), (key, variant)   # ced changes eps: no TEFL map on it
@@ -90,6 +111,7 @@ class R1TeflICL(R1TeflMS):
             self.W1.weight.requires_grad_(False)
         self.eta = nn.Parameter(torch.full((self.hmax,), float(eta0)), requires_grad=eta_learn)
         self.demo, self.icl_gen = None, torch.Generator().manual_seed(0)
+        self.perm_gen = torch.Generator().manual_seed(1)                                 # 'hybperm' training-time permutation
 
     def set_audit(self, mode=None, seed=0):
         if mode in ('icloff', 'iclperm'):
@@ -128,7 +150,7 @@ class R1TeflICL(R1TeflMS):
 
     def extra_delta(self, delta, eps, stdev):
         D = self.demo
-        if self.variant not in ('hyb', 'hybridge'):                                      # W2 term off (also after loading a T0-MS W2)
+        if self.variant not in HYB:                                                      # W2 term off (also after loading a T0-MS W2)
             delta = torch.zeros_like(delta)
         if D is None or self.audit == 'icloff':
             return delta
@@ -136,8 +158,10 @@ class R1TeflICL(R1TeflMS):
         q = self.phi(eps, 'q')                                                           # (b, C, r) (zero padding: same dot / norm for 'id')
         k = self.phi(D['k'], 'k')                                                        # (b, n, C, r)
         v = D['v']                                                                       # (b, n, C, K*P)
-        if self.variant in ('hyb', 'hybridge'):
+        if self.variant in HYB:
             v = v - self.W2(k)                                                           # residual of the TEFL map on the demos
+        if self.variant == 'hybperm':
+            v = permute_valid(v, D['mask'], self.perm_gen)
         if self.audit == 'iclperm':                                                      # eval windows are unpadded: every demo valid
             assert bool(D['mask'].all()), 'iclperm assumes no masked demos'
             v = v[:, torch.randperm(v.shape[1], generator=self.icl_gen).to(v.device)]
@@ -153,8 +177,12 @@ class R1TeflICL(R1TeflMS):
             G = kk @ kk.transpose(-1, -2) + lam[..., None, None] * torch.eye(kk.shape[2], device=kk.device, dtype=kk.dtype)
             icl = ((q[:, :, None] @ kk.transpose(-1, -2)) @ torch.linalg.solve(G, vv)).squeeze(2)   # q K^T (K K^T + lam I)^-1 V
             return delta + icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]
-        s = (k * q[:, None]).sum(-1) * m                                                 # (b, n, C)
-        den = q.norm(dim=-1) * (k.norm(dim=-1) * m).sum(1) + 1e-6                       # (b, C)
+        if self.variant == 'hybmean':                                                    # cos(q, k_j) -> 1: no query dependence at all
+            s = k.norm(dim=-1) * m
+            den = (k.norm(dim=-1) * m).sum(1) + 1e-6
+        else:
+            s = (k * q[:, None]).sum(-1) * m                                             # (b, n, C)
+            den = q.norm(dim=-1) * (k.norm(dim=-1) * m).sum(1) + 1e-6                   # (b, C)
         icl = (s[..., None] * v).sum(1) / den[..., None]                                 # (b, C, K*P)
         if self.nshrink:                                                                 # eta * n / (n + c), n = valid demos
             nv = m[..., 0].sum(1)[:, None, None]                                         # (b, 1, 1)
