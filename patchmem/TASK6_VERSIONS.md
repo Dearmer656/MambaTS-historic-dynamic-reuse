@@ -150,3 +150,11 @@ Codex: fixed min context (H + 1 as stream_ctrl), zero guards; day buckets not ca
 - Criterion: g+att < g, 3/3 seeds, per cell; watch tefl and a0. Sanity: efc_row stage 1 must equal efc_cet "row warm" on the same base.
 - Tests 14 pass (vals = E identity, scale, window-only for E and residuals). Codex: R causal, first0 coverage OK, scale 1 / vals None unchanged;
   its "query leak" remark is a misread (row_feat F[t] = E[t-H], targets y[t-H..t-1]; the window-only test perturbs E[t] and passes).
+
+### 2026-10-25 23:20 partial results (summ_gsrc.py; gain_src E all / W a1 a0 / W tefl 2 seeds / T 1 seed)
+- Traffic A0 (H96) test MSE: L384 .4476/.4479/.4484, L720 .4397/.4397/.4390 (L1440 training): far below TEFL (L720 .569) and TEFL+krexp.
+- Gain source (L1440/96, win_row): A1 gain is broad (E 84-87% / W 90-92% of days improved, all variables) and front-loaded on E / W
+  (lead Q1 -40 / -55% vs Q4 -12 / -25%); W oracle map near rank 1 on the freshest errors (fresh10 .68-.76, top1 .73-.80) = carry of the
+  latest observed error; Traffic not front-loaded (Q1 -35, Q4 -40), map high rank (top1 .14) + periodic retrieval (krexp day x3.8, week x9.8).
+- Oracle removable share (row, in-sample): A1 E .29 / W .38-.41 / T .31; TEFL E .04-.07 / W .09 / T .04; A0 E .06-.08 / W .02. Bias ~0.
+- soft1 weights ~uniform (day x1.02-1.17); krexp day x1.3-2.0 (E / W), x2.5-3.8 (T).
