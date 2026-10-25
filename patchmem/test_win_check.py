@@ -45,5 +45,40 @@ def test_control_maps():
     assert not torch.allclose(wc.predict('shuffle', Fm, Ya, Fq, g), wc.predict('ridge', Fm, Ya, Fq, g), atol=1e-3)
 
 
+def test_attn_window_only():
+    E, H, L, t = _E(), 3, 16, 50
+    E2 = E.clone()
+    for i in range(E.shape[0]):
+        for h in range(1, 8):
+            if i + h - 1 >= t or i + h - 1 < t - L:
+                E2[i, h - 1] += 5.0
+    for feat in ('row', 'ced'):
+        for md in wc.ATTN:
+            c1, a1 = wc.stream_ctrl(E, H, 0, 2, feat, L, md)
+            c2, _ = wc.stream_ctrl(E2, H, 0, 2, feat, L, md)
+            assert bool(a1[t]) and torch.allclose(c1[t], c2[t], atol=1e-5), (feat, md)
+
+
+def test_attn_maps_explicit():
+    """Each attention arm against a per-variable explicit (dual / loop) computation."""
+    g = torch.Generator().manual_seed(1)
+    Fm, Ym, Fq = torch.randn(12, 2, 3, generator=g), torch.randn(12, 2, 3, generator=g), torch.randn(2, 2, 3, generator=g)
+    out = {md: wc.attn_predict(md, Fm, Ym, Fq) for md in wc.ATTN}
+    for c in range(2):
+        K = Fm[:, c] / Fm[:, c].norm(dim=-1, keepdim=True); Q = Fq[:, c] / Fq[:, c].norm(dim=-1, keepdim=True); Y = Ym[:, c]
+        assert torch.allclose(out['lin1'][:, c], (Q @ K.T) @ Y / 12, atol=1e-5)
+        G = (K @ K.T).double()
+        dual_lin = (Q.double() @ K.T.double()) @ torch.linalg.solve(G + ec.LAM * torch.eye(12, dtype=torch.float64), Y.double())
+        assert torch.allclose(out['krlin'][:, c].double(), dual_lin, atol=1e-4)            # primal H x H == dual N x N (linear kernel)
+        d2 = [float(((K[i] - K[j]) ** 2).sum()) for i in range(12) for j in range(i + 1, 12)]
+        s2 = float(torch.tensor(d2).median())
+        kq = torch.exp(-((Q[:, None] - K[None]) ** 2).sum(-1) / (2 * s2))                   # median heuristic: exp(-d^2 / 2 s2) = exp((cos - 1) / s2)
+        assert torch.allclose(out['soft1'][:, c], (kq / kq.sum(1, keepdim=True)) @ Y, atol=1e-5)
+        assert torch.allclose(out['exp1'][:, c], kq @ Y / 12, atol=1e-5)
+        Km = torch.exp(-((K[:, None] - K[None]) ** 2).sum(-1) / (2 * s2)).double()
+        kr = kq.double() @ torch.linalg.solve(Km + ec.LAM * torch.eye(12, dtype=torch.float64), Y.double())
+        assert torch.allclose(out['krexp'][:, c].double(), kr, atol=1e-4)
+
+
 if __name__ == '__main__':
-    test_ridge_equals_stream_win(); test_controls_window_only(); test_control_maps(); print('ok')
+    test_ridge_equals_stream_win(); test_controls_window_only(); test_control_maps(); test_attn_window_only(); test_attn_maps_explicit(); print('ok')

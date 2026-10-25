@@ -105,3 +105,12 @@ Firm-up criterion **NOT met**. Base sanity OK (E tefl L1440/96 .3010/.3058/.3179
 - T a1 base ~.88-.97, win_row -17~-43%; no a0, tefl pending 7742.
 - Inactive cells (window too short: L-2H+1 < NV): L384/H192, L384/H336, L720/H336.
 Summary script: patchmem/logs/server/win_ck/summ.py.
+
+### win_attn batch: in-context attention on the error window (designed 2026-10-25 with the user, fixed before results)
+`win_check.py --arms attn` (`sbatch patchmem/slurm/win_check.sbatch D BASE attn`, logs win_attn_{D}_{BASE}.txt, json win_ck/win_attn_*.json).
+Same window [t-L+H, t-H], same out-of-sample alpha (clip [0,1], NV = H, no EMA) as win_row; keys L2-normalised, context = the same variable's window pairs.
+- lin1: mean_j cos(q,k_j) e_j (ICL-0 analogue) | krlin: per-variable ridge on unit keys (lam 1)
+- exp1: mean_j exp((cos-1)/s2) e_j (1 GD step in Gaussian-kernel space) | soft1: softmax(cos/s2) attention | krexp: Gaussian kernel ridge (lam 1)
+- s2 = median pairwise squared distance of unit keys (median heuristic; <= 256 evenly spaced keys, user choice 1); keys row and ced (user choice 2); L2 normalisation (user choice 3).
+- Criterion: kernel helps iff exp1 < lin1 and krexp < krlin; softmax normalisation helps iff soft1 < exp1; 3/3 seeds; watch A0 especially.
+- Tests 10 pass (explicit dual / loop per arm, window-only). Codex: no leak / transpose bug; fixes: float64 before exp, added exp1 to separate kernel from normalisation.
