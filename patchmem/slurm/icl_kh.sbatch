@@ -18,6 +18,7 @@ s=${1:-3047}; D=${2:-E}; V=${3:-id}; KEY=${4:-row}; KT=$([ $KEY = ced ] && echo 
 CK=./checkpoints/long_term_forecast_ETTh2_r1_MambaTS_ETTh2_ftM_sl1440_ll48_pl336_dm16_nh16_el5_dl2_df2048_fc1_ebtimeF_dtTrue
 echo "commit $(git rev-parse --short HEAD) seed $s"
 if [ $D = T ]; then CK=./checkpoints/long_term_forecast_traffic32_r1_MambaTS_custom_ftM_sl1440_ll48_pl336_dm32_nh16_el3_dl2_df512_fc1_ebtimeF_dtTrue; A1=${CK}_R1Th0s${s}_0/checkpoint.pth; SH=patchmem/r1_traffic32.sh; elif [ $D = W ]; then CK=./checkpoints/long_term_forecast_weather_r1_MambaTS_custom_ftM_sl1440_ll48_pl336_dm32_nh16_el3_dl2_df512_fc1_ebtimeF_dtTrue; A1=${CK}_R1Wh0s${s}_0/checkpoint.pth; SH=patchmem/r1_weather.sh; else A1=${CK}_R1h0s${s}_0/checkpoint.pth; SH=patchmem/r1_etth2.sh; fi
+[ $V = hyb ] && [ $D != E ] && { echo "hyb needs the ETTh2 T0-MS checkpoint"; exit 1; }
 [ $V = hyb ] && A1=${CK}_R1TfmsR64h0s${s}_0/checkpoint.pth
 SEED=$s R1_TEFL=ms R1_ICL=$V R1_ICL_KEY=$KEY R1_ICL_KH=$KH R1_ICL_ETA0=1 R1_ICL_ETA_FIX=1 R1_EVAL_FROM=$A1 DES=R1Icl${V}${KT}${KX}s$s EXTRA="--is_training 0" bash $SH > patchmem/logs/server/${D}_icl${V}${KT}${KX}_s$s.txt 2>&1
 grep -E "R1TeflICL|eval-from|audit test\]|Traceback|Error" patchmem/logs/server/${D}_icl${V}${KT}${KX}_s$s.txt | cut -c1-400
