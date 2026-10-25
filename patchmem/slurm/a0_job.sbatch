@@ -1,6 +1,7 @@
 #!/bin/bash
 # PAT-307 A0 (official MambaTS, official per-dataset/horizon args from scripts/long_term_forecast/MambaTS_{ETTm2,WTH}.sh), L=720.
-# usage: sbatch patchmem/slurm/a0_job.sbatch DATA H SEED [L=720]      DATA: ETTh2 | ETTm2 | W
+# usage: sbatch patchmem/slurm/a0_job.sbatch DATA H SEED [L=720]      DATA: ETTh2 | ETTm2 | W | T
+# T (traffic32, 2026-10-25): no official 32-channel args; uses the traffic32 R1 / TEFL architecture (= Weather H96 A0 args).
 # L != 720 reuses the official per-horizon args of L=720 (the official scripts only give L=720).
 #SBATCH --job-name=pat307_a0
 #SBATCH --output=patchmem/logs/server/slurm_%j.txt
@@ -19,6 +20,7 @@ case $D in
   ETTm2) A="--root_path ./dataset/ETT-small --data_path ETTm2.csv --enc_in 7 --dec_in 7 --c_out 7 --model_id ETTm2_${L}_$H --data ETTm2 --e_layers 3 --n_heads 16 --d_model 16 --dropout 0.3 --batch_size 16 --learning_rate 0.001" ;;
   W) if [ "$H" = 96 ]; then X="--e_layers 3 --dropout 0.2 --batch_size 8 --learning_rate 0.0005"; elif [ "$H" = 192 ]; then X="--e_layers 2 --dropout 0.3 --batch_size 16 --learning_rate 0.001"; else X="--e_layers 2 --dropout 0.3 --batch_size 8 --learning_rate 0.001"; fi
      A="--root_path ./dataset/weather --data_path weather.csv --enc_in 21 --dec_in 21 --c_out 21 --model_id weather_${L}_$H --data custom --n_heads 16 --d_model 32 --d_ff 512 $X" ;;
+  T) A="--root_path ./dataset/traffic32 --data_path traffic32.csv --target 856 --enc_in 32 --dec_in 32 --c_out 32 --model_id traffic32_${L}_$H --data custom --n_heads 16 --d_model 32 --d_ff 512 --e_layers 3 --dropout 0.2 --batch_size 8 --learning_rate 0.0005" ;;
   *) echo "unknown data $D"; exit 1 ;;
 esac
 echo "commit $(git rev-parse --short HEAD) A0 $D L$L H$H seed $s"

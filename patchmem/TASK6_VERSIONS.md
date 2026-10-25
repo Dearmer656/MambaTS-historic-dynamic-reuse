@@ -122,3 +122,9 @@ Summary script patchmem/logs/server/win_ck/summ_attn.py. So far:
 - a0 (E, W partial): every attention arm 0 or worse.
 - per-variable linear ridge (krlin_row) < pooled win_row on E / W (sharing across variables helps); on T similar.
 - win_ck T tefl: win_row -0.6 / -1.6 / -2.7% (L384/720/1440), beats all controls 3/3.
+
+### Traffic-32 A0 training (2026-10-25, user "提")
+`sbatch patchmem/slurm/a0_job.sbatch T 96 SEED L` for L in 384/720/1440, seeds 3047-3049 (9 jobs, 3090). No official 32-channel args, so the traffic32 R1/TEFL
+architecture is used (dm32 el3 df512 nh16 dropout .2 bs8 lr 5e-4 patch 48; = Weather H96 A0 args); one direct model per L (like E / W A0).
+Eval args: CFG['T']['a0']. Codex: ckpt name matches win_check.a0_errors glob; eval args reproduce training. Logs A0_T_L{L}_H96_s{s}.txt.
+Then: win_check T a0 (ctrl and attn).
