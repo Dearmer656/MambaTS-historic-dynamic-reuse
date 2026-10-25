@@ -128,3 +128,4 @@ Summary script patchmem/logs/server/win_ck/summ_attn.py. So far:
 architecture is used (dm32 el3 df512 nh16 dropout .2 bs8 lr 5e-4 patch 48; = Weather H96 A0 args); one direct model per L (like E / W A0).
 Eval args: CFG['T']['a0']. Codex: ckpt name matches win_check.a0_errors glob; eval args reproduce training. Logs A0_T_L{L}_H96_s{s}.txt.
 Then: win_check T a0 (ctrl and attn).
+- Repacked 2026-10-25 (user: two tasks per 3090): 8647 (L384 s3047) runs alone; pending 8648-8655 cancelled -> a0_pair.sbatch 8658 (384: s3048,s3049), 8659 (720: s3047,s3048), 8660 (720 s3049, 1440 s3047), 8661 (1440: s3048,s3049). Same args / logs.
