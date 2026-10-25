@@ -169,3 +169,9 @@ Codex: fixed min context (H + 1 as stream_ctrl), zero guards; day buckets not ca
 - Runs (patchmem/slurm/train_pack.sbatch, 3 per card): E/W/T H96 hybmean / hybperm x 3 seeds; Traffic H192 a1 / tefl / hyb x 3 seeds.
 - Criterion: hyb < hybmean and hyb < hybperm (3/3) => the gain needs query-dependent in-context pairing; otherwise report it as a
   residual-mean correction.
+
+### 2026-10-26 results: hyb controls (W/T), H192, gain vs #in-window examples
+- Training-time controls H96 L1440: W hyb .1831/.1829/.1840 vs hybmean .1960/.1942/.1948 and hybperm —/.1939/.1943 (s3047 running): W gain needs the paired map (criterion likely passes). T hybmean .5507/.5484/.5505 < hyb .5558/.5535/.5549 (3/3), hybperm .5563/.5572/.5562: T gain = recent-residual mean (criterion fails). E fails (hybperm 2/3).
+- H192 L1440 hyb vs TEFL: E −3.0/−0.7/+1.5%, W −0.25/−0.41/−0.82%; T TEFL still training (hyb .5219/.5211/.5196).
+- Gain vs #examples (n = L/48 − 2H/48; same trained model tested at L384/720/1440), H96 3-seed mean: E −1.6/−2.8/−3.4%, W −2.7/−5.6/−5.8%, T −1.2/−4.7/−4.5% (n = 4/11/26). H192 W: ≈0 / −0.6 / −0.5% (n = 0/7/22): the H192 drop is not explained by n; hypothesis n/K (13 vs 5.5), untested. E at n = 0 (hyb ≡ TEFL structurally) still varies ±3%: ETTh2 run-to-run noise.
+- Diagnostic in flight: job 8991 (R1_ICL_WDUMP, commit 38da1f4), hyb demo weights train vs test, W/T x 3 seeds.
