@@ -74,12 +74,6 @@ def test_row_feature_indexing_no_lookahead_and_transport():
     assert (E[late, :H] - c[late]).square().mean() < 0.9 * E[late, :H].square().mean() and bool(act[late].all())
 
 
-if __name__ == '__main__':
-    test_row_feature_indexing_no_lookahead_and_transport()
-    test_win_matches_brute_force_and_window()
-    test_ced_indexing(); test_no_lookahead(); test_recovers_transport(); print('ok')
-
-
 def _brute_win(E, H, nv, feat, L, calibrate=True):
     """Direct recomputation of the lookback-limited stream from the explicit origin set at each t."""
     N, _, C = E.shape
@@ -121,3 +115,9 @@ def test_win_matches_brute_force_and_window():
             c2, _ = ec.stream(E2, H, 0, 2, cal, feat, win=L)
             assert torch.allclose(c[t], c2[t], atol=1e-5) and bool(a[t]), (feat, cal)
         assert not torch.equal(ec.stream(E, H, 0, 2, False, feat)[0][t], ec.stream(E2, H, 0, 2, False, feat)[0][t])   # full stream does see it
+
+
+if __name__ == '__main__':
+    test_row_feature_indexing_no_lookahead_and_transport()
+    test_win_matches_brute_force_and_window()
+    test_ced_indexing(); test_no_lookahead(); test_recovers_transport(); print('ok')
