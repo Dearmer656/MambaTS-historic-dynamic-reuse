@@ -207,3 +207,9 @@ Gain kept vs hyb's own ICL term (>1 = better than hyb), and absolute test MSE:
   combination is close to an equal mix on average; per-window variation not yet measured.
 - Criterion (kept > 1 on W, 3/3): PASSED (also on T). Open: is it per-case selection or the ensemble of restricted fits? Needs a
   fixed-uniform combination control (not pre-registered).
+- Follow-up (job 9086, commit f9ba398, `patchmem/icl_sel_summ.py`): validated selection vs uniform 1/4 mix.
+  W: sel1 vs avg1 +0.21/−0.26/−0.20%, sel vs avg −0.16/−0.15/−0.11% -> criterion (both 3/3) NOT met: W gain ≈ ensemble of restricted fits.
+  T: sel1 vs avg1 −0.84/−0.83/−0.88%, sel vs avg −0.37% x3 -> selection adds ~0.85% on top of the ensemble (avg1 alone −6.6% vs hyb).
+  Weights: mean max W .35, T .32 (uniform .25); KL W .085–.094, T .027–.031. Gain over uniform by KL quartile: T rises monotonically
+  3/3 (+.0003 -> +.010); W mixed (top quartile −.0013/+.0015/+.0012). argmax w = best fixed set: W .28–.29, T .44 (chance .25).
+  Oracle per-(window, variable) pick among the 4 one-step sets: W .148, T .459 (vs sel1 .178–.180 / .513–.515; optimistic: min of 4).
