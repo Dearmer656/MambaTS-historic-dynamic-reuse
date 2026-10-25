@@ -34,7 +34,8 @@ PAT-313 case analysis (2026-10-26, fixed before results; inference audits on a t
   pass banks every window's demos (fp32, CPU) and logs Delta_t (the ICL term); then iclconst (Delta_t -> its pass mean), iclswap<d> (demos of
   window (i - d) mod N, query and TEFL part kept), iclproj_{const,lin,daily,common} (Delta_t projected; daily period R1_ICL_PERIOD).
   Windows are indexed by win_ptr (eval order, reset by set_audit), so the audited split must be read in order (stride 1).
-  Point 6 (select then adapt): iclsel / iclsel1 / iclselfix_{all,recent4,phase,topk8} (sel_correct; phase lags R1_ICL_SELPHASE).
+  Point 6 (select then adapt): iclsel / iclsel1 / iclselfix_{all,recent4,phase,topk8} (sel_correct; phase lags R1_ICL_SELPHASE);
+  controls iclselavg / iclselavg1 (uniform 1/4 mix) and iclselfix1_<set> (one GD step on one set); per-window weights -> sel_wdump.
 Weight dump (2026-10-26, diagnostic): with R1_ICL_WDUMP=<prefix>, Exp_R1.audit records the GD-step demo weights
   <phi(k_j), phi(q)> / (|phi(q)| sum_j |phi(k_j)|) (mean over variables) of the normal pass per split -> <prefix>_<split>_L<L>H<H>.pt
   (demo j = in-window origin patch j; query origin T-1-K; lag in patches = T-1-K-j).
@@ -124,6 +125,7 @@ class R1TeflICL(R1TeflMS):
         self.win_ptr, self.case_collect, self.case_period = 0, False, 0                    # PAT-313 case analysis (Exp_R1.audit, R1_ICL_XAUDIT)
         self._bank, self._icl_log, self.bank, self.icl_mean = [], [], None, None
         self.sel_phase, self.sel_log, self.K_last = [], [], self.hmax                   # PAT-313 point 6 (iclsel*)
+        self.sel_wdump = None
 
     def set_audit(self, mode=None, seed=0):
         self.win_ptr = 0                                                                  # PAT-313: window index within an eval pass
@@ -272,12 +274,16 @@ class R1TeflICL(R1TeflMS):
         assert bool(mask.all()), 'iclsel assumes unpadded eval windows (every demo valid), as iclperm'
         Phi, R = k.permute(0, 2, 1, 3), v.permute(0, 2, 1, 3)                          # (b, C, n, r), (b, C, n, d)
         n = Phi.shape[2]
-        onestep = self.audit == 'iclsel1'
+        a = self.audit
+        onestep = a in ('iclsel1', 'iclselavg1') or a.startswith('iclselfix1_')
         qpos = n + self.K_last - 1                                                       # the real query origin j0
         sets, base = self.sel_masks(Phi, q, qpos, mask)
-        if self.audit.startswith('iclselfix_'):
-            name = self.audit[len('iclselfix_'):]
-            return self.sel_fit(Phi, R, q, sets[name], base, False, hmax, P)
+        if a.startswith(('iclselfix_', 'iclselfix1_')):                                  # one fixed set (ridge | one GD step)
+            name = a.split('_', 1)[1]
+            return self.sel_fit(Phi, R, q, sets[name], base, onestep, hmax, P)
+        outs = torch.stack([self.sel_fit(Phi, R, q, sets[name], base, onestep, hmax, P) for name in self.SEL_SETS])
+        if a in ('iclselavg', 'iclselavg1'):                                             # control: fixed uniform combination
+            return outs.mean(0)
         err = torch.zeros(len(self.SEL_SETS), b, c, device=Phi.device, dtype=torch.float64)
         for p in range(max(0, n - m_val), n):
             xp = Phi[:, :, p]
@@ -286,7 +292,8 @@ class R1TeflICL(R1TeflMS):
                 err[i] += (R[:, :, p] - self.sel_fit(Phi, R, xp, sp[name], bp, onestep, hmax, P)).double().square().sum(-1)
         w = torch.softmax(-err / err.min(0).values.clamp_min(1e-12), dim=0).to(Phi.dtype)   # (S, b, C)
         self.sel_log.append(w.mean((1, 2)).detach().cpu())
-        outs = torch.stack([self.sel_fit(Phi, R, q, sets[name], base, onestep, hmax, P) for name in self.SEL_SETS])
+        if self.sel_wdump is not None:                                                    # per-window weights (S, b, C)
+            self.sel_wdump.append(w.detach().float().cpu())
         return (w[..., None] * outs).sum(0)
 
     def case_basis(self, kind, n, device):

@@ -591,10 +591,11 @@ class Exp_R1(Exp_Long_Term_Forecast):
             st = int(os.environ.get('R1_AUDIT_TRAIN_STRIDE', '8')) if flag == 'train' else 1
             for name, mode, seed in modes:
                 m.set_audit(mode, seed)
-                case = isinstance(m, R1TeflICL) and bool(os.environ.get('R1_ICL_XAUDIT')) and name in ('normal', 'icloff')
+                case = isinstance(m, R1TeflICL) and bool(os.environ.get('R1_ICL_XAUDIT')) and (name in ('normal', 'icloff') or name.startswith('iclsel'))
                 if case:                                                                 # PAT-313: one (L, H) cell, split read in order
                     assert len(g) == 1 and st == 1, 'R1_ICL_XAUDIT needs one audit cell and stride 1'
                     m.case_collect, self.errlog = name == 'normal', []
+                    m.sel_wdump = [] if name in ('iclsel', 'iclsel1') else None
                 if name == 'normal' and os.environ.get('R1_ICL_WDUMP') and isinstance(m, R1TeflICL):   # one (L, H) per dump file
                     out[name] = {}
                     for cell in g:
@@ -613,8 +614,14 @@ class Exp_R1(Exp_Long_Term_Forecast):
                     if name == 'normal':
                         torch.save(dict(icl=m.finalize_case(), err=torch.cat(self.errlog)), f'{pre}_normal.pt')
                         m.case_collect = False
-                    else:
+                    elif name == 'icloff':
                         torch.save(dict(err=torch.cat(self.errlog)), f'{pre}_icloff.pt')
+                    else:                                                                # iclsel*: errors (+ per-window set weights)
+                        dd = dict(err=torch.cat(self.errlog))
+                        if m.sel_wdump:
+                            dd['w'] = torch.cat(m.sel_wdump, 1)                          # (S, N, C)
+                        torch.save(dd, f'{pre}_{name}.pt')
+                        m.sel_wdump = None
                     self.errlog = None
             m.set_audit(None)
             assert self.eval_order() == order, 'audit changed the scan order'

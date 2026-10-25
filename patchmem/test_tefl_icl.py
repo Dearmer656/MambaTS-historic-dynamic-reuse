@@ -38,7 +38,7 @@ def stub(variant, n=4, C=2, K=3, P=4, r=5, b=3):
     s = SimpleNamespace(variant=variant, audit=None, hmax=K, ridge_rel=None, nshrink=0.0, icl_gen=torch.Generator().manual_seed(0),
                         perm_gen=torch.Generator().manual_seed(1), wlog=None, win_ptr=0, case_collect=False, case_period=6,
                         _bank=[], _icl_log=[], bank=None, icl_mean=None, sel_phase=[3, 5], sel_log=[], K_last=K,
-                        SEL_SETS=R1TeflICL.SEL_SETS,
+                        SEL_SETS=R1TeflICL.SEL_SETS, sel_wdump=None,
                         W1=nn.Linear(din, r, bias=False), W2=nn.Linear(r, din, bias=False),
                         Wq=nn.Linear(din, r, bias=False), Wk=nn.Linear(din, r, bias=False), eta=nn.Parameter(torch.ones(K)))
     s.phi = lambda e, role: R1TeflICL.phi(s, e, role)
@@ -335,3 +335,21 @@ def test_iclsel_modes_run():
         out = _run(s, d, e, mode)
         assert out.shape == d.shape and torch.isfinite(out).all() and s.win_ptr == 2, mode
     assert len(s.sel_log) == 2 and torch.allclose(s.sel_log[0].sum(), torch.tensor(1.0), atol=1e-5)
+
+
+def test_iclsel_controls():
+    s, d, e = stub('hyb', n=10, b=2)
+    outs = {}
+    for mode in ('iclselavg1', 'iclselfix1_all', 'iclselfix1_recent4', 'iclselfix1_phase', 'iclselfix1_topk8', 'iclsel1'):
+        s.win_ptr = 0
+        if mode == 'iclsel1':
+            s.sel_wdump = []
+        outs[mode] = _run(s, d, e, mode) - d
+    avg = sum(outs[f'iclselfix1_{k}'] for k in R1TeflICL.SEL_SETS) / 4
+    assert torch.allclose(outs['iclselavg1'], avg, atol=1e-5)                                        # uniform mix of the fixed sets
+    full = (_run(s, d, e, None) - d)
+    assert torch.allclose(outs['iclselfix1_all'], full, atol=1e-5)                                   # one GD step on all = hyb
+    w = s.sel_wdump[0]
+    assert w.shape == (4, 2, 2) and torch.allclose(w.sum(0), torch.ones(2, 2), atol=1e-5)
+    mix = sum(w[i][..., None, None] * outs[f'iclselfix1_{k}'] for i, k in enumerate(R1TeflICL.SEL_SETS))
+    assert torch.allclose(outs['iclsel1'], mix, atol=1e-5)                                          # validated mix of the same fits
