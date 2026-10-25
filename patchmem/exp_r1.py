@@ -578,6 +578,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
                 xa = [x for x in os.environ.get('R1_ICL_XAUDIT', '').split(',') if x]   # PAT-313 case audits (after normal + icloff)
                 modes += [(x, x, 0) for x in xa]
                 m.case_period = int(os.environ.get('R1_ICL_PERIOD', '0'))
+                m.sel_phase = [int(x) for x in os.environ.get('R1_ICL_SELPHASE', '').split(',') if x]
         else:
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('uniform', 'uniform', 0)] + [(f'perm{s}', 'perm', s) for s in range(reps)]
             if getattr(m.obs_net, 'path', False) or getattr(m.obs_net, 'vpath', False):                                       # O-PaTH: path removed at inference
@@ -603,6 +604,10 @@ class Exp_R1(Exp_Long_Term_Forecast):
                     m.wlog = None
                 else:
                     out[name] = self.eval_grid(flag, g, stride=st)
+                if isinstance(m, R1TeflICL) and name.startswith('iclsel') and m.sel_log:   # PAT-313 point 6: mean set weights
+                    wm = torch.stack(m.sel_log).mean(0).tolist()
+                    print(f'[R1Mem audit {flag} {name} set weights] ' + ' '.join(f'{k_} {v_:.3f}' for k_, v_ in zip(m.SEL_SETS, wm)), flush=True)
+                    m.sel_log = []
                 if case:
                     pre = f"{os.environ['R1_ICL_CASEDUMP']}_{flag}_L{g[0][0]}H{g[0][1]}"
                     if name == 'normal':

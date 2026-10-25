@@ -37,13 +37,17 @@ def stub(variant, n=4, C=2, K=3, P=4, r=5, b=3):
     din = K * P
     s = SimpleNamespace(variant=variant, audit=None, hmax=K, ridge_rel=None, nshrink=0.0, icl_gen=torch.Generator().manual_seed(0),
                         perm_gen=torch.Generator().manual_seed(1), wlog=None, win_ptr=0, case_collect=False, case_period=6,
-                        _bank=[], _icl_log=[], bank=None, icl_mean=None,
+                        _bank=[], _icl_log=[], bank=None, icl_mean=None, sel_phase=[3, 5], sel_log=[], K_last=K,
+                        SEL_SETS=R1TeflICL.SEL_SETS,
                         W1=nn.Linear(din, r, bias=False), W2=nn.Linear(r, din, bias=False),
                         Wq=nn.Linear(din, r, bias=False), Wk=nn.Linear(din, r, bias=False), eta=nn.Parameter(torch.ones(K)))
     s.phi = lambda e, role: R1TeflICL.phi(s, e, role)
     s.case_transform = lambda a: R1TeflICL.case_transform(s, a)
     s.case_basis = lambda kind, n, dev: R1TeflICL.case_basis(s, kind, n, dev)
     s.finalize_case = lambda: R1TeflICL.finalize_case(s)
+    s.sel_masks = lambda *a: R1TeflICL.sel_masks(s, *a)
+    s.sel_fit = lambda *a: R1TeflICL.sel_fit(s, *a)
+    s.sel_correct = lambda *a, **kw: R1TeflICL.sel_correct(s, *a, **kw)
     g = torch.Generator().manual_seed(1)
     s.demo = dict(k=torch.randn(b, n, C, din, generator=g), v=torch.randn(b, n, C, din, generator=g), mask=torch.ones(b, n, dtype=torch.bool))
     delta, eps = torch.randn(b, C, K, P, generator=g), torch.randn(b, C, din, generator=g)
@@ -293,3 +297,41 @@ def test_case_projections():
     assert torch.allclose(R1TeflICL.case_transform(s, x), x.mean(1, keepdim=True).expand_as(x))
     s.audit = None
     assert torch.equal(R1TeflICL.case_transform(s, x), x)
+
+
+def test_sel_masks_and_fit():
+    s, d, e = stub('hyb', n=10, b=2)                                                                 # K = 3, query origin j0 = n + K - 1 = 12
+    q = torch.relu(s.W1(e)); k = torch.relu(s.W1(s.demo['k'])); v = s.demo['v'] - s.W2(k)
+    Phi, R = k.permute(0, 2, 1, 3), v.permute(0, 2, 1, 3)
+    valid = torch.ones(2, 10, dtype=torch.bool)
+    sets, base = R1TeflICL.sel_masks(s, Phi, q, 12, valid)
+    assert bool(base.all())                                                                         # every demo has lag >= K at j0
+    lag = 12 - torch.arange(10)
+    assert torch.equal(sets['recent4'][0, 0], (lag >= 3) & (lag < 7))
+    assert torch.equal(sets['phase'][0, 0], (lag == 3) | (lag == 5))
+    assert int(sets['topk8'][0, 0].sum()) == 8
+    sp, bp = R1TeflICL.sel_masks(s, Phi, Phi[:, :, 6], 6, valid)                                    # pseudo-query at demo 6: j <= 3 usable
+    assert torch.equal(bp[0, 0], torch.arange(10) <= 3)
+    # ridge on a subset == explicit per-(b, c) dual ridge
+    M = sets['recent4']
+    out = R1TeflICL.sel_fit(s, Phi, R, q, M, base, False, 3, 4)
+    for bi in range(2):
+        for ci in range(2):
+            idx = M[bi, ci].nonzero().squeeze(-1)
+            F, Y = Phi[bi, ci, idx].double(), R[bi, ci, idx].double()
+            lam = Phi[bi, ci].square().sum(-1).mean().double()
+            ref = Y.T @ torch.linalg.solve(F @ F.T + lam * torch.eye(len(idx), dtype=torch.float64), F @ q[bi, ci].double())
+            assert torch.allclose(out[bi, ci].double(), ref, atol=1e-4)
+    # one GD step on all demos == hyb's own ICL term
+    add = R1TeflICL.sel_fit(s, Phi, R, q, base, base, True, 3, 4)
+    full = (R1TeflICL.extra_delta(s, d, e, None) - d).reshape(2, 2, 12)
+    assert torch.allclose(add, full, atol=1e-5)
+
+
+def test_iclsel_modes_run():
+    s, d, e = stub('hyb', n=10, b=2)
+    for mode in ('iclsel', 'iclsel1', 'iclselfix_phase'):
+        s.win_ptr = 0
+        out = _run(s, d, e, mode)
+        assert out.shape == d.shape and torch.isfinite(out).all() and s.win_ptr == 2, mode
+    assert len(s.sel_log) == 2 and torch.allclose(s.sel_log[0].sum(), torch.tensor(1.0), atol=1e-5)

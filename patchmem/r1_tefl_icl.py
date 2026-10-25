@@ -34,6 +34,7 @@ PAT-313 case analysis (2026-10-26, fixed before results; inference audits on a t
   pass banks every window's demos (fp32, CPU) and logs Delta_t (the ICL term); then iclconst (Delta_t -> its pass mean), iclswap<d> (demos of
   window (i - d) mod N, query and TEFL part kept), iclproj_{const,lin,daily,common} (Delta_t projected; daily period R1_ICL_PERIOD).
   Windows are indexed by win_ptr (eval order, reset by set_audit), so the audited split must be read in order (stride 1).
+  Point 6 (select then adapt): iclsel / iclsel1 / iclselfix_{all,recent4,phase,topk8} (sel_correct; phase lags R1_ICL_SELPHASE).
 Weight dump (2026-10-26, diagnostic): with R1_ICL_WDUMP=<prefix>, Exp_R1.audit records the GD-step demo weights
   <phi(k_j), phi(q)> / (|phi(q)| sum_j |phi(k_j)|) (mean over variables) of the normal pass per split -> <prefix>_<split>_L<L>H<H>.pt
   (demo j = in-window origin patch j; query origin T-1-K; lag in patches = T-1-K-j).
@@ -122,10 +123,11 @@ class R1TeflICL(R1TeflMS):
         self.wlog = None                                                                  # list, set by Exp_R1.audit under R1_ICL_WDUMP
         self.win_ptr, self.case_collect, self.case_period = 0, False, 0                    # PAT-313 case analysis (Exp_R1.audit, R1_ICL_XAUDIT)
         self._bank, self._icl_log, self.bank, self.icl_mean = [], [], None, None
+        self.sel_phase, self.sel_log, self.K_last = [], [], self.hmax                   # PAT-313 point 6 (iclsel*)
 
     def set_audit(self, mode=None, seed=0):
         self.win_ptr = 0                                                                  # PAT-313: window index within an eval pass
-        if mode is not None and mode.startswith(('iclconst', 'iclswap', 'iclproj_')):
+        if mode is not None and mode.startswith(('iclconst', 'iclswap', 'iclproj_', 'iclsel')):
             self.audit = mode
             return
         if mode in ('icloff', 'iclperm'):
@@ -147,6 +149,7 @@ class R1TeflICL(R1TeflMS):
         _, _, _, t0, tm = self.revin(x, lens)
         tok = self.embed(self.to_scan(xo, perm)).reshape(b, T * c, -1)
         E, avail = multistep_residuals(self, tok, xo, perm, tm, t0, K)                 # (b, T-1, K, C, P), (b, T-1, K)
+        self.K_last = K
         eps, self.demo = (demos_ced if self.key == 'ced' else demos)(E, avail, K)
         if K < self.hmax:                                                                # zero-pad leads K+1..Hmax: W1 input size fixed
             pad = lambda e: torch.cat([e, e.new_zeros(*e.shape[:-1], (self.hmax - K) * P)], -1)
@@ -188,6 +191,10 @@ class R1TeflICL(R1TeflMS):
         if self.audit == 'iclperm':                                                      # eval windows are unpadded: every demo valid
             assert bool(D['mask'].all()), 'iclperm assumes no masked demos'
             v = v[:, torch.randperm(v.shape[1], generator=self.icl_gen).to(v.device)]
+        if self.audit is not None and self.audit.startswith('iclsel'):                   # PAT-313 point 6: select then adapt
+            add = self.sel_correct(q, k, v, D['mask'], b, c, hmax, P)
+            self.win_ptr += b
+            return delta + add.reshape(b, c, hmax, P)
         m = D['mask'][:, :, None].to(q.dtype)                                            # (b, n, 1)
         if self.variant in ('ridge', 'hybridge'):                                        # closed-form ridge on the same demos, per variable
             kk = (k * m[..., None]).permute(0, 2, 1, 3)                                  # (b, C, n, d), masked demos -> 0 rows
@@ -218,6 +225,69 @@ class R1TeflICL(R1TeflMS):
         add = self.case_transform(add)
         self.win_ptr += b
         return delta + add.reshape(b, c, hmax, P)
+
+    SEL_SETS = ('all', 'recent4', 'phase', 'topk8')
+
+    def sel_masks(self, Phi, x, qpos, valid):
+        """Demo sets (b, C, n) bool for a query at origin qpos with features x (b, C, r): lag = qpos - j, usable iff lag >= K."""
+        b, C, n, _ = Phi.shape
+        j = torch.arange(n, device=Phi.device)
+        lag = qpos - j
+        base = ((lag >= self.K_last)[None, None] & valid[:, None, :]).expand(b, C, n)
+        ph = torch.zeros(n, dtype=torch.bool, device=Phi.device)
+        for l_ in self.sel_phase:
+            ph |= lag == l_
+        sets = dict(all=base, recent4=base & (lag < self.K_last + 4)[None, None], phase=base & ph[None, None])
+        sim = (Phi @ x[..., None]).squeeze(-1).masked_fill(~base, float('-inf'))
+        kk = int(min(8, base[0, 0].sum()))
+        tk = torch.zeros_like(base)
+        tk.scatter_(-1, sim.topk(kk, -1).indices, True)
+        sets['topk8'] = tk & base
+        return {k_: torch.where(m_.any(-1, keepdim=True), m_, base) for k_, m_ in sets.items()}, base   # empty row -> all usable
+
+    def sel_fit(self, Phi, R, x, M, base, onestep, hmax, P):
+        """Delta for features x from the demos in M: converged ridge in dual form (lam = mean |phi|^2 over the usable demos) or hyb's
+        normalised one GD step restricted to M (times eta). Phi (b, C, n, r), R (b, C, n, d), x (b, C, r) -> (b, C, d)."""
+        Mf = M.to(Phi.dtype)
+        Pm = Phi * Mf[..., None]
+        if not onestep:
+            Pm = Pm.double()
+        if onestep:
+            s_ = (Pm @ x[..., None]).squeeze(-1)
+            den = x.norm(dim=-1) * (Phi.norm(dim=-1) * Mf).sum(-1) + 1e-6
+            out = (s_[..., None] * R).sum(-2) / den[..., None]
+            b, C, d = out.shape
+            return (out.reshape(b, C, hmax, P) * self.eta[None, None, :, None]).reshape(b, C, d)
+        bf = base.to(Phi.dtype)
+        lam = ((Phi.square().sum(-1) * bf).sum(-1) / bf.sum(-1).clamp_min(1)).clamp_min(1e-6)        # (b, C)
+        n = Phi.shape[2]
+        G = Pm @ Pm.transpose(-1, -2) + lam.double()[..., None, None] * torch.eye(n, device=Phi.device, dtype=torch.float64)
+        alpha = torch.linalg.solve(G, Pm @ x[..., None].double())                                       # (b, C, n, 1), float64
+        return ((R * Mf[..., None]).transpose(-1, -2).double() @ alpha).squeeze(-1).to(Phi.dtype)
+
+    def sel_correct(self, q, k, v, mask, b, c, hmax, P, m_val=4):
+        """PAT-313 point 6. Stage 1: pick where to look per window and variable by validating each demo set on the m_val newest demos
+        (pseudo-queries, each using only demos at lag >= K from it); stage 2: fit TEFL's map correction on the chosen demos
+        (iclsel: ridge, softmax(-err / min err) over sets; iclsel1: one GD step; iclselfix_<set>: that set alone, ridge)."""
+        assert bool(mask.all()), 'iclsel assumes unpadded eval windows (every demo valid), as iclperm'
+        Phi, R = k.permute(0, 2, 1, 3), v.permute(0, 2, 1, 3)                          # (b, C, n, r), (b, C, n, d)
+        n = Phi.shape[2]
+        onestep = self.audit == 'iclsel1'
+        qpos = n + self.K_last - 1                                                       # the real query origin j0
+        sets, base = self.sel_masks(Phi, q, qpos, mask)
+        if self.audit.startswith('iclselfix_'):
+            name = self.audit[len('iclselfix_'):]
+            return self.sel_fit(Phi, R, q, sets[name], base, False, hmax, P)
+        err = torch.zeros(len(self.SEL_SETS), b, c, device=Phi.device, dtype=torch.float64)
+        for p in range(max(0, n - m_val), n):
+            xp = Phi[:, :, p]
+            sp, bp = self.sel_masks(Phi, xp, p, mask)
+            for i, name in enumerate(self.SEL_SETS):
+                err[i] += (R[:, :, p] - self.sel_fit(Phi, R, xp, sp[name], bp, onestep, hmax, P)).double().square().sum(-1)
+        w = torch.softmax(-err / err.min(0).values.clamp_min(1e-12), dim=0).to(Phi.dtype)   # (S, b, C)
+        self.sel_log.append(w.mean((1, 2)).detach().cpu())
+        outs = torch.stack([self.sel_fit(Phi, R, q, sets[name], base, onestep, hmax, P) for name in self.SEL_SETS])
+        return (w[..., None] * outs).sum(0)
 
     def case_basis(self, kind, n, device):
         """Orthonormal (n, m) basis over the n lead steps: const | lin (const + linear) | daily (lin + sin/cos of the period, 2 harmonics)."""
