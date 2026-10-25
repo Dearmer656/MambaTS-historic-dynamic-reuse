@@ -139,3 +139,4 @@ day / week lags vs uniform.
 Unit-test finding: an exactly 6-periodic error gives soft1 day ratio 1.54 (max 6.1, effective neighbours 89%), krexp 3.65: the
 median-heuristic softmax is near uniform, kernel ridge sharpens selection.
 Codex: fixed min context (H + 1 as stream_ctrl), zero guards; day buckets not calendar-aligned (documented); env-order remark not a bug (exp_r1 reads env at model build).
+- 2026-10-25 23:00: elm72 (6000) fails in mamba triton layer_norm ('invalid argument to exchangeDevice'): A0 jobs 8663/8664 and gain_src 8672/8673 all failed before computing. Resubmitted: A0 8675/8676 (a100-80, 4 per card), gain_src 8677/8678 (a6000, 4 per card); packing sbatches now --exclude=elm72. First Traffic A0: L384 s3047 test MSE .4476 (3090 job 8647).
