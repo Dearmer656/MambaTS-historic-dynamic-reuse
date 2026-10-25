@@ -30,6 +30,10 @@ Training-time controls of 'hyb' (2026-10-26, fixed before results; the inference
                  <phi(k_j), phi(q)> / (|phi(q)| sum_j |phi(k_j)|), i.e. cos(q, k_j) -> 1 (a recent-residual mean; same scale, no selection).
   variant 'hybperm': as 'hyb' with the demo residuals v_j - W2 phi(k_j) permuted among the sample's valid demos at every forward
                  (training and evaluation; pairing broken, residual set kept). Its iclperm audit is not informative (already unpaired).
+PAT-313 case analysis (2026-10-26, fixed before results; inference audits on a trained hyb, R1_ICL_XAUDIT in exp_r1.py): the normal
+  pass banks every window's demos (fp32, CPU) and logs Delta_t (the ICL term); then iclconst (Delta_t -> its pass mean), iclswap<d> (demos of
+  window (i - d) mod N, query and TEFL part kept), iclproj_{const,lin,daily,common} (Delta_t projected; daily period R1_ICL_PERIOD).
+  Windows are indexed by win_ptr (eval order, reset by set_audit), so the audited split must be read in order (stride 1).
 Weight dump (2026-10-26, diagnostic): with R1_ICL_WDUMP=<prefix>, Exp_R1.audit records the GD-step demo weights
   <phi(k_j), phi(q)> / (|phi(q)| sum_j |phi(k_j)|) (mean over variables) of the normal pass per split -> <prefix>_<split>_L<L>H<H>.pt
   (demo j = in-window origin patch j; query origin T-1-K; lag in patches = T-1-K-j).
@@ -116,8 +120,14 @@ class R1TeflICL(R1TeflMS):
         self.demo, self.icl_gen = None, torch.Generator().manual_seed(0)
         self.perm_gen = torch.Generator().manual_seed(1)                                 # 'hybperm' training-time permutation
         self.wlog = None                                                                  # list, set by Exp_R1.audit under R1_ICL_WDUMP
+        self.win_ptr, self.case_collect, self.case_period = 0, False, 0                    # PAT-313 case analysis (Exp_R1.audit, R1_ICL_XAUDIT)
+        self._bank, self._icl_log, self.bank, self.icl_mean = [], [], None, None
 
     def set_audit(self, mode=None, seed=0):
+        self.win_ptr = 0                                                                  # PAT-313: window index within an eval pass
+        if mode is not None and mode.startswith(('iclconst', 'iclswap', 'iclproj_')):
+            self.audit = mode
+            return
         if mode in ('icloff', 'iclperm'):
             self.audit = mode
             self.icl_gen = torch.Generator().manual_seed(seed)
@@ -157,8 +167,17 @@ class R1TeflICL(R1TeflMS):
         if self.variant not in HYB:                                                      # W2 term off (also after loading a T0-MS W2)
             delta = torch.zeros_like(delta)
         if D is None or self.audit == 'icloff':
+            assert D is not None or not (self.case_collect or (self.audit or '').startswith(('iclconst', 'iclswap', 'iclproj_'))), \
+                'PAT-313 case audits need demos in every window (win_ptr alignment)'
             return delta
         b, c, hmax, P = delta.shape
+        if self.case_collect and self.audit is None:                                     # normal pass: bank this window's demos (CPU fp16)
+            self._bank.append((D['k'].float().cpu(), D['v'].float().cpu(), D['mask'].cpu()))
+        if self.audit is not None and self.audit.startswith('iclswap'):                  # demos of window (i - d) mod N, query / TEFL kept
+            dd = int(self.audit[len('iclswap'):])
+            N = self.bank[0].shape[0]
+            idx = (torch.arange(self.win_ptr, self.win_ptr + b) - dd) % N
+            D = dict(k=self.bank[0][idx].to(D['k']), v=self.bank[1][idx].to(D['v']), mask=self.bank[2][idx].to(D['mask'].device))
         q = self.phi(eps, 'q')                                                           # (b, C, r) (zero padding: same dot / norm for 'id')
         k = self.phi(D['k'], 'k')                                                        # (b, n, C, r)
         v = D['v']                                                                       # (b, n, C, K*P)
@@ -193,4 +212,45 @@ class R1TeflICL(R1TeflMS):
         if self.nshrink:                                                                 # eta * n / (n + c), n = valid demos
             nv = m[..., 0].sum(1)[:, None, None]                                         # (b, 1, 1)
             icl = icl * nv / (nv + self.nshrink)
-        return delta + icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]
+        add = (icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]).reshape(b, c, hmax * P)   # Delta_t, the ICL term
+        if self.case_collect and self.audit is None:
+            self._icl_log.append(add.detach().float().cpu())
+        add = self.case_transform(add)
+        self.win_ptr += b
+        return delta + add.reshape(b, c, hmax, P)
+
+    def case_basis(self, kind, n, device):
+        """Orthonormal (n, m) basis over the n lead steps: const | lin (const + linear) | daily (lin + sin/cos of the period, 2 harmonics)."""
+        t = torch.arange(n, dtype=torch.float64)
+        cols = [torch.ones(n)]
+        if kind in ('lin', 'daily'):
+            cols.append(t - t.mean())
+        if kind == 'daily':
+            assert self.case_period > 0, 'R1_ICL_PERIOD needed for the daily basis'
+            for h in (1, 2):
+                w = 2 * torch.pi * h * t / self.case_period
+                cols += [torch.sin(w), torch.cos(w)]
+        Q, _ = torch.linalg.qr(torch.stack([c_.double() for c_ in cols], 1))
+        return Q.float().to(device)
+
+    def case_transform(self, add):
+        """PAT-313 audits on Delta_t (b, C, n): iclconst = the test-mean Delta; iclproj_{const,lin,daily} = projection on that basis per
+        (window, variable); iclproj_common = the mean over variables. Anything else: unchanged."""
+        a = self.audit
+        if a == 'iclconst':
+            return self.icl_mean.to(add)[None].expand_as(add)
+        if a is not None and a.startswith('iclproj_'):
+            kind = a[len('iclproj_'):]
+            if kind == 'common':
+                return add.mean(1, keepdim=True).expand_as(add)
+            B = self.case_basis(kind, add.shape[-1], add.device).to(add.dtype)
+            return (add @ B) @ B.T
+        return add
+
+    def finalize_case(self):
+        """After the normal pass: stack the demo bank (N, n, C, d) and the Delta_t log; icl_mean = mean Delta over the pass's windows."""
+        self.bank = tuple(torch.cat(z) for z in zip(*self._bank))
+        icl = torch.cat(self._icl_log)
+        self.icl_mean = icl.float().mean(0)
+        self._bank, self._icl_log = [], []
+        return icl

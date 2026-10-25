@@ -62,6 +62,8 @@ Env:
   R1_AUDIT_FLAGS         splits audited (default 'val,test'; 'train,val,test' adds the training split, every R1_AUDIT_TRAIN_STRIDE-th
                          window, default 8: is the in-context gain specific to the shifted test period?)
   R1_AUDIT_GRID          audit grid 'L:H,...' (default: the test grid); R1_AUDIT_PERM_REPS random key-value pairings (default 3)
+  R1_ICL_XAUDIT=a,b,..   R1TeflICL (PAT-313): extra audits iclconst | iclswap<d> | iclproj_{const,lin,daily,common} (needs one audit
+                         cell, R1_ICL_CASEDUMP=<prefix> for the Delta_t / error dumps, R1_ICL_PERIOD for the daily basis)
   R1_ICL_WDUMP=<prefix>  R1TeflICL: save the normal pass's demo weights per audited split and (L, H) (r1_tefl_icl.py)
   R1_LOG_DIR             root for param snapshots / diagnostics (default patchmem/logs)
 The training loss is the forecast MSE over the sampled horizon (+ lambda_hist * L_hist). L_hist is in-window auxiliary supervision:
@@ -316,6 +318,8 @@ class Exp_R1(Exp_Long_Term_Forecast):
                     pred = m(bx, H // P, trace=tr)['pred']
                 m.diag = False
                 err = pred - y
+                if getattr(self, 'errlog', None) is not None:                            # PAT-313 per-window errors (data scale)
+                    self.errlog.append(err.float().cpu())
                 acc['mse'] += err.square().sum().item(); acc['mae'] += err.abs().sum().item(); acc['n'] += err.numel()
                 var_se += err.square().sum((0, 1)).cpu()
                 ek = err.reshape(err.shape[0], H // P, P, -1)
@@ -571,6 +575,9 @@ class Exp_R1(Exp_Long_Term_Forecast):
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('perm', 'perm', 0)] + ([('recent2', 'recent', 0)] if m.hc == 0 else [])
             if isinstance(m, R1TeflICL):
                 modes += [('icloff', 'icloff', 0)] + [(f'iclperm{s}', 'iclperm', s) for s in range(reps)]
+                xa = [x for x in os.environ.get('R1_ICL_XAUDIT', '').split(',') if x]   # PAT-313 case audits (after normal + icloff)
+                modes += [(x, x, 0) for x in xa]
+                m.case_period = int(os.environ.get('R1_ICL_PERIOD', '0'))
         else:
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('uniform', 'uniform', 0)] + [(f'perm{s}', 'perm', s) for s in range(reps)]
             if getattr(m.obs_net, 'path', False) or getattr(m.obs_net, 'vpath', False):                                       # O-PaTH: path removed at inference
@@ -583,16 +590,27 @@ class Exp_R1(Exp_Long_Term_Forecast):
             st = int(os.environ.get('R1_AUDIT_TRAIN_STRIDE', '8')) if flag == 'train' else 1
             for name, mode, seed in modes:
                 m.set_audit(mode, seed)
-                dump = name == 'normal' and os.environ.get('R1_ICL_WDUMP') and isinstance(m, R1TeflICL)
-                if dump:                                                                 # one (L, H) per dump file: eval per cell
+                case = isinstance(m, R1TeflICL) and bool(os.environ.get('R1_ICL_XAUDIT')) and name in ('normal', 'icloff')
+                if case:                                                                 # PAT-313: one (L, H) cell, split read in order
+                    assert len(g) == 1 and st == 1, 'R1_ICL_XAUDIT needs one audit cell and stride 1'
+                    m.case_collect, self.errlog = name == 'normal', []
+                if name == 'normal' and os.environ.get('R1_ICL_WDUMP') and isinstance(m, R1TeflICL):   # one (L, H) per dump file
                     out[name] = {}
                     for cell in g:
                         m.wlog = []
                         out[name].update(self.eval_grid(flag, [cell], stride=st))
                         torch.save(torch.cat(m.wlog), f"{os.environ['R1_ICL_WDUMP']}_{flag}_L{cell[0]}H{cell[1]}.pt")
                     m.wlog = None
-                    continue
-                out[name] = self.eval_grid(flag, g, stride=st)
+                else:
+                    out[name] = self.eval_grid(flag, g, stride=st)
+                if case:
+                    pre = f"{os.environ['R1_ICL_CASEDUMP']}_{flag}_L{g[0][0]}H{g[0][1]}"
+                    if name == 'normal':
+                        torch.save(dict(icl=m.finalize_case(), err=torch.cat(self.errlog)), f'{pre}_normal.pt')
+                        m.case_collect = False
+                    else:
+                        torch.save(dict(err=torch.cat(self.errlog)), f'{pre}_icloff.pt')
+                    self.errlog = None
             m.set_audit(None)
             assert self.eval_order() == order, 'audit changed the scan order'
             for (L, H) in g:
