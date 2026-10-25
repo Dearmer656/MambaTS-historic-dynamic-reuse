@@ -90,7 +90,7 @@ def a0_errors(data, L, H, seed, X, n0):
     st = os.path.basename(hit[0])
     kv = dict(dm=re.search(r'_dm(\d+)_', st).group(1), el=re.search(r'_el(\d+)_', st).group(1), df=re.search(r'_df(\d+)_', st).group(1))
     common = re.sub(r'--(pred_len|d_model|d_ff) \S+', '', CFG[data]['common'])
-    aa = official_args((common + f' --model MambaTS --model_id {A0ID[data]}_{L}_{H} --seq_len {L} --pred_len {H} --d_model {kv["dm"]} '
+    aa = official_args((common + ' ' + CFG[data].get('a0', '') + f' --model MambaTS --model_id {A0ID[data]}_{L}_{H} --seq_len {L} --pred_len {H} --d_model {kv["dm"]} '
                         f'--e_layers {kv["el"]} --d_ff {kv["df"]} --des ExpA0s{seed} --seed {seed}').split())
     m, d_, order = load_a0(aa, st, seed)
     Y = cache_split(m, d_, X, L, H, order)[0][:n0]                                       # (n0, H, C), origin L + k
