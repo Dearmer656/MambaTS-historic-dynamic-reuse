@@ -80,5 +80,30 @@ def test_attn_maps_explicit():
         assert torch.allclose(out['krexp'][:, c].double(), kr, atol=1e-4)
 
 
+def test_res_stage2():
+    """vals = E reproduces the plain run; scale divides the bandwidth; stage 2 sees only targets inside the lookback (E and residuals)."""
+    E, H, L, t = _E(), 3, 16, 50
+    c1, _ = wc.stream_ctrl(E, H, 0, 2, 'row', L, 'soft1')
+    c2, _ = wc.stream_ctrl(E, H, 0, 2, 'row', L, 'soft1', vals=E.clone())
+    assert torch.allclose(c1, c2)
+    g = torch.Generator().manual_seed(4)
+    Fm, Ym, Fq = torch.randn(12, 2, 3, generator=g), torch.randn(12, 2, 3, generator=g), torch.randn(1, 2, 3, generator=g)
+    K = Fm[:, 0] / Fm[:, 0].norm(dim=-1, keepdim=True); Q = Fq[:, 0] / Fq[:, 0].norm(dim=-1, keepdim=True)
+    s2 = float(wc._sigma2(K[None]))
+    w = torch.softmax((Q @ K.T - 1) / (s2 / 4), dim=-1)
+    assert torch.allclose(wc.attn_predict('soft1', Fm, Ym, Fq, 0.25)[:, 0], w @ Ym[:, 0], atol=1e-5)
+    R = E[:, :H] - 0.3 * torch.roll(E[:, :H], 1, 0)
+    E2, R2 = E.clone(), R.clone()
+    for i in range(E.shape[0]):
+        for h in range(1, 8):
+            if i + h - 1 >= t or i + h - 1 < t - L:
+                E2[i, h - 1] += 5.0
+                if h <= H:
+                    R2[i, h - 1] += 5.0
+    a, act = wc.stream_ctrl(E, H, 0, 2, 'row', L, 'soft1', vals=R, scale=0.25)
+    b, _ = wc.stream_ctrl(E2, H, 0, 2, 'row', L, 'soft1', vals=R2, scale=0.25)
+    assert bool(act[t]) and torch.allclose(a[t], b[t], atol=1e-5)
+
+
 if __name__ == '__main__':
-    test_ridge_equals_stream_win(); test_controls_window_only(); test_control_maps(); test_attn_window_only(); test_attn_maps_explicit(); print('ok')
+    test_ridge_equals_stream_win(); test_controls_window_only(); test_control_maps(); test_attn_window_only(); test_attn_maps_explicit(); test_res_stage2(); print('ok')

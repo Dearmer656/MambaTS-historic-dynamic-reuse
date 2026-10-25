@@ -17,7 +17,12 @@ Traffic fixed-H96 ckpts R1{W,T}TfmsH96s, H = 96 only) | a0 (official MambaTS, on
   lin1 / krlin (linear kernel: 1 GD step / ridge) vs exp1 / soft1 / krexp (Gaussian kernel exp((cos - 1) / s2), s2 = median pairwise squared
   key distance: 1 GD step / softmax attention / kernel ridge), each with key row and ced. Kernel helps iff exp1 < lin1 and krexp < krlin;
   softmax normalisation helps iff soft1 < exp1 (3/3 seeds). Codex: s2 is a <=256-key approximation of the median (kept, documented).
-usage: python patchmem/win_check.py --data E|W|T --base a1|tefl|a0 [--arms ctrl|attn] [--seeds ..] [--L ..] [--H ..] [--smoke]"""
+--arms res (EFC + in-context attention on its residuals, fixed 2026-10-25 with the user): stage 1 = a global error map, win_row | EFC full
+  stream ced (the paper) | EFC full stream row, run from first - L so the context has residuals; stage 2 = softmax attention over the same
+  window: keys = unit row features of E (the case), values = stage-1 residuals r_j, weights softmax(cos(q, k_j) / (s2 / 4)) (user: 1/4 of the
+  median heuristic; att1 = unscaled reference), no slope term (user's GD-softmax), step beta out of sample clip [0, 1] (NV = H) as alpha.
+  Gain iff g+att < g, 3/3 seeds; watch tefl / a0.
+usage: python patchmem/win_check.py --data E|W|T --base a1|tefl|a0 [--arms ctrl|attn|res] [--seeds ..] [--L ..] [--H ..] [--smoke]"""
 import argparse, glob, json, os, re, sys, time
 from pathlib import Path
 import numpy as np
@@ -26,7 +31,9 @@ ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT)); os.ch
 import patchmem.efc_cet as ec
 dev = ec.dev
 CTRLS = ('bias', 'persist', 'scalar', 'shuffle', 'ridge_mean')
-ATTN = ('lin1', 'krlin', 'exp1', 'soft1', 'krexp')                                                # --arms attn (2026-10-25, fixed before results)
+ATTN = ('lin1', 'krlin', 'exp1', 'soft1', 'krexp')
+RES_G = {'win_row': ('row', True), 'efc_ced': ('ced', False), 'efc_row': ('row', False)}   # --arms res stage 1: (feature, lookback-limited)
+RES_ATT = {'att': 0.25, 'att1': 1.0}                                                    # stage 2 softmax bandwidth s2 * scale (main 1/4)                                                # --arms attn (2026-10-25, fixed before results)
 TEFL = {'E': ('R1TfmsR64h0s{s}', 7, None), 'W': ('R1WTfmsH96s{s}', 2, 96), 'T': ('R1TTfmsH96s{s}', 2, 96)}   # des, R1_HMAX, only H
 A0ID = {'E': 'ETTh2', 'W': 'weather', 'T': 'traffic32'}
 
@@ -54,7 +61,7 @@ def _sigma2(K, nmax=256):
     return d2[:, iu[0], iu[1]].median(dim=1).values.clamp_min(1e-6).view(C, 1, 1)
 
 
-def attn_predict(mode, Fm, Ym, Fq):
+def attn_predict(mode, Fm, Ym, Fq, scale=1.0):
     """In-context maps on L2-normalised keys, context = the same variable's window pairs. Fm, Ym (m, C, H), Fq (q, C, H) -> (q, C, H).
     lin1  one normalised GD step (linear attention): mean_j cos(q, k_j) e_j
     krlin ridge on unit keys per variable (linear kernel, lam 1)
@@ -71,7 +78,7 @@ def attn_predict(mode, Fm, Ym, Fq):
         out = Kq @ torch.linalg.solve(ec.LAM * torch.eye(H, device=Kf.device, dtype=torch.float64) + S, T).float()
     else:
         s2 = _sigma2(Kf)
-        s2 = s2.double()
+        s2 = s2.double() * scale                                                                    # --arms res: scale 1/4 (sharper)
         A = (Kq @ Kf.transpose(1, 2)).double().sub(1) / s2                                         # (C, q, m), float64 before exp
         if mode == 'exp1':
             out = (torch.exp(A) @ Yf.double() / m).float()
@@ -85,9 +92,9 @@ def attn_predict(mode, Fm, Ym, Fq):
     return out.transpose(0, 1).contiguous()
 
 
-def predict(mode, Fm, Ym, Fq, g):
+def predict(mode, Fm, Ym, Fq, g, scale=1.0):
     if mode in ATTN:
-        return attn_predict(mode, Fm, Ym, Fq)
+        return attn_predict(mode, Fm, Ym, Fq, scale)
     if mode == 'ridge':
         return ridge(Fm, Ym, Fq)
     if mode == 'shuffle':
@@ -105,13 +112,16 @@ def predict(mode, Fm, Ym, Fq, g):
 
 
 @torch.no_grad()
-def stream_ctrl(E, H, first, nv, feat, L, mode, seed=0):
-    """Direct (per-origin) version of efc_cet.stream_win with the map chosen by mode; mode 'ridge' equals stream_win (tested)."""
+def stream_ctrl(E, H, first, nv, feat, L, mode, seed=0, vals=None, scale=1.0):
+    """Direct (per-origin) version of efc_cet.stream_win with the map chosen by mode; mode 'ridge' equals stream_win (tested).
+    vals (N, >=H, C): values regressed instead of E (keys still from E; --arms res: residuals of a first-stage correction);
+    scale multiplies the Gaussian-kernel bandwidth s2."""
     N, _, C = E.shape
     Eh = E[:, :H]
-    assert not torch.isnan(Eh).any(), 'stream input must have full targets'
+    Vh = Eh if vals is None else vals[:, :H]
+    assert not torch.isnan(Eh).any() and not torch.isnan(Vh).any(), 'stream input must have full targets'
     D, valid = (ec.ced if feat == 'ced' else ec.row_feat)(E, H)
-    F, Y = D.permute(0, 2, 1).float(), Eh.permute(0, 2, 1).float()
+    F, Y = D.permute(0, 2, 1).float(), Vh.permute(0, 2, 1).float()
     g = torch.Generator().manual_seed(seed)
     corr = torch.zeros_like(Eh); active = torch.zeros(N, dtype=torch.bool, device=E.device)
     vcpu = valid.cpu()
@@ -123,9 +133,9 @@ def stream_ctrl(E, H, first, nv, feat, L, mode, seed=0):
         if len(idx) < nv + 1:
             continue
         fi, vi = idx[:-nv], idx[-nv:]
-        Q = predict(mode, F[fi], Y[fi], F[vi], g)
+        Q = predict(mode, F[fi], Y[fi], F[vi], g, scale)
         al = float(((Q * Y[vi]).sum() / (Q.square().sum() + 1e-8)).clamp(0.0, 1.0))
-        corr[t] = (al * predict(mode, F[idx], Y[idx], F[t:t + 1], g)[0]).T
+        corr[t] = (al * predict(mode, F[idx], Y[idx], F[t:t + 1], g, scale)[0]).T
         active[t] = True
     return corr, active
 
@@ -165,7 +175,7 @@ def main():
     ap.add_argument('--seeds', default='3047,3048,3049'); ap.add_argument('--L', default='384,720,1440')
     ap.add_argument('--H', default='96,192,336'); ap.add_argument('--out', default='patchmem/logs/server/win_ck')
     ap.add_argument('--smoke', action='store_true', help='first seed, L 720, H 96, first 300 test origins')
-    ap.add_argument('--arms', default='ctrl', choices=['ctrl', 'attn'])
+    ap.add_argument('--arms', default='ctrl', choices=['ctrl', 'attn', 'res'])
     a_ = ap.parse_args()
     if a_.smoke:
         a_.seeds, a_.L, a_.H = a_.seeds.split(',')[0], '720', '96'
@@ -221,6 +231,20 @@ def main():
                 row = dict(n=last - first + 1, base=base)
                 c, act = ec.stream(Es, H, first, H, True, 'row', L)
                 row['win_row'] = (y_err - c[sl]).square().mean().item(); row['win_row_active'] = act[sl].float().mean().item()
+                if a_.arms == 'res':
+                    first0 = max(0, first - L)                                                  # stage 1 also on the context origins
+                    keys = []
+                    for gname, (gft, gwin) in RES_G.items():
+                        c1, _ = ec.stream(Es, H, first0, H, True, gft, L if gwin else None)
+                        row[gname] = (y_err - c1[sl]).square().mean().item(); keys.append(gname)
+                        Rs = Es[:, :H] - c1
+                        for an, sc in RES_ATT.items():
+                            c2, _ = stream_ctrl(Es, H, first, H, 'row', L, 'soft1', seed, vals=Rs, scale=sc)
+                            row[f'{gname}+{an}'] = (y_err - c1[sl] - c2[sl]).square().mean().item(); keys.append(f'{gname}+{an}')
+                    res[f's{seed}|{L}|{H}'] = row
+                    print(f'  s{seed} L={L:4d} H={H:3d} | base {base:.4f} ({src if src != "rollout" else a_.base}) | ' +
+                          ' | '.join(f'{k} {(row[k] / base - 1) * 100:+.1f}%' for k in keys) + f' | n {row["n"]} | {time.time() - t0:.0f}s', flush=True)
+                    continue
                 if a_.arms == 'attn':
                     arms = [f'{md}_{ft}' for ft in ('row', 'ced') for md in ATTN]
                     for ft in ('row', 'ced'):
@@ -242,7 +266,7 @@ def main():
                       f'({(row["win_row"] / base - 1) * 100:+.1f}%, active {row["win_row_active"]:.2f}) | alpha=1 '
                       f'{(row["win_row_a1"] / base - 1) * 100:+.1f}% | ' +
                       ' | '.join(f'{md} {(row[md] / base - 1) * 100:+.1f}%' for md in CTRLS) + f' | n {row["n"]} | {time.time() - t0:.0f}s', flush=True)
-            tag = 'win_ck' if a_.arms == 'ctrl' else 'win_attn'
+            tag = {'ctrl': 'win_ck', 'attn': 'win_attn', 'res': 'win_res'}[a_.arms]
             json.dump(res, open(f'{a_.out}/{tag}_{a_.data}_{a_.base}{"_smoke" if a_.smoke else ""}.json', 'w'))
     print('DONE', flush=True)
 

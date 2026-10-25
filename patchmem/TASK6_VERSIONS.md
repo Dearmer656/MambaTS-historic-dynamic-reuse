@@ -140,3 +140,13 @@ Unit-test finding: an exactly 6-periodic error gives soft1 day ratio 1.54 (max 6
 median-heuristic softmax is near uniform, kernel ridge sharpens selection.
 Codex: fixed min context (H + 1 as stream_ctrl), zero guards; day buckets not calendar-aligned (documented); env-order remark not a bug (exp_r1 reads env at model build).
 - 2026-10-25 23:00: elm72 (6000) fails in mamba triton layer_norm ('invalid argument to exchangeDevice'): A0 jobs 8663/8664 and gain_src 8672/8673 all failed before computing. Resubmitted: A0 8675/8676 (a100-80, 4 per card), gain_src 8677/8678 (a6000, 4 per card); packing sbatches now --exclude=elm72. First Traffic A0: L384 s3047 test MSE .4476 (3090 job 8647).
+
+### win_res batch: EFC + in-context attention on its residuals (designed 2026-10-25 with the user, fixed before results)
+`win_check.py --arms res` (packed via patchmem/slurm/win_pack.sbatch res "D:B ..."; logs win_res_{D}_{B}.txt, json win_ck/win_res_*.json).
+- Stage 1 (global error map, user 1: both): win_row (lookback-limited) | efc_ced (EFC full stream, paper feature) | efc_row (full stream, row), run from first - L.
+- Stage 2 (user 3: attention setting): softmax attention over [t-L+H, t-H], keys = unit row features of E, values = stage-1 residuals,
+  weights softmax(cos / (s2 / 4)) (user 2: 1/4 of the median heuristic; att1 = unscaled reference), no slope term; step beta out of
+  sample clip [0,1] (NV = H). lam_l of the weighted-ridge form does not enter the attention form (user 4 moot).
+- Criterion: g+att < g, 3/3 seeds, per cell; watch tefl and a0. Sanity: efc_row stage 1 must equal efc_cet "row warm" on the same base.
+- Tests 14 pass (vals = E identity, scale, window-only for E and residuals). Codex: R causal, first0 coverage OK, scale 1 / vals None unchanged;
+  its "query leak" remark is a misread (row_feat F[t] = E[t-H], targets y[t-H..t-1]; the window-only test perturbs E[t] and passes).
