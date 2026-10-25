@@ -114,3 +114,11 @@ Same window [t-L+H, t-H], same out-of-sample alpha (clip [0,1], NV = H, no EMA) 
 - s2 = median pairwise squared distance of unit keys (median heuristic; <= 256 evenly spaced keys, user choice 1); keys row and ced (user choice 2); L2 normalisation (user choice 3).
 - Criterion: kernel helps iff exp1 < lin1 and krexp < krlin; softmax normalisation helps iff soft1 < exp1; 3/3 seeds; watch A0 especially.
 - Tests 10 pass (explicit dual / loop per arm, window-only). Codex: no leak / transpose bug; fixes: float64 before exp, added exp1 to separate kernel from normalisation.
+
+### win_attn partial (2026-10-25 22:15; 8507 elm73 running: E 21/27 lines, T a1 13, W 3-6; 8566 T tefl DONE; 8565 win_ck T tefl DONE)
+Summary script patchmem/logs/server/win_ck/summ_attn.py. So far:
+- soft1 (softmax 1 step) never beats exp1 except some T a1 cells; 1-step kernels (exp1/soft1) ~ useless.
+- krexp < krlin: T a1 all L>=720 cells (n1-2 seeds), T tefl L720/L1440 H96 3/3 (L1440/96 krexp_row -6.2/-6.2/-5.9% vs win_row -2.7/-2.6/-2.6%; abs .547 < trained hyb .554); E / W / a0 mostly no.
+- a0 (E, W partial): every attention arm 0 or worse.
+- per-variable linear ridge (krlin_row) < pooled win_row on E / W (sharing across variables helps); on T similar.
+- win_ck T tefl: win_row -0.6 / -1.6 / -2.7% (L384/720/1440), beats all controls 3/3.
