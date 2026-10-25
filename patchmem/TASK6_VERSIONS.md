@@ -181,3 +181,18 @@ Codex: fixed min context (H + 1 as stream_ctrl), zero guards; day buckets not ca
   T (patch = 2 days): near uniform (eff .96-.97), top lags 7, 14, 21 (= 2, 4, 6 weeks) at ~1.3x; JS(train, test) .0001 = noise.
   => hyb does NOT move its weight to different time points on test: same lag profile (daily on W, weak 2-week on T), only a slight
   shift to the newest errors on W. Its test-time adaptation comes from the window's own residual values, not from re-selecting lags.
+
+### PAT-313 results (job 9041 on elm73, commit fb41113; offline `patchmem/icl_case.py`, summary patchmem/logs/server/icl_case/icl_case_summary.json)
+Trained hyb, H96 L1440 test, 3 seeds; "kept" = share of the ICL gain kept (1 - dMSE(mode) / dMSE(icloff)); normal MSE matches the logs.
+1 constant Delta (test mean): W -0.03..+0.03, T +0.04..+0.06 -> the gain is entirely case-specific (case-specific energy W .89-.92, T .96-.97).
+2 context swap, kept vs d: W 10 min .99 | 6 h .53-.58 | 1 day .79 | 1 week .45-.47 | 30 days .21-.26;
+  T 1 h .69-.71 | 6 h -.18..-.22 (worse than no ICL) | 1 day 1.00-1.01 | 1 week .87-.88 | 30 days .67-.69. Phase-aligned context
+  (same time of day) works, phase-shifted context fails; usefulness decays over weeks.
+3/4 W: energy const .49-.54, linear .13-.16, daily .23-.25, rest .08-.12; in-model kept const .69-.70, +linear .81, +daily 1.03-1.05;
+  common over variables kept .10-.16. Clusters: level offsets growing over the leads (~60%), mixed linear/daily shapes (~35%).
+  T: const .03, linear .01-.02, daily .46-.47, rest .48-.50; kept const .03-.05, +linear .05-.06, +daily .56-.58, common .03-.06;
+  every cluster is a per-variable daily-cycle error profile (daily energy .70-.83) at different phases.
+5 R2 of the top-3 shape scores on time of day + day of week: W <= .014, T .006-.087 (not a clock function). Alignment
+  cos(Delta, -err_icloff): W mean .31-.33 (71-73% > 0), T .37 (89% > 0).
+Pre-stated expectations: 1 W < 50% yes, "more on T" no; 2 W falls with d mostly but 1 day > 6 h (phase), T not "most at small d"
+(6 h negative); 4 W daily part yes, "T const/common" no (T is daily per variable); 5 yes.
