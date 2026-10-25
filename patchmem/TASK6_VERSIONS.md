@@ -196,3 +196,14 @@ Trained hyb, H96 L1440 test, 3 seeds; "kept" = share of the ICL gain kept (1 - d
   cos(Delta, -err_icloff): W mean .31-.33 (71-73% > 0), T .37 (89% > 0).
 Pre-stated expectations: 1 W < 50% yes, "more on T" no; 2 W falls with d mostly but 1 day > 6 h (phase), T not "most at small d"
 (6 h negative); 4 W daily part yes, "T const/common" no (T is daily per variable); 5 yes.
+
+### PAT-313 point 6 results (job 9075, commit 8dc33d2): select-then-adapt, inference only on the trained hyb, H96 L1440 test
+Gain kept vs hyb's own ICL term (>1 = better than hyb), and absolute test MSE:
+- W: iclsel 1.22/1.23/1.38 (MSE .1804/.1805/.1797, −1.5/−1.3/−2.3% vs hyb); iclsel1 (one GD step per set) 1.24/1.47/1.51 (.1801/.1779/.1781,
+  −1.6/−2.8/−3.2%); selfix_all 1.14/1.11/1.17; topk8 1.01–1.06; phase .28–.65; recent4 −1.75..−3.32 (overfits).
+- T: iclsel 1.52/1.51/1.53 (.5247/.5211/.5225, −5.6/−5.8/−5.8%); iclsel1 1.68/1.65/1.66 (.5148/.5127/.5143, −7.4/−7.4/−7.3%); phase alone 1.41–1.42;
+  selfix_all 1.01–1.09; topk8 .91–.96; recent4 .23–.31.
+- Mean set weights near uniform (W all .25 recent4 .23 phase .26–.27 topk8 .25; T phase .28–.31, recent4 .21): the soft
+  combination is close to an equal mix on average; per-window variation not yet measured.
+- Criterion (kept > 1 on W, 3/3): PASSED (also on T). Open: is it per-case selection or the ensemble of restricted fits? Needs a
+  fixed-uniform combination control (not pre-registered).
