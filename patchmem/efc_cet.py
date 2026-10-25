@@ -21,7 +21,7 @@ also reported (win_*_a1). Runs from the warm start, so every official test origi
 Streams: 'cold' starts at the first official test origin (deployment = test start, EFC's setting); 'warm' starts WARM steps earlier
 (errors of the preceding val period already in the statistics, evaluated on the same official test origins). Also reported: alpha = 1
 (no calibration, warm) and the plain A1 forecast. MSE over the official test windows of each (L, H), A1 sanity-checked against exp_r1.
-usage: python patchmem/efc_cet.py --data E|W [--seeds 3047,3048,3049] [--L 384,720,1440] [--H 96,192,336] [--out DIR] [--smoke]"""
+usage: python patchmem/efc_cet.py --data E|W|T [--seeds 3047,3048,3049] [--L 384,720,1440] [--H 96,192,336] [--out DIR] [--smoke]"""
 import argparse, json, os, sys, time
 from collections import deque
 from pathlib import Path
@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT)); os.ch
 dev = 'cuda' if torch.cuda.is_available() else 'cpu'
 P, HMAX, NP = 48, 336, 7
 LAM, RHO, WARM = 1.0, 0.95, 2880                                                       # EFC lambda / rho; warm prefix = ETTh2's val length
-A1 = {'E': 'R1h0s{s}', 'W': 'R1Wh0s{s}'}
+A1 = {'E': 'R1h0s{s}', 'W': 'R1Wh0s{s}', 'T': 'R1Th0s{s}'}
 
 
 @torch.no_grad()
@@ -159,7 +159,7 @@ def stream_win(E, H, first, nv, calibrate, feat, L):
 def main():
     from patchmem.diag_rollout import official_args
     from patchmem.resid_cov import CFG, split_x
-    ap = argparse.ArgumentParser(); ap.add_argument('--data', required=True, choices=['E', 'W'])
+    ap = argparse.ArgumentParser(); ap.add_argument('--data', required=True, choices=['E', 'W', 'T'])
     ap.add_argument('--seeds', default='3047,3048,3049'); ap.add_argument('--L', default='384,720,1440')
     ap.add_argument('--H', default='96,192,336'); ap.add_argument('--out', default='patchmem/logs/server')
     ap.add_argument('--feats', default='ced,row', help='ced (EFC) and / or row (F_t = E_(t-H)) streams')

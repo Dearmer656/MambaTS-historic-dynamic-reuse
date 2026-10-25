@@ -28,4 +28,4 @@ $PY -u patchmem/run_r1.py --task_name long_term_forecast --is_training 1 --root_
   --enc_in 32 --dec_in 32 --c_out 32 --model_id traffic32_r1 --model MambaTS --data custom --features M --seed $SEED \
   --seq_len 1440 --label_len 48 --pred_len 336 --e_layers 3 --d_layers 2 --factor 1 --des ${DES:-R1T${TAG}h${LAM}s${SEED}} --itr 1 \
   --n_heads 16 --d_model 32 --d_ff 512 --dropout 0.2 --patch_len 48 --stride 48 --VPT_mode 1 --ATSP_solver SA \
-  --train_epochs ${EPOCHS:-10} --patience 3 --batch_size 8 --learning_rate 0.0005
+  --train_epochs ${EPOCHS:-10} --patience 3 --batch_size 8 --learning_rate 0.0005 ${EXTRA}
