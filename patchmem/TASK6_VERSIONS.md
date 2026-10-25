@@ -175,3 +175,9 @@ Codex: fixed min context (H + 1 as stream_ctrl), zero guards; day buckets not ca
 - H192 L1440 hyb vs TEFL: E −3.0/−0.7/+1.5%, W −0.25/−0.41/−0.82%; T TEFL still training (hyb .5219/.5211/.5196).
 - Gain vs #examples (n = L/48 − 2H/48; same trained model tested at L384/720/1440), H96 3-seed mean: E −1.6/−2.8/−3.4%, W −2.7/−5.6/−5.8%, T −1.2/−4.7/−4.5% (n = 4/11/26). H192 W: ≈0 / −0.6 / −0.5% (n = 0/7/22): the H192 drop is not explained by n; hypothesis n/K (13 vs 5.5), untested. E at n = 0 (hyb ≡ TEFL structurally) still varies ±3%: ETTh2 run-to-run noise.
 - Diagnostic in flight: job 8991 (R1_ICL_WDUMP, commit 38da1f4), hyb demo weights train vs test, W/T x 3 seeds.
+- Job 8991 done (R1_ICL_WDUMP, ckpt-eval test MSE matches training logs: T s3047 .555772, W .183081). `patchmem/icl_wdump_summ.py`:
+  W (patch = 8 h): top lags 3, 6, 9 patches (= 1, 2, 3 days) on train AND test, ~2.2x the other lags; effective demos .71-.73 (train) vs .74-.75 (test);
+  recent-3 mass .138-.139 -> .155-.157 (uniform .115); total weight .36-.37 both; JS(train, test) .0021-.0022 vs test-half noise .0015-.0020.
+  T (patch = 2 days): near uniform (eff .96-.97), top lags 7, 14, 21 (= 2, 4, 6 weeks) at ~1.3x; JS(train, test) .0001 = noise.
+  => hyb does NOT move its weight to different time points on test: same lag profile (daily on W, weak 2-week on T), only a slight
+  shift to the newest errors on W. Its test-time adaptation comes from the window's own residual values, not from re-selecting lags.
