@@ -406,3 +406,20 @@ def test_two_layer_matches_autograd_step():
             W1n = W1.detach() - a1 * gW / K.square().sum()                                           # normalised GD step
             ref = torch.relu(e[bi, ci] @ W1n.T) @ s.W2.weight.detach().T
             assert torch.allclose(out1[bi, ci], ref, atol=1e-4), (bi, ci)
+
+
+def test_z2_normalisation():
+    s, d, e = stub('hyb', n=6, b=2)
+    d0 = s.W2(torch.relu(s.W1(e))).reshape(d.shape).detach()
+    s.win_ptr = 0
+    out = _run(s, d0, e, 'icl2lz_0_1').reshape(2, 2, 12)
+    k = torch.relu(s.W1(s.demo['k'])); q = torch.relu(s.W1(e)); r = s.demo['v'] - s.W2(k)
+    for bi in range(2):
+        for ci in range(2):
+            K, R = k[bi, :, ci], r[bi, :, ci]
+            W2n = s.W2.weight + (R.T @ K) / K.square().sum()                                            # eta = 1: NLMS step on W2
+            assert torch.allclose(out[bi, ci], W2n @ q[bi, ci], atol=1e-4)
+    s2, d2, e2 = stub('hybz', n=6, b=2)
+    s2.W1, s2.W2, s2.demo = s.W1, s.W2, s.demo
+    s.win_ptr = 0
+    assert torch.allclose(R1TeflICL.extra_delta(s2, d0, e, None), _run(s, d0, e, 'icl2lz_0_1'), atol=1e-5)   # hybz == icl2lz a1 = 0

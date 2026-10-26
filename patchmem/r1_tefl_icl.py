@@ -37,7 +37,9 @@ PAT-313 case analysis (2026-10-26, fixed before results; inference audits on a t
   Point 6 (select then adapt): iclsel / iclsel1 / iclselfix_{all,recent4,phase,topk8} (sel_correct; phase lags R1_ICL_SELPHASE);
   controls iclselavg / iclselavg1 (uniform 1/4 mix) and iclselfix1_<set> (one GD step on one set); per-window weights -> sel_wdump;
   iclselw_<tag>: one-step set fits mixed with given per-window weights from <R1_ICL_SELW>_<tag>.pt (S, N, C) (causal Hedge, offline).
-Two-layer test-time update (PAT-313, 2026-10-26; audits icl2l_<a1> / icl2lw1_<a1>, two_layer()): one GD step on W1 and on W2 per window.
+Two-layer test-time update (PAT-313, 2026-10-26; audits icl2l_<a1> / icl2lw1_<a1>, two_layer()): one GD step on W1 and on W2 per window;
+  icl2lz_<a1>_<a2>: layer 2 normalised by Z2 = sum_j |h'_j|^2 (NLMS, as Z1 = sum_j |k_j|^2 for layer 1), step a2 * eta.
+Variant 'hybz': hyb trained with the NLMS normalisation Z2 = sum_j |phi(k_j)|^2 instead of |phi(q)| sum_j |phi(k_j)|.
 Variant 'hybatt' (PAT-313, 2026-10-26): hyb with the GD-step weights replaced by a softmax over demos,
   a_j = softmax_j(cos(phi(k_j), phi(q)) / tau + b_lag[t - j]), b_lag learned and initialised to log(R1_ICL_KAPPA) on the phase-aligned lags
   R1_ICL_LAGPRIOR (else 0), tau learned (init R1_ICL_TAU); Delta = eta * sum_j a_j r_j (eta init 0: starts at TEFL).
@@ -63,7 +65,7 @@ RIDGE_LAM = 1.0                                                                 
 from patchmem.r1_msres import R1TeflMS, multistep_residuals
 
 
-HYB = ('hyb', 'hybridge', 'hybmean', 'hybperm', 'hybatt')                                       # variants with TEFL's trained W2 term
+HYB = ('hyb', 'hybridge', 'hybmean', 'hybperm', 'hybatt', 'hybz')                                       # variants with TEFL's trained W2 term
 
 
 def permute_valid(v, mask, gen):
@@ -112,7 +114,7 @@ def demos_ced(E, avail, K):
 class R1TeflICL(R1TeflMS):
     def __init__(self, cfg, variant='tied', eta0=0.0, eta_learn=True, k_follow=False, key='row', ridge_rel=None, nshrink=0.0, **kw):
         super().__init__(cfg, **kw)
-        assert variant in ('id', 'tied', 'qk', 'hyb', 'ridge', 'hybridge', 'hybmean', 'hybperm', 'hybatt'), variant
+        assert variant in ('id', 'tied', 'qk', 'hyb', 'ridge', 'hybridge', 'hybmean', 'hybperm', 'hybatt', 'hybz'), variant
         assert variant != 'hybridge' or ridge_rel is not None, 'hybridge needs ridge_rel'
         self.ridge_rel, self.nshrink = ridge_rel, nshrink
         assert key == 'row' or (key == 'ced' and variant in ('id', 'ridge')), (key, variant)   # ced changes eps: no TEFL map on it
@@ -197,7 +199,11 @@ class R1TeflICL(R1TeflMS):
         if self.case_collect and self.case_bank and self.audit is None:                  # normal pass: bank demos (CPU fp32) for iclswap
             self._bank.append((D['k'].float().cpu(), D['v'].float().cpu(), D['mask'].cpu()))
         if self.audit is not None and self.audit.startswith('icl2l'):                    # PAT-313: one GD step on W1 AND W2 per window
-            out = self.two_layer(eps, D, a1=float(self.audit.split('_', 1)[1]), layer2=not self.audit.startswith('icl2lw1'))
+            parts = self.audit.split('_')
+            if parts[0] == 'icl2lz':                                                     # icl2lz_<a1>_<a2>: layer 2 normalised by Z2
+                out = self.two_layer(eps, D, a1=float(parts[1]), z2=True, a2=float(parts[2]))
+            else:
+                out = self.two_layer(eps, D, a1=float(parts[1]), layer2=parts[0] != 'icl2lw1')
             self.win_ptr += b
             return out.reshape(b, c, hmax, P)
         if self.audit is not None and self.audit.startswith('iclswap'):                  # demos of window (i - d) mod N, query / TEFL kept
@@ -252,7 +258,10 @@ class R1TeflICL(R1TeflMS):
             den = (k.norm(dim=-1) * m).sum(1) + 1e-6
         else:
             s = (k * q[:, None]).sum(-1) * m                                             # (b, n, C)
-            den = q.norm(dim=-1) * (k.norm(dim=-1) * m).sum(1) + 1e-6                   # (b, C)
+            if self.variant == 'hybz':                                                   # NLMS step on W2: Z2 = sum_j |phi(k_j)|^2
+                den = (k.square().sum(-1) * m).sum(1) + 1e-6
+            else:
+                den = q.norm(dim=-1) * (k.norm(dim=-1) * m).sum(1) + 1e-6               # (b, C)
         if self.wlog is not None and self.audit is None:                                 # R1_ICL_WDUMP: demo weights of the normal pass
             self.wlog.append((s / den[:, None, :]).mean(-1).detach().float().cpu())       # (b, n) mean over variables
         icl = (s[..., None] * v).sum(1) / den[..., None]                                 # (b, C, K*P)
@@ -266,7 +275,7 @@ class R1TeflICL(R1TeflMS):
         self.win_ptr += b
         return delta + add.reshape(b, c, hmax, P)
 
-    def two_layer(self, eps, D, a1, layer2=True):
+    def two_layer(self, eps, D, a1, layer2=True, z2=False, a2=1.0):
         """PAT-313: per-window test-time update of BOTH TEFL layers on the window's demos (k_j = E_j, v_j = E_{j+K}).
         Layer 1: one normalised GD step on W1 of 0.5 sum_j |v_j - W2 relu(W1 k_j)|^2:
             W1' = W1 + a1 * sum_j g_j k_j^T / sum_j |k_j|^2,  g_j = (W2^T r_j) * 1(W1 k_j > 0),  r_j = v_j - W2 relu(W1 k_j)
@@ -290,9 +299,12 @@ class R1TeflICL(R1TeflMS):
             b, c, d = out.shape
             r2 = V - hk @ W2.T
             s_ = (hk * hq[:, :, None]).sum(-1)                                           # (b, C, n)
-            den = hq.norm(dim=-1) * hk.norm(dim=-1).sum(-1) + 1e-6
+            if z2:                                                                       # NLMS: Z2 = sum_j |h'_j|^2 (as Z1 for layer 1)
+                den = hk.square().sum((-1, -2)) + 1e-6
+            else:                                                                        # hyb's normalisation |h'_q| sum_j |h'_j|
+                den = hq.norm(dim=-1) * hk.norm(dim=-1).sum(-1) + 1e-6
             icl = (s_[..., None] * r2).sum(-2) / den[..., None]
-            out = out + (icl.reshape(b, c, self.hmax, -1) * self.eta[None, None, :, None]).reshape(b, c, d)
+            out = out + a2 * (icl.reshape(b, c, self.hmax, -1) * self.eta[None, None, :, None]).reshape(b, c, d)
         return out
 
     SEL_SETS = ('all', 'recent4', 'phase', 'topk8')
