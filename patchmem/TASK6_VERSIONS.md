@@ -257,3 +257,7 @@ Removable share of the current error row, in-sample | fit on test half 1 -> scor
 - H96 W: row .098|+.076, row+stair .118|+.076;  H96 T: row .043|+.015, row+stair .082|+.035
 The fresh staircase doubles the in-sample share at H192, but a fixed global map on it does not transfer across time (except T H96):
 the extra information is period-specific -> use it inside the per-window in-context step, not as a trained global branch.
+- Two-layer test-time update at H96 (job 9694 elm73; 9687 had landed on elm72 and failed), W / T x 3 seeds, a1 chosen on half 1:
+  full-test means W none .1949, W1 .1886, W2 .1833, W1+W2 .1810; T none .6162, W1 .5875, W2 .5547, W1+W2 .5511.
+  Half 2 vs W2 only: W1+W2 W −1.19/−1.17/−1.38%, T −0.54/−0.65/−0.61% (3/3); W1 only W +2.84/+2.38/+2.06%, T +4.10/+4.71/+3.99%.
+  => At H96 both layers help (W1+W2 best 3/3); at H192 the W1 step adds nothing. Slides: method = W1+W2, layer ablation H96 + H192.
