@@ -2,7 +2,7 @@
 # PAT-307 task 6: several fixed-H R1 trainings in parallel on ONE GPU (user 2026-10-25: pack tasks per card, any free GPU type; override
 # gres on the sbatch line; elm72 excluded). Each run = D:H:ARM:SEED, settings as weather_hyb.sbatch / laptop fix3 (R1_HMIN = R1_HMAX = H/48,
 # val / test at H): ARM a1 | tefl | hyb | hybmean | hybperm (r1_tefl_icl.py training-time controls of hyb) | hybatt (softmax + lag
-# bias initialised on the phase lags >= K, kappa 4, tau 0.25; PAT-313). A run whose log already has
+# bias initialised on the phase lags >= K, kappa 4, tau 0.25; PAT-313) | hybz (hyb with Z2 = sum_j |phi(k_j)|^2 normalisation; PAT-313). A run whose log already has
 # its final L=1440 line is skipped. Logs {D}_H{H}_{ARM}_s{SEED}.txt.  usage: sbatch --gres=gpu:TYPE:1 patchmem/slurm/train_pack.sbatch "W:96:hybmean:3047 ..."
 #SBATCH --job-name=pat307_tpack
 #SBATCH --output=patchmem/logs/server/slurm_%j_tpack.txt
@@ -30,6 +30,7 @@ one() {   # one D H ARM SEED
     hyb)     X+=(R1_TEFL=ms R1_ICL=hyb DES=${P}IclHybH${H}s$s) ;;
     hybmean) X+=(R1_TEFL=ms R1_ICL=hybmean DES=${P}IclHybMeanH${H}s$s) ;;
     hybperm) X+=(R1_TEFL=ms R1_ICL=hybperm DES=${P}IclHybPermH${H}s$s) ;;
+    hybz)    X+=(R1_TEFL=ms R1_ICL=hybz DES=${P}IclHybZH${H}s$s) ;;                    # PAT-313: layer-2 NLMS normalisation Z2
     hybatt)  local step=$([ $D = W ] && echo 3 || echo 7)                               # phase: W day = 3 patches; T, E week ~ 7 patches (2 weeks)
              local pri=$(seq $step $step 29 | awk -v k=$Hp '$1 >= k' | paste -sd,)
              X+=(R1_TEFL=ms R1_ICL=hybatt R1_ICL_LAGPRIOR=$pri R1_ICL_KAPPA=4 R1_ICL_TAU=0.25 DES=${P}IclHybAttH${H}s$s) ;;
