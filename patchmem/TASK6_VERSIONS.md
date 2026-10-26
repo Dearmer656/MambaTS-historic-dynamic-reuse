@@ -249,3 +249,11 @@ One normalised GD step on W1 (a1 / sum |k_j|^2, ReLU mask) then hyb's W2 step on
 - Two-layer test-time update, 3 seeds (jobs 9615, 9673, 9674), H192, half-2 MSE vs W2 only (hyb), a1 chosen on half 1:
   W1+W2: E +0.09/+0.27/−0.15%, W +0.01/−0.04/+0.00%, T −0.07/−0.06/−0.04%; W1 only: E +1.10/+1.57/+8.16%, W +0.93/+0.94/+0.88%,
   T +0.52/+0.63/+0.45%; none (TEFL part): E +1.42/+1.66/+2.00%, W +1.02/+1.01/+0.93%, T +0.82/+0.94/+0.62%. W1+W2 ≈ W2 only.
+
+### PAT-313 staircase diagnostic (job 9683, commit 85c905c, `patchmem/stair_diag.py`; TEFL ckpts s3047, L1440 test)
+Removable share of the current error row, in-sample | fit on test half 1 -> scored on half 2:
+- H192 E: row .070|−.086, stair .163|−.286, row+stair .242|−.414 (nothing transfers on ETTh2: the test period shifts)
+- H192 W: row .043|+.018, stair .083|+.016, row+stair .108|+.011;  H192 T: row .049|+.014, stair .073|+.015, row+stair .101|+.017
+- H96 W: row .098|+.076, row+stair .118|+.076;  H96 T: row .043|+.015, row+stair .082|+.035
+The fresh staircase doubles the in-sample share at H192, but a fixed global map on it does not transfer across time (except T H96):
+the extra information is period-specific -> use it inside the per-window in-context step, not as a trained global branch.
