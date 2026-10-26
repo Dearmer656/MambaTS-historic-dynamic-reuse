@@ -75,6 +75,8 @@ def main():
                                 best_single=min(single.values()), best_single_set=min(single, key=single.get), hindsight_per_var=hind),
                      hedge_mean_w={k: float(w_h[i, h2].mean()) for i, k in enumerate(SETS)})
             res[f'{D}_s{s}'] = r
+            torch.save(w_h.float(), f'{O}/{D}_s{s}_selw_hedge.pt')                         # causal weights for the in-model check
+            torch.save(w_x.float(), f'{O}/{D}_s{s}_selw_hx.pt')
             q = r['half2']
             rel = lambda v: f'{v:.4f} ({100 * (v / q["avg1"] - 1):+.2f}%)'
             print(f'{D} s{s} | linearity gap sel1 {lin_sel:.4f} avg1 {lin_avg:.4f} | chosen (beta, gamma) hedge {bh} x {bx} | 2nd half MSE: '

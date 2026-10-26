@@ -38,7 +38,7 @@ def stub(variant, n=4, C=2, K=3, P=4, r=5, b=3):
     s = SimpleNamespace(variant=variant, audit=None, hmax=K, ridge_rel=None, nshrink=0.0, icl_gen=torch.Generator().manual_seed(0),
                         perm_gen=torch.Generator().manual_seed(1), wlog=None, win_ptr=0, case_collect=False, case_period=6,
                         _bank=[], _icl_log=[], bank=None, icl_mean=None, sel_phase=[3, 5], sel_log=[], K_last=K,
-                        SEL_SETS=R1TeflICL.SEL_SETS, sel_wdump=None,
+                        SEL_SETS=R1TeflICL.SEL_SETS, sel_wdump=None, selw_cache={},
                         W1=nn.Linear(din, r, bias=False), W2=nn.Linear(r, din, bias=False),
                         Wq=nn.Linear(din, r, bias=False), Wk=nn.Linear(din, r, bias=False), eta=nn.Parameter(torch.ones(K)))
     s.phi = lambda e, role: R1TeflICL.phi(s, e, role)
@@ -353,3 +353,18 @@ def test_iclsel_controls():
     assert w.shape == (4, 2, 2) and torch.allclose(w.sum(0), torch.ones(2, 2), atol=1e-5)
     mix = sum(w[i][..., None, None] * outs[f'iclselfix1_{k}'] for i, k in enumerate(R1TeflICL.SEL_SETS))
     assert torch.allclose(outs['iclsel1'], mix, atol=1e-5)                                          # validated mix of the same fits
+
+
+def test_iclselw_given_weights(tmp_path, monkeypatch):
+    s, d, e = stub('hyb', n=10, b=2)
+    W = torch.softmax(torch.randn(4, 5, 2, generator=torch.Generator().manual_seed(3)), 0)       # (S, N = 5 windows, C)
+    torch.save(W, tmp_path / 'w_x.pt')
+    monkeypatch.setenv('R1_ICL_SELW', str(tmp_path / 'w'))
+    s.win_ptr = 3                                                                                   # windows 3, 4
+    out = _run(s, d, e, 'iclselw_x') - d
+    fx = []
+    for k in R1TeflICL.SEL_SETS:
+        s.win_ptr = 0
+        fx.append(_run(s, d, e, f'iclselfix1_{k}') - d)
+    ref = sum(W[i, 3:5][:, :, None, None] * fx[i] for i in range(4))
+    assert torch.allclose(out, ref, atol=1e-5)

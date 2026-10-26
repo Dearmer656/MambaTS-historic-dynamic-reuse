@@ -35,7 +35,8 @@ PAT-313 case analysis (2026-10-26, fixed before results; inference audits on a t
   window (i - d) mod N, query and TEFL part kept), iclproj_{const,lin,daily,common} (Delta_t projected; daily period R1_ICL_PERIOD).
   Windows are indexed by win_ptr (eval order, reset by set_audit), so the audited split must be read in order (stride 1).
   Point 6 (select then adapt): iclsel / iclsel1 / iclselfix_{all,recent4,phase,topk8} (sel_correct; phase lags R1_ICL_SELPHASE);
-  controls iclselavg / iclselavg1 (uniform 1/4 mix) and iclselfix1_<set> (one GD step on one set); per-window weights -> sel_wdump.
+  controls iclselavg / iclselavg1 (uniform 1/4 mix) and iclselfix1_<set> (one GD step on one set); per-window weights -> sel_wdump;
+  iclselw_<tag>: one-step set fits mixed with given per-window weights from <R1_ICL_SELW>_<tag>.pt (S, N, C) (causal Hedge, offline).
 Weight dump (2026-10-26, diagnostic): with R1_ICL_WDUMP=<prefix>, Exp_R1.audit records the GD-step demo weights
   <phi(k_j), phi(q)> / (|phi(q)| sum_j |phi(k_j)|) (mean over variables) of the normal pass per split -> <prefix>_<split>_L<L>H<H>.pt
   (demo j = in-window origin patch j; query origin T-1-K; lag in patches = T-1-K-j).
@@ -50,6 +51,7 @@ Errors are detached (stop-gradient, as T0-MS). If the query origin is invalid (p
 too, so the ICL term is 0. Inference audits (on top of R1Tefl's zero / perm; 'perm' swaps only the query for a distant window's,
 the demos stay the window's own): 'icloff' (ICL term removed; 'hyb' -> its TEFL part), 'iclperm' (values permuted
 across the window's demos: pairing broken, the demo set and its mean kept)."""
+import os
 import torch
 import torch.nn as nn
 RIDGE_LAM = 1.0                                                                          # EFC-CET's lambda (normalised errors)
@@ -126,6 +128,7 @@ class R1TeflICL(R1TeflMS):
         self._bank, self._icl_log, self.bank, self.icl_mean = [], [], None, None
         self.sel_phase, self.sel_log, self.K_last = [], [], self.hmax                   # PAT-313 point 6 (iclsel*)
         self.sel_wdump = None
+        self.selw_cache = {}                                                             # iclselw_<tag>: R1_ICL_SELW_<tag>.pt
 
     def set_audit(self, mode=None, seed=0):
         self.win_ptr = 0                                                                  # PAT-313: window index within an eval pass
@@ -275,7 +278,7 @@ class R1TeflICL(R1TeflMS):
         Phi, R = k.permute(0, 2, 1, 3), v.permute(0, 2, 1, 3)                          # (b, C, n, r), (b, C, n, d)
         n = Phi.shape[2]
         a = self.audit
-        onestep = a in ('iclsel1', 'iclselavg1') or a.startswith('iclselfix1_')
+        onestep = a in ('iclsel1', 'iclselavg1') or a.startswith(('iclselfix1_', 'iclselw_'))
         qpos = n + self.K_last - 1                                                       # the real query origin j0
         sets, base = self.sel_masks(Phi, q, qpos, mask)
         if a.startswith(('iclselfix_', 'iclselfix1_')):                                  # one fixed set (ridge | one GD step)
@@ -284,6 +287,13 @@ class R1TeflICL(R1TeflMS):
         outs = torch.stack([self.sel_fit(Phi, R, q, sets[name], base, onestep, hmax, P) for name in self.SEL_SETS])
         if a in ('iclselavg', 'iclselavg1'):                                             # control: fixed uniform combination
             return outs.mean(0)
+        if a.startswith('iclselw_'):                                                     # given per-window weights (S, N, C), e.g. causal Hedge
+            if a not in self.selw_cache:
+                self.selw_cache[a] = torch.load(f"{os.environ['R1_ICL_SELW']}_{a[len('iclselw_'):]}.pt").float()
+            W = self.selw_cache[a]
+            idx = torch.arange(self.win_ptr, self.win_ptr + q.shape[0])
+            assert int(idx[-1]) < W.shape[1], 'iclselw: fewer weights than windows'
+            return (W[:, idx].to(outs)[..., None] * outs).sum(0)
         err = torch.zeros(len(self.SEL_SETS), b, c, device=Phi.device, dtype=torch.float64)
         for p in range(max(0, n - m_val), n):
             xp = Phi[:, :, p]
