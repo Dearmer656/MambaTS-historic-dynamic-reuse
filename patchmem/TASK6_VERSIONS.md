@@ -246,3 +246,6 @@ One normalised GD step on W1 (a1 / sum |k_j|^2, ReLU mask) then hyb's W2 step on
 - Z2 test-time check, all 3 seeds (jobs 9633, 9648, 9649 elm73), a1 = 0, a2 chosen on half 1, half-2 MSE vs hyb:
   W −0.86/−0.82/−0.40% (a2 = 3 x3, grid edge); T −0.40/−0.52/−0.30% (a2 = 3 x3); E +0.37/+0.66/+3.00% (a2 1/1/3). Stable 3/3 on W and T,
   3/3 worse on E. a1 = 0.1 never better. Next: train hybz (eta learned under Z2).
+- Two-layer test-time update, 3 seeds (jobs 9615, 9673, 9674), H192, half-2 MSE vs W2 only (hyb), a1 chosen on half 1:
+  W1+W2: E +0.09/+0.27/−0.15%, W +0.01/−0.04/+0.00%, T −0.07/−0.06/−0.04%; W1 only: E +1.10/+1.57/+8.16%, W +0.93/+0.94/+0.88%,
+  T +0.52/+0.63/+0.45%; none (TEFL part): E +1.42/+1.66/+2.00%, W +1.02/+1.01/+0.93%, T +0.82/+0.94/+0.62%. W1+W2 ≈ W2 only.
