@@ -227,3 +227,10 @@ Gain kept vs hyb's own ICL term (>1 = better than hyb), and absolute test MSE:
   .5558/.5535/.5549 (TEFL .5828/.5816/.5782).
 - Traffic H192 done (jobs 8793-8795): L1440 A1 .8577/.8578/.8533, TEFL .5182/.5202/.5213, hyb .5219/.5211/.5196 (+0.70/+0.17/−0.33%).
   hyb vs TEFL by L (3-seed mean): L384 (0 examples) +0.77%, L720 (7) +0.30%, L1440 (22) +0.18%: no gain at H192 on T either.
+
+### PAT-313 H192 select-then-adapt (jobs 9588 elm73 + 9592 elm43, commit d2504bd), MSE change vs hyb, L1440 test
+- W: iclsel1 −0.91/−0.98/−0.79%, avg1 −0.87/−0.94/−0.74%, fixed phase (2/3/4 days) −1.10/−1.19/−1.01%, topk8 −0.98/−1.02/−0.85%.
+- T: iclsel1 −1.52/−1.64/−1.35%, avg1 −1.47/−1.58/−1.31%, fixed phase (2/4 weeks) −3.12/−3.36/−2.89% (vs TEFL ≈ −2.4/−3.2/−3.2%), topk8 ≈ −0.9%.
+- E: iclsel1 +0.40/+0.43/+0.40%, avg1 ≈ +0.4%, topk8 −0.63/−0.70/−1.49%, phase +1.6..+2.2%, recent4 +2.5..+2.7%.
+- Converged ridge (iclsel / iclselavg) overfits at H192: W +8.3..+9.6%, E +17..+20%, T +1..+1.8% (22 demos, 192-dim rows; lam = mean |phi|^2 too weak).
+- Set weights ~uniform (.23–.27). Criterion (iclsel1 or avg1 beats hyb 3/3): W yes, T yes, E no (E only topk8, not the pre-registered arm).
