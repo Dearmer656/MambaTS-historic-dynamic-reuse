@@ -37,6 +37,10 @@ PAT-313 case analysis (2026-10-26, fixed before results; inference audits on a t
   Point 6 (select then adapt): iclsel / iclsel1 / iclselfix_{all,recent4,phase,topk8} (sel_correct; phase lags R1_ICL_SELPHASE);
   controls iclselavg / iclselavg1 (uniform 1/4 mix) and iclselfix1_<set> (one GD step on one set); per-window weights -> sel_wdump;
   iclselw_<tag>: one-step set fits mixed with given per-window weights from <R1_ICL_SELW>_<tag>.pt (S, N, C) (causal Hedge, offline).
+Two-layer test-time update (PAT-313, 2026-10-26; audits icl2l_<a1> / icl2lw1_<a1>, two_layer()): one GD step on W1 and on W2 per window.
+Variant 'hybatt' (PAT-313, 2026-10-26): hyb with the GD-step weights replaced by a softmax over demos,
+  a_j = softmax_j(cos(phi(k_j), phi(q)) / tau + b_lag[t - j]), b_lag learned and initialised to log(R1_ICL_KAPPA) on the phase-aligned lags
+  R1_ICL_LAGPRIOR (else 0), tau learned (init R1_ICL_TAU); Delta = eta * sum_j a_j r_j (eta init 0: starts at TEFL).
 Weight dump (2026-10-26, diagnostic): with R1_ICL_WDUMP=<prefix>, Exp_R1.audit records the GD-step demo weights
   <phi(k_j), phi(q)> / (|phi(q)| sum_j |phi(k_j)|) (mean over variables) of the normal pass per split -> <prefix>_<split>_L<L>H<H>.pt
   (demo j = in-window origin patch j; query origin T-1-K; lag in patches = T-1-K-j).
@@ -51,6 +55,7 @@ Errors are detached (stop-gradient, as T0-MS). If the query origin is invalid (p
 too, so the ICL term is 0. Inference audits (on top of R1Tefl's zero / perm; 'perm' swaps only the query for a distant window's,
 the demos stay the window's own): 'icloff' (ICL term removed; 'hyb' -> its TEFL part), 'iclperm' (values permuted
 across the window's demos: pairing broken, the demo set and its mean kept)."""
+import math
 import os
 import torch
 import torch.nn as nn
@@ -58,7 +63,7 @@ RIDGE_LAM = 1.0                                                                 
 from patchmem.r1_msres import R1TeflMS, multistep_residuals
 
 
-HYB = ('hyb', 'hybridge', 'hybmean', 'hybperm')                                       # variants with TEFL's trained W2 term
+HYB = ('hyb', 'hybridge', 'hybmean', 'hybperm', 'hybatt')                                       # variants with TEFL's trained W2 term
 
 
 def permute_valid(v, mask, gen):
@@ -107,7 +112,7 @@ def demos_ced(E, avail, K):
 class R1TeflICL(R1TeflMS):
     def __init__(self, cfg, variant='tied', eta0=0.0, eta_learn=True, k_follow=False, key='row', ridge_rel=None, nshrink=0.0, **kw):
         super().__init__(cfg, **kw)
-        assert variant in ('id', 'tied', 'qk', 'hyb', 'ridge', 'hybridge', 'hybmean', 'hybperm'), variant
+        assert variant in ('id', 'tied', 'qk', 'hyb', 'ridge', 'hybridge', 'hybmean', 'hybperm', 'hybatt'), variant
         assert variant != 'hybridge' or ridge_rel is not None, 'hybridge needs ridge_rel'
         self.ridge_rel, self.nshrink = ridge_rel, nshrink
         assert key == 'row' or (key == 'ced' and variant in ('id', 'ridge')), (key, variant)   # ced changes eps: no TEFL map on it
@@ -121,6 +126,15 @@ class R1TeflICL(R1TeflMS):
         if variant in ('id', 'qk', 'ridge'):
             self.W1.weight.requires_grad_(False)
         self.eta = nn.Parameter(torch.full((self.hmax,), float(eta0)), requires_grad=eta_learn)
+        if variant == 'hybatt':                                                          # PAT-313: softmax over demos + lag bias, prior init
+            lmax = int(os.environ.get('R1_LMAX', '1440')) // cfg.patch_len + 1
+            prior = [int(x) for x in os.environ.get('R1_ICL_LAGPRIOR', '').split(',') if x]
+            b0 = torch.zeros(lmax)
+            b0[[l_ for l_ in prior if l_ < lmax]] = math.log(float(os.environ.get('R1_ICL_KAPPA', '4')))
+            self.b_lag = nn.Parameter(b0)                                                # bias per lag (patches) = t - j
+            self.log_tau = nn.Parameter(torch.tensor(math.log(float(os.environ.get('R1_ICL_TAU', '0.25')))))
+            print(f'R1TeflICL hybatt: lmax {lmax} prior lags {prior} kappa {os.environ.get("R1_ICL_KAPPA", "4")} '
+                  f'tau0 {self.log_tau.exp().item():.3f} | b_lag init ' + ' '.join(f'{i}:{v:.2f}' for i, v in enumerate(b0.tolist()) if v), flush=True)
         self.demo, self.icl_gen = None, torch.Generator().manual_seed(0)
         self.perm_gen = torch.Generator().manual_seed(1)                                 # 'hybperm' training-time permutation
         self.wlog = None                                                                  # list, set by Exp_R1.audit under R1_ICL_WDUMP
@@ -133,7 +147,7 @@ class R1TeflICL(R1TeflMS):
 
     def set_audit(self, mode=None, seed=0):
         self.win_ptr = 0                                                                  # PAT-313: window index within an eval pass
-        if mode is not None and mode.startswith(('iclconst', 'iclswap', 'iclproj_', 'iclsel')):
+        if mode is not None and mode.startswith(('iclconst', 'iclswap', 'iclproj_', 'iclsel', 'icl2l')):
             self.audit = mode
             return
         if mode in ('icloff', 'iclperm'):
@@ -182,6 +196,10 @@ class R1TeflICL(R1TeflMS):
         b, c, hmax, P = delta.shape
         if self.case_collect and self.case_bank and self.audit is None:                  # normal pass: bank demos (CPU fp32) for iclswap
             self._bank.append((D['k'].float().cpu(), D['v'].float().cpu(), D['mask'].cpu()))
+        if self.audit is not None and self.audit.startswith('icl2l'):                    # PAT-313: one GD step on W1 AND W2 per window
+            out = self.two_layer(eps, D, a1=float(self.audit.split('_', 1)[1]), layer2=not self.audit.startswith('icl2lw1'))
+            self.win_ptr += b
+            return out.reshape(b, c, hmax, P)
         if self.audit is not None and self.audit.startswith('iclswap'):                  # demos of window (i - d) mod N, query / TEFL kept
             dd = int(self.audit[len('iclswap'):])
             N = self.bank[0].shape[0]
@@ -213,6 +231,22 @@ class R1TeflICL(R1TeflMS):
             G = kk @ kk.transpose(-1, -2) + lam[..., None, None] * torch.eye(kk.shape[2], device=kk.device, dtype=kk.dtype)
             icl = ((q[:, :, None] @ kk.transpose(-1, -2)) @ torch.linalg.solve(G, vv)).squeeze(2)   # q K^T (K K^T + lam I)^-1 V
             return delta + icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]
+        if self.variant == 'hybatt':                                                     # weights softmax_j(cos / tau + b_lag[lag]) (sum 1)
+            n = k.shape[1]
+            cos = (k * q[:, None]).sum(-1) / (k.norm(dim=-1) * q.norm(dim=-1)[:, None]).clamp_min(1e-6)   # (b, n, C)
+            lag = (n + self.K_last - 1 - torch.arange(n, device=k.device)).clamp(max=self.b_lag.shape[0] - 1)
+            logit = cos / self.log_tau.exp() + self.b_lag[lag][None, :, None]
+            logit = logit.masked_fill(m <= 0, float('-inf'))
+            a = torch.softmax(logit, dim=1).nan_to_num(0.0) * m                          # all-masked windows -> 0
+            if self.wlog is not None and self.audit is None:
+                self.wlog.append(a.mean(-1).detach().float().cpu())
+            icl = (a[..., None] * v).sum(1)                                              # (b, C, K*P)
+            add = (icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]).reshape(b, c, hmax * P)
+            if self.case_collect and self.audit is None:
+                self._icl_log.append(add.detach().float().cpu())
+            add = self.case_transform(add)
+            self.win_ptr += b
+            return delta + add.reshape(b, c, hmax, P)
         if self.variant == 'hybmean':                                                    # cos(q, k_j) -> 1: no query dependence at all
             s = k.norm(dim=-1) * m
             den = (k.norm(dim=-1) * m).sum(1) + 1e-6
@@ -231,6 +265,35 @@ class R1TeflICL(R1TeflMS):
         add = self.case_transform(add)
         self.win_ptr += b
         return delta + add.reshape(b, c, hmax, P)
+
+    def two_layer(self, eps, D, a1, layer2=True):
+        """PAT-313: per-window test-time update of BOTH TEFL layers on the window's demos (k_j = E_j, v_j = E_{j+K}).
+        Layer 1: one normalised GD step on W1 of 0.5 sum_j |v_j - W2 relu(W1 k_j)|^2:
+            W1' = W1 + a1 * sum_j g_j k_j^T / sum_j |k_j|^2,  g_j = (W2^T r_j) * 1(W1 k_j > 0),  r_j = v_j - W2 relu(W1 k_j)
+            (an attention over demos with input-space scores <k_j, x> and values g_j); h'(x) = relu(W1' x).
+        Layer 2 (layer2=True): hyb's normalised GD step on W2 with the updated features h' (eta learned):
+            out = W2 h'(q) + eta * sum_j r'_j <h'_j, h'_q> / (|h'_q| sum_j |h'_j|),  r'_j = v_j - W2 h'(k_j).
+        layer2=False: out = W2 h'(q) (TEFL readout on the updated features). a1 = 0 and layer2 = True reproduces hyb.
+        Returns the full delta (b, C, K*P)."""
+        assert bool(D['mask'].all()), 'icl2l assumes unpadded eval windows (every demo valid)'
+        Kr, V = D['k'].permute(0, 2, 1, 3), D['v'].permute(0, 2, 1, 3)                  # (b, C, n, din), (b, C, n, d)
+        W1, W2 = self.W1.weight, self.W2.weight                                          # (r, din), (d, r)
+        pre_k = Kr @ W1.T                                                                # (b, C, n, r)
+        r_ = V - torch.relu(pre_k) @ W2.T
+        g = (r_ @ W2) * (pre_k > 0).to(Kr.dtype)                                         # dL/d(pre) (negated): (b, C, n, r)
+        norm = Kr.square().sum((-1, -2)).clamp_min(1e-12)[..., None, None]               # sum_j |k_j|^2, (b, C, 1, 1)
+        pre_k2 = pre_k + a1 * (Kr @ Kr.transpose(-1, -2)) @ g / norm                     # W1' k_i
+        pre_q2 = eps @ W1.T + a1 * ((eps[:, :, None, :] @ Kr.transpose(-1, -2)) @ g).squeeze(2) / norm[..., 0]   # W1' q
+        hk, hq = torch.relu(pre_k2), torch.relu(pre_q2)
+        out = hq @ W2.T                                                                  # (b, C, d)
+        if layer2:
+            b, c, d = out.shape
+            r2 = V - hk @ W2.T
+            s_ = (hk * hq[:, :, None]).sum(-1)                                           # (b, C, n)
+            den = hq.norm(dim=-1) * hk.norm(dim=-1).sum(-1) + 1e-6
+            icl = (s_[..., None] * r2).sum(-2) / den[..., None]
+            out = out + (icl.reshape(b, c, self.hmax, -1) * self.eta[None, None, :, None]).reshape(b, c, d)
+        return out
 
     SEL_SETS = ('all', 'recent4', 'phase', 'topk8')
 

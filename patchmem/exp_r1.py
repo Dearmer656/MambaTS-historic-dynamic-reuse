@@ -586,13 +586,16 @@ class Exp_R1(Exp_Long_Term_Forecast):
                 modes.append(('noH', 'noH', 0))
             if getattr(m.obs_net, 'forget', False):
                 modes.append(('noF', 'noF', 0))
+        if isinstance(m, R1TeflICL) and m.variant == 'hybatt':                         # PAT-313: learned lag bias / temperature
+            print(f'[R1 hybatt] tau {m.log_tau.exp().item():.4f} eta ' + ' '.join(f'{v:.4f}' for v in m.eta.tolist()) + ' | b_lag by lag ' +
+                  ' '.join(f'{i}:{v:+.3f}' for i, v in enumerate(m.b_lag.tolist())), flush=True)
         order = self.eval_order()
         for flag in os.environ.get('R1_AUDIT_FLAGS', 'val,test').split(','):
             out = {}
             st = int(os.environ.get('R1_AUDIT_TRAIN_STRIDE', '8')) if flag == 'train' else 1
             for name, mode, seed in modes:
                 m.set_audit(mode, seed)
-                case = isinstance(m, R1TeflICL) and bool(os.environ.get('R1_ICL_XAUDIT')) and (name in ('normal', 'icloff') or name.startswith('iclsel'))
+                case = isinstance(m, R1TeflICL) and bool(os.environ.get('R1_ICL_XAUDIT')) and (name in ('normal', 'icloff') or name.startswith(('iclsel', 'icl2l')))
                 if case:                                                                 # PAT-313: one (L, H) cell, split read in order
                     assert len(g) == 1 and st == 1, 'R1_ICL_XAUDIT needs one audit cell and stride 1'
                     m.case_collect, self.errlog = name == 'normal', []

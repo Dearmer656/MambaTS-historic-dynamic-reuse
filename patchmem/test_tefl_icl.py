@@ -48,6 +48,7 @@ def stub(variant, n=4, C=2, K=3, P=4, r=5, b=3):
     s.sel_masks = lambda *a: R1TeflICL.sel_masks(s, *a)
     s.sel_fit = lambda *a: R1TeflICL.sel_fit(s, *a)
     s.sel_correct = lambda *a, **kw: R1TeflICL.sel_correct(s, *a, **kw)
+    s.two_layer = lambda *a, **kw: R1TeflICL.two_layer(s, *a, **kw)
     g = torch.Generator().manual_seed(1)
     s.demo = dict(k=torch.randn(b, n, C, din, generator=g), v=torch.randn(b, n, C, din, generator=g), mask=torch.ones(b, n, dtype=torch.bool))
     delta, eps = torch.randn(b, C, K, P, generator=g), torch.randn(b, C, din, generator=g)
@@ -368,3 +369,40 @@ def test_iclselw_given_weights(tmp_path, monkeypatch):
         fx.append(_run(s, d, e, f'iclselfix1_{k}') - d)
     ref = sum(W[i, 3:5][:, :, None, None] * fx[i] for i in range(4))
     assert torch.allclose(out, ref, atol=1e-5)
+
+
+def test_hybatt_softmax_lag_prior(monkeypatch):
+    import math
+    s, d, e = stub('hybatt', n=10, b=2)                                                              # K = 3, lags 12 .. 3
+    s.K_last = 3
+    s.b_lag = nn.Parameter(torch.zeros(16)); s.log_tau = nn.Parameter(torch.tensor(math.log(1e6)))
+    out = R1TeflICL.extra_delta(s, d, e, None)
+    k = torch.relu(s.W1(s.demo['k'])); r = s.demo['v'] - s.W2(k)
+    ref = r.mean(1)                                                                                  # flat logits -> uniform mean
+    assert torch.allclose((out - d).reshape(2, 2, 12), ref, atol=1e-4)
+    with torch.no_grad():
+        s.b_lag[6] = 50.0                                                                            # only lag 6 = demo j = 12 - 6 = 6
+    out = R1TeflICL.extra_delta(s, d, e, None)
+    assert torch.allclose((out - d).reshape(2, 2, 12), r[:, 6], atol=1e-4)
+    out.sum().backward()
+    assert s.b_lag.grad is not None and torch.isfinite(s.b_lag.grad).all() and s.log_tau.grad is not None
+
+
+def test_two_layer_matches_autograd_step():
+    s, d, e = stub('hyb', n=6, b=2)
+    d0 = s.W2(torch.relu(s.W1(e))).reshape(d.shape).detach()                                        # TEFL delta, as the model passes it
+    s.win_ptr = 0
+    hyb = _run(s, d0, e, None)
+    s.win_ptr = 0
+    assert torch.allclose(_run(s, d0, e, 'icl2l_0'), hyb, atol=1e-5)                                # a1 = 0 == hyb
+    a1 = 0.7
+    out1 = _run(s, d0, e, 'icl2lw1_0.7').reshape(2, 2, 12)
+    for bi in range(2):
+        for ci in range(2):
+            K = s.demo['k'][bi, :, ci]; V = s.demo['v'][bi, :, ci]
+            W1 = s.W1.weight.detach().clone().requires_grad_(True)
+            loss = 0.5 * (V - torch.relu(K @ W1.T) @ s.W2.weight.detach().T).square().sum()
+            gW, = torch.autograd.grad(loss, W1)
+            W1n = W1.detach() - a1 * gW / K.square().sum()                                           # normalised GD step
+            ref = torch.relu(e[bi, ci] @ W1n.T) @ s.W2.weight.detach().T
+            assert torch.allclose(out1[bi, ci], ref, atol=1e-4), (bi, ci)
