@@ -49,6 +49,12 @@ class A0Tefl(nn.Module):
     def batch_update_state(self, cost):
         self.base.batch_update_state(cost)
 
+    def reset_ids_shuffle(self):
+        self.base.reset_ids_shuffle()
+
+    def set_reordering_index(self, idx):
+        self.base.set_reordering_index(idx)
+
 
 class Exp_A0Tefl(Exp_Long_Term_Forecast):
     def _build_model(self):
@@ -108,6 +114,8 @@ class Exp_A0Tefl(Exp_Long_Term_Forecast):
         return m
 
     def test(self, setting, test=0):
+        if test:                                                                         # run.py's test-only setting uses sl = L; training saved sl = L+H
+            setting = setting.replace(f'_sl{self.model.L}_', f'_sl{self.model.L + self.model.H}_')
         super().test(setting, test)
         if os.environ.get('TEFL_OFF_TEST', '1') == '1':                                  # the jointly trained f alone
             _, test_loader = self._get_data(flag='test')
