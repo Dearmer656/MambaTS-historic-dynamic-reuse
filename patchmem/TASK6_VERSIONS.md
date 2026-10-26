@@ -220,3 +220,8 @@ Gain kept vs hyb's own ICL term (>1 = better than hyb), and absolute test MSE:
   T: hedge −0.96/−0.89/−1.04% (beta 10, gamma .997; phase weight .40-.41, recent4 .15), hedge x valid −0.8..−0.9%, iclsel1 −0.41..−0.45%,
      per-variable fixed hindsight +0.4..+0.7% (worse than hedge: the best set changes over time).
   Criterion (hedge beats avg1 and sel1 on half 2, 3/3, W and T): met, but the W margin is tiny; in-model confirmation pending.
+- Plan 1 in-model check (job 9523, commit f5d3b54, `patchmem/icl_selw_summ.py`; real errors, causal Hedge weights fed per window):
+  half 2 vs uniform mix: W hedge −0.13/−0.18/−0.21%, hedge x valid −0.44/−0.79/−0.71%, iclsel1 +0.30/−0.13/−0.07%;
+  T hedge −1.03/−0.98/−1.16%, hedge x valid −0.86..−1.04%, iclsel1 −0.40..−0.43%. Matches the offline approximation. Criterion met.
+  All test windows (half 1 used to pick beta, gamma): W hx .1792/.1770/.1772 vs hyb .1831/.1829/.1840; T hedge .5101/.5079/.5080 vs hyb
+  .5558/.5535/.5549 (TEFL .5828/.5816/.5782).
