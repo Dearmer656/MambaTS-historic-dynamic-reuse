@@ -196,6 +196,11 @@ class R1TeflICL(R1TeflMS):
                 'PAT-313 case audits need demos in every window (win_ptr alignment)'
             return delta
         b, c, hmax, P = delta.shape
+        ds = int(os.environ.get('R1_ICL_DSTRIDE', '1'))                                 # PAT-313: keep every ds-th demo (latest kept)
+        if ds > 1:
+            assert not (self.audit or '').startswith(('iclsel', 'iclswap')), 'R1_ICL_DSTRIDE: lag/bank bookkeeping assumes all demos'
+            j = torch.arange(D['k'].shape[1] - 1, -1, -ds, device=D['k'].device).flip(0)
+            D = dict(k=D['k'][:, j], v=D['v'][:, j], mask=D['mask'][:, j])
         if self.case_collect and self.case_bank and self.audit is None:                  # normal pass: bank demos (CPU fp32) for iclswap
             self._bank.append((D['k'].float().cpu(), D['v'].float().cpu(), D['mask'].cpu()))
         if self.audit is not None and self.audit.startswith('icl2l'):                    # PAT-313: one GD step on W1 AND W2 per window
