@@ -7,6 +7,7 @@
 #SBATCH --output=patchmem/logs/server/slurm_%j_s192.txt
 #SBATCH --partition=gpu_long
 #SBATCH --gres=gpu:6000:1
+#SBATCH --exclude=elm72
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=24G
 #SBATCH --time=1-00:00:00
