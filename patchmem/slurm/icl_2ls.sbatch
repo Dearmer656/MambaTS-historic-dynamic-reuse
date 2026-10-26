@@ -10,14 +10,13 @@
 #SBATCH --gres=gpu:6000:1
 #SBATCH --exclude=elm72
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=24G
+#SBATCH --mem=48G
 #SBATCH --time=1-00:00:00
 cd /project/nlp-work5/hongyu-s/state_path_attn/MambaTS-pytorch
 export PYTHONPATH=/project/nlp-work5/hongyu-s/state_path_attn/_pylib:$PYTHONPATH
 export PATH=/cl/work5/hongyu-s/conda/envs/mamba_iso/bin:$PATH
 export OMP_NUM_THREADS=2 MKL_NUM_THREADS=2
 echo "commit $(git rev-parse --short HEAD) $(hostname) runs $1 $(date)"
-DS=${2:-1}; O=patchmem/logs/server/icl_2ls$DS; mkdir -p $O
 XA=icl2l_0.1,icl2l_0.3,icl2l_1,icl2l_3,icl2l_10
 one() {   # D SEED
   local D=$1 s=$2 P SH CK PH
@@ -31,5 +30,5 @@ one() {   # D SEED
       R1_ICL_XAUDIT=$XA R1_ICL_DSTRIDE=$DS R1_ICL_CASEDUMP=$O/${D}_s$s DES=${P}IclHybH192s${s}2ls$DS EXTRA="--is_training 0" bash $SH > $O/${D}_s$s.txt 2>&1
   echo "end $D s$s $(date) | $(grep -E 'audit test\] L=1440|Traceback|Error' $O/${D}_s$s.txt | cut -c1-200)"
 }
-for r in $1; do one ${r%%:*} ${r##*:} & sleep 20; done
+for DS in ${2:-1}; do O=patchmem/logs/server/icl_2ls$DS; mkdir -p $O; for r in $1; do one ${r%%:*} ${r##*:} & sleep 20; done; done
 wait
