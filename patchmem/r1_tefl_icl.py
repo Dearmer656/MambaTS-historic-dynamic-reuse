@@ -63,6 +63,7 @@ import torch
 import torch.nn as nn
 RIDGE_LAM = 1.0                                                                          # EFC-CET's lambda (normalised errors)
 from patchmem.r1_msres import R1TeflMS, multistep_residuals
+from patchmem.r1_model import R1
 
 
 HYB = ('hyb', 'hybridge', 'hybmean', 'hybperm', 'hybatt', 'hybz')                                       # variants with TEFL's trained W2 term
@@ -111,6 +112,33 @@ def demos_ced(E, avail, K):
     return eps, dict(k=flat(diag(o)).detach(), v=flat(E[:, o]).detach(), mask=mask)
 
 
+def lb_errors(x, lb, K, P, fc, stdev, chunk=256):
+    """PAT-313 decoupled lookback (R1_ICL_LB = lb): every patch origin o = lb, lb+P, ..., L-K*P of the input x (b, L, C) is forecast K
+    patches ahead from its own last lb steps only, fc(x[:, o-lb:o] (B, lb, C), K) -> (B, K*P, C) de-normalised. Errors on the observed
+    targets x[:, o:o+K*P], normalised by stdev (b, 1, C) (the final forecast window's RevIN scale). Returns (b, M, K, C, P), origins
+    in time order (the last one, o = L-K*P, is the forecast issued one horizon ago = TEFL's query)."""
+    b, L, c = x.shape
+    o = torch.arange(lb, L - K * P + 1, P, device=x.device)
+    M = len(o)
+    assert M >= 1, f'R1_ICL_LB needs L >= lb + H ({L}, {lb}, {K * P})'
+    xw = x[:, o[:, None] + torch.arange(-lb, 0, device=x.device)[None]].reshape(b * M, lb, c)
+    with torch.no_grad():
+        pred = torch.cat([fc(xw[i:i + chunk], K) for i in range(0, b * M, chunk)], 0).reshape(b, M, K * P, c)
+    tgt = x[:, o[:, None] + torch.arange(K * P, device=x.device)[None]]                  # (b, M, K*P, C)
+    E = (tgt - pred) / stdev[:, None]
+    return E.reshape(b, M, K, P, c).permute(0, 1, 2, 4, 3).contiguous().detach()
+
+
+def lb_pad(E, K):
+    """Lay lb_errors' origins out as multistep_residuals' (b, T-1, K, C, P) with T-1 = M+K-1: K-1 unobserved origins appended, so
+    demos() takes the query at index M-1 (= origin L-K*P) and the demos j = 0..M-1-K with values j+K (all observed)."""
+    b, M = E.shape[:2]
+    Ef = torch.cat([E, E.new_zeros(b, K - 1, *E.shape[2:])], 1)
+    avail = torch.zeros(b, M + K - 1, K, dtype=torch.bool, device=E.device)
+    avail[:, :M] = True
+    return Ef, avail
+
+
 class R1TeflICL(R1TeflMS):
     def __init__(self, cfg, variant='tied', eta0=0.0, eta_learn=True, k_follow=False, key='row', ridge_rel=None, nshrink=0.0, **kw):
         super().__init__(cfg, **kw)
@@ -146,6 +174,7 @@ class R1TeflICL(R1TeflMS):
         self.sel_phase, self.sel_log, self.K_last = [], [], self.hmax                   # PAT-313 point 6 (iclsel*)
         self.sel_wdump = None
         self.selw_cache = {}                                                             # iclselw_<tag>: R1_ICL_SELW_<tag>.pt
+        self._lbE = None                                                                 # R1_ICL_LB: fixed-lookback errors of this forward
 
     def set_audit(self, mode=None, seed=0):
         self.win_ptr = 0                                                                  # PAT-313: window index within an eval pass
@@ -160,6 +189,18 @@ class R1TeflICL(R1TeflMS):
 
     def forward(self, x, n_out, *a, **kw):
         self.n_out = n_out
+        lb = int(os.environ.get('R1_ICL_LB', '0'))
+        if lb and x.shape[1] > lb:                                                       # PAT-313 decoupled lookback (eval only)
+            assert kw.get('lens') is None and not self.training, 'R1_ICL_LB: eval, full windows'
+            K = min(n_out, self.hmax) if self.k_follow else self.hmax
+            stdev = self.revin(x[:, -lb:])[1]
+            perm0 = self.scan_order(1, x.device)
+            fc = lambda xw, k: R1.forward(self, xw, k, perm=perm0.expand(xw.shape[0], -1))['pred']
+            self._lbE = lb_errors(x, lb, K, self.P, fc, stdev, int(os.environ.get('R1_ICL_LBCHUNK', '256')))
+            try:
+                return super().forward(x[:, -lb:], n_out, *a, **kw)
+            finally:
+                self._lbE = None
         return super().forward(x, n_out, *a, **kw)
 
     def error(self, x, xn, xo, yh, perm, means, stdev, lens=None):
@@ -170,7 +211,11 @@ class R1TeflICL(R1TeflMS):
         assert T - 1 - K >= 0, f'T0-MS needs T >= K + 1 ({T}, {K})'
         _, _, _, t0, tm = self.revin(x, lens)
         tok = self.embed(self.to_scan(xo, perm)).reshape(b, T * c, -1)
-        E, avail = multistep_residuals(self, tok, xo, perm, tm, t0, K)                 # (b, T-1, K, C, P), (b, T-1, K)
+        if self._lbE is not None:                                                        # R1_ICL_LB: origins' own lb-step forecasts
+            assert self._lbE.shape[2] == K, (self._lbE.shape, K)
+            E, avail = lb_pad(self._lbE, K)
+        else:
+            E, avail = multistep_residuals(self, tok, xo, perm, tm, t0, K)             # (b, T-1, K, C, P), (b, T-1, K)
         self.K_last = K
         eps, self.demo = (demos_ced if self.key == 'ced' else demos)(E, avail, K)
         if K < self.hmax:                                                                # zero-pad leads K+1..Hmax: W1 input size fixed

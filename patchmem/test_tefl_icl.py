@@ -3,7 +3,7 @@ backbone needs the CUDA scan)."""
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
-from patchmem.r1_tefl_icl import R1TeflICL, demos, demos_ced, permute_valid
+from patchmem.r1_tefl_icl import R1TeflICL, demos, demos_ced, permute_valid, lb_errors, lb_pad
 
 
 def fake_E(b=2, T=20, K=3, C=2, P=4):
@@ -423,3 +423,28 @@ def test_z2_normalisation():
     s2.W1, s2.W2, s2.demo = s.W1, s.W2, s.demo
     s.win_ptr = 0
     assert torch.allclose(R1TeflICL.extra_delta(s2, d0, e, None), _run(s, d0, e, 'icl2lz_0_1'), atol=1e-5)   # hybz == icl2lz a1 = 0
+
+
+def test_lb_errors_and_pad():
+    """R1_ICL_LB: each origin's forecast sees only its last lb steps; errors normalised by the given stdev; lb_pad + demos puts the query
+    at origin L-K*P and every demo value fully inside the window."""
+    b, L, c, P, K, lb = 2, 40, 3, 4, 2, 12
+    x = torch.randn(b, L, c, generator=torch.Generator().manual_seed(0))
+    seen = []
+    def fc(xw, k):                                                                       # naive: repeat the window mean, record widths
+        seen.append(xw.shape[1])
+        return xw.mean(1, keepdim=True).expand(-1, k * P, -1)
+    sd = torch.rand(b, 1, c) + 0.5
+    E = lb_errors(x, lb, K, P, fc, sd, chunk=5)
+    o = list(range(lb, L - K * P + 1, P))
+    assert E.shape == (b, len(o), K, c, P) and set(seen) == {lb}
+    for m, oo in enumerate(o):
+        ref = (x[:, oo:oo + K * P] - x[:, oo - lb:oo].mean(1, keepdim=True)) / sd   # (b, K*P, c)
+        assert torch.allclose(E[:, m], ref.reshape(b, K, P, c).permute(0, 1, 3, 2), atol=1e-6)
+    Ef, avail = lb_pad(E, K)
+    eps, D = demos(Ef, avail, K)
+    M = len(o)
+    assert torch.allclose(eps, E[:, M - 1].permute(0, 2, 1, 3).reshape(b, c, K * P))  # query = origin L - K*P
+    assert D['k'].shape[1] == M - K and bool(D['mask'].all())
+    assert torch.allclose(D['v'][:, -1], eps)                                            # latest demo value = the query's own row
+    assert torch.allclose(D['k'][:, 0], E[:, 0].permute(0, 2, 1, 3).reshape(b, c, K * P))
