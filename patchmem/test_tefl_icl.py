@@ -431,8 +431,9 @@ def test_lb_errors_and_pad():
     b, L, c, P, K, lb = 2, 40, 3, 4, 2, 12
     x = torch.randn(b, L, c, generator=torch.Generator().manual_seed(0))
     seen = []
-    def fc(xw, k):                                                                       # naive: repeat the window mean, record widths
+    def fc(xw, k, si):                                                                   # naive: repeat the window mean, record widths
         seen.append(xw.shape[1])
+        assert all(bool((x[s_] == xw[i, -1]).all(-1).any()) for i, s_ in enumerate(si.tolist()))   # window i comes from sample si[i]
         return xw.mean(1, keepdim=True).expand(-1, k * P, -1)
     sd = torch.rand(b, 1, c) + 0.5
     E = lb_errors(x, lb, K, P, fc, sd, chunk=5)

@@ -114,16 +114,19 @@ def demos_ced(E, avail, K):
 
 def lb_errors(x, lb, K, P, fc, stdev, chunk=256):
     """PAT-313 decoupled lookback (R1_ICL_LB = lb): every patch origin o = lb, lb+P, ..., L-K*P of the input x (b, L, C) is forecast K
-    patches ahead from its own last lb steps only, fc(x[:, o-lb:o] (B, lb, C), K) -> (B, K*P, C) de-normalised. Errors on the observed
+    patches ahead from its own last lb steps only, fc(windows (B, lb, C), K, sample index (B,)) -> (B, K*P, C) de-normalised. Errors on the observed
     targets x[:, o:o+K*P], normalised by stdev (b, 1, C) (the final forecast window's RevIN scale). Returns (b, M, K, C, P), origins
     in time order (the last one, o = L-K*P, is the forecast issued one horizon ago = TEFL's query)."""
     b, L, c = x.shape
     o = torch.arange(lb, L - K * P + 1, P, device=x.device)
     M = len(o)
     assert M >= 1, f'R1_ICL_LB needs L >= lb + H ({L}, {lb}, {K * P})'
-    xw = x[:, o[:, None] + torch.arange(-lb, 0, device=x.device)[None]].reshape(b * M, lb, c)
-    with torch.no_grad():
-        pred = torch.cat([fc(xw[i:i + chunk], K) for i in range(0, b * M, chunk)], 0).reshape(b, M, K * P, c)
+    flat = (torch.arange(b, device=x.device)[:, None] * L + o[None]).reshape(-1)          # (b*M,) sample-major window ends
+    win = torch.arange(-lb, 0, device=x.device)
+    xf = x.reshape(b * L, c)
+    with torch.no_grad():                                                                # windows built per chunk (memory)
+        pred = torch.cat([fc(xf[flat[i:i + chunk, None] + win[None]], K, flat[i:i + chunk] // L)
+                          for i in range(0, b * M, chunk)], 0).reshape(b, M, K * P, c)
     tgt = x[:, o[:, None] + torch.arange(K * P, device=x.device)[None]]                  # (b, M, K*P, C)
     E = (tgt - pred) / stdev[:, None]
     return E.reshape(b, M, K, P, c).permute(0, 1, 2, 4, 3).contiguous().detach()
@@ -191,11 +194,13 @@ class R1TeflICL(R1TeflMS):
         self.n_out = n_out
         lb = int(os.environ.get('R1_ICL_LB', '0'))
         if lb and x.shape[1] > lb:                                                       # PAT-313 decoupled lookback (eval only)
-            assert kw.get('lens') is None and not self.training, 'R1_ICL_LB: eval, full windows'
+            assert kw.get('lens') is None and not self.training and not a, 'R1_ICL_LB: eval, full windows, keyword arguments'
             K = min(n_out, self.hmax) if self.k_follow else self.hmax
             stdev = self.revin(x[:, -lb:])[1]
-            perm0 = self.scan_order(1, x.device)
-            fc = lambda xw, k: R1.forward(self, xw, k, perm=perm0.expand(xw.shape[0], -1))['pred']
+            if kw.get('perm') is None:                                                   # one scan order for base windows and final forecast
+                kw['perm'] = self.scan_order(x.shape[0], x.device)
+            pm = kw['perm']
+            fc = lambda xw, k, si: R1.forward(self, xw, k, perm=pm[si])['pred']
             self._lbE = lb_errors(x, lb, K, self.P, fc, stdev, int(os.environ.get('R1_ICL_LBCHUNK', '256')))
             try:
                 return super().forward(x[:, -lb:], n_out, *a, **kw)
