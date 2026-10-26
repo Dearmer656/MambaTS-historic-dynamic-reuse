@@ -225,3 +225,5 @@ Gain kept vs hyb's own ICL term (>1 = better than hyb), and absolute test MSE:
   T hedge −1.03/−0.98/−1.16%, hedge x valid −0.86..−1.04%, iclsel1 −0.40..−0.43%. Matches the offline approximation. Criterion met.
   All test windows (half 1 used to pick beta, gamma): W hx .1792/.1770/.1772 vs hyb .1831/.1829/.1840; T hedge .5101/.5079/.5080 vs hyb
   .5558/.5535/.5549 (TEFL .5828/.5816/.5782).
+- Traffic H192 done (jobs 8793-8795): L1440 A1 .8577/.8578/.8533, TEFL .5182/.5202/.5213, hyb .5219/.5211/.5196 (+0.70/+0.17/−0.33%).
+  hyb vs TEFL by L (3-seed mean): L384 (0 examples) +0.77%, L720 (7) +0.30%, L1440 (22) +0.18%: no gain at H192 on T either.
