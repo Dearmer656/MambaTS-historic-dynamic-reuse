@@ -125,6 +125,7 @@ class R1TeflICL(R1TeflMS):
         self.perm_gen = torch.Generator().manual_seed(1)                                 # 'hybperm' training-time permutation
         self.wlog = None                                                                  # list, set by Exp_R1.audit under R1_ICL_WDUMP
         self.win_ptr, self.case_collect, self.case_period = 0, False, 0                    # PAT-313 case analysis (Exp_R1.audit, R1_ICL_XAUDIT)
+        self.case_bank = True                                                             # bank demos only when an iclswap mode needs them
         self._bank, self._icl_log, self.bank, self.icl_mean = [], [], None, None
         self.sel_phase, self.sel_log, self.K_last = [], [], self.hmax                   # PAT-313 point 6 (iclsel*)
         self.sel_wdump = None
@@ -179,7 +180,7 @@ class R1TeflICL(R1TeflMS):
                 'PAT-313 case audits need demos in every window (win_ptr alignment)'
             return delta
         b, c, hmax, P = delta.shape
-        if self.case_collect and self.audit is None:                                     # normal pass: bank this window's demos (CPU fp16)
+        if self.case_collect and self.case_bank and self.audit is None:                  # normal pass: bank demos (CPU fp32) for iclswap
             self._bank.append((D['k'].float().cpu(), D['v'].float().cpu(), D['mask'].cpu()))
         if self.audit is not None and self.audit.startswith('iclswap'):                  # demos of window (i - d) mod N, query / TEFL kept
             dd = int(self.audit[len('iclswap'):])
@@ -336,7 +337,7 @@ class R1TeflICL(R1TeflMS):
 
     def finalize_case(self):
         """After the normal pass: stack the demo bank (N, n, C, d) and the Delta_t log; icl_mean = mean Delta over the pass's windows."""
-        self.bank = tuple(torch.cat(z) for z in zip(*self._bank))
+        self.bank = tuple(torch.cat(z) for z in zip(*self._bank)) if self._bank else None
         icl = torch.cat(self._icl_log)
         self.icl_mean = icl.float().mean(0)
         self._bank, self._icl_log = [], []

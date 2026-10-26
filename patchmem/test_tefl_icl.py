@@ -36,7 +36,7 @@ def test_demos_no_leak_and_query():
 def stub(variant, n=4, C=2, K=3, P=4, r=5, b=3):
     din = K * P
     s = SimpleNamespace(variant=variant, audit=None, hmax=K, ridge_rel=None, nshrink=0.0, icl_gen=torch.Generator().manual_seed(0),
-                        perm_gen=torch.Generator().manual_seed(1), wlog=None, win_ptr=0, case_collect=False, case_period=6,
+                        perm_gen=torch.Generator().manual_seed(1), wlog=None, win_ptr=0, case_collect=False, case_period=6, case_bank=True,
                         _bank=[], _icl_log=[], bank=None, icl_mean=None, sel_phase=[3, 5], sel_log=[], K_last=K,
                         SEL_SETS=R1TeflICL.SEL_SETS, sel_wdump=None, selw_cache={},
                         W1=nn.Linear(din, r, bias=False), W2=nn.Linear(r, din, bias=False),

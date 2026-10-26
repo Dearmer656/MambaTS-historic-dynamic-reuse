@@ -577,6 +577,7 @@ class Exp_R1(Exp_Long_Term_Forecast):
                 modes += [('icloff', 'icloff', 0)] + [(f'iclperm{s}', 'iclperm', s) for s in range(reps)]
                 xa = [x for x in os.environ.get('R1_ICL_XAUDIT', '').split(',') if x]   # PAT-313 case audits (after normal + icloff)
                 modes += [(x, x, 0) for x in xa]
+                m.case_bank = any(x.startswith('iclswap') for x in xa)
                 m.case_period = int(os.environ.get('R1_ICL_PERIOD', '0'))
                 m.sel_phase = [int(x) for x in os.environ.get('R1_ICL_SELPHASE', '').split(',') if x]
         else:
