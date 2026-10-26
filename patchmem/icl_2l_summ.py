@@ -10,11 +10,11 @@ FAMILY = lambda k: k.rsplit('_', 1)[0] + '_'                                    
 
 
 def main():
-    ap = argparse.ArgumentParser(); ap.add_argument('--seed', default='3047'); ap.add_argument('--dir', default=O)
+    ap = argparse.ArgumentParser(); ap.add_argument('--seed', default='3047'); ap.add_argument('--dir', default=O); ap.add_argument('--H', default='192')
     a_ = ap.parse_args()
     os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
     for D in ('E', 'W', 'T'):
-        pre = f'{a_.dir}/{D}_s{a_.seed}_test_L1440H192'
+        pre = f'{a_.dir}/{D}_s{a_.seed}_test_L1440H{a_.H}'
         if not os.path.exists(f'{pre}_normal.pt'):
             print(f'{D}: no dumps'); continue
         e = {'hyb': torch.load(f'{pre}_normal.pt')['err'].double(), 'tefl_part': torch.load(f'{pre}_icloff.pt')['err'].double()}
