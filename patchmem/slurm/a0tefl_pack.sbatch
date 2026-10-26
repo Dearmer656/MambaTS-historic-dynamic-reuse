@@ -26,7 +26,10 @@ one() {   # D H SEED ARM
     T) A="--root_path ./dataset/traffic32 --data_path traffic32.csv --target 856 --enc_in 32 --dec_in 32 --c_out 32 --model_id traffic32_${L}_$H --data custom --n_heads 16 --d_model 32 --d_ff 512 --e_layers 3 --dropout 0.2 --batch_size 8 --learning_rate 0.0005" ;;
   esac
   local C="--task_name long_term_forecast --is_training 1 --model MambaTS --features M --seq_len $L --label_len 48 --pred_len $H --d_layers 2 --factor 1 --itr 1 --patch_len 48 --stride 48 --VPT_mode 1 --ATSP_solver SA --train_epochs 10 --patience 3 --seed $s $A"
-  if [ "$arm" = a0 ]; then
+  if [ "$arm" = test ]; then
+    python -u patchmem/run_a0tefl.py ${C/--is_training 1/--is_training 0} --des A0Tefls$s > patchmem/logs/server/A0TEFL_${D}_L${L}_H${H}_s${s}_test.txt 2>&1
+    echo "end test $D H$H s$s $(date) | $(grep -hE "^mse:|g removed|Traceback" patchmem/logs/server/A0TEFL_${D}_L${L}_H${H}_s${s}_test.txt | tail -2 | tr "\n" " ")"
+  elif [ "$arm" = a0 ]; then
     python -u patchmem/run_a0.py $C --des ExpA0s$s > patchmem/logs/server/A0_${D}_L${L}_H${H}_s$s.txt 2>&1
     echo "end a0 $D H$H s$s $(date) | $(grep -h '^mse:' patchmem/logs/server/A0_${D}_L${L}_H${H}_s$s.txt | tail -1)"
   else
