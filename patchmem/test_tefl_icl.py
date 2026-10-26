@@ -3,7 +3,7 @@ backbone needs the CUDA scan)."""
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
-from patchmem.r1_tefl_icl import R1TeflICL, demos, demos_ced, permute_valid, lb_errors, lb_pad
+from patchmem.r1_tefl_icl import R1TeflICL, demos, demos_ced, permute_valid, lb_pairs
 
 
 def fake_E(b=2, T=20, K=3, C=2, P=4):
@@ -425,27 +425,20 @@ def test_z2_normalisation():
     assert torch.allclose(R1TeflICL.extra_delta(s2, d0, e, None), _run(s, d0, e, 'icl2lz_0_1'), atol=1e-5)   # hybz == icl2lz a1 = 0
 
 
-def test_lb_errors_and_pad():
-    """R1_ICL_LB: each origin's forecast sees only its last lb steps; errors normalised by the given stdev; lb_pad + demos puts the query
-    at origin L-K*P and every demo value fully inside the window."""
+def test_lb_pairs_windows():
+    """R1_ICL_LB demos: window ends s = lb..L-K*P (step P), each fkv call sees x[s-lb:s] and its future x[s:s+K*P] of the right sample;
+    the last demo's future ends exactly at L (all values observed, nothing beyond the input)."""
     b, L, c, P, K, lb = 2, 40, 3, 4, 2, 12
-    x = torch.randn(b, L, c, generator=torch.Generator().manual_seed(0))
-    seen = []
-    def fc(xw, k, si):                                                                   # naive: repeat the window mean, record widths
-        seen.append(xw.shape[1])
-        assert all(bool((x[s_] == xw[i, -1]).all(-1).any()) for i, s_ in enumerate(si.tolist()))   # window i comes from sample si[i]
-        return xw.mean(1, keepdim=True).expand(-1, k * P, -1)
-    sd = torch.rand(b, 1, c) + 0.5
-    E = lb_errors(x, lb, K, P, fc, sd, chunk=5)
-    o = list(range(lb, L - K * P + 1, P))
-    assert E.shape == (b, len(o), K, c, P) and set(seen) == {lb}
-    for m, oo in enumerate(o):
-        ref = (x[:, oo:oo + K * P] - x[:, oo - lb:oo].mean(1, keepdim=True)) / sd   # (b, K*P, c)
-        assert torch.allclose(E[:, m], ref.reshape(b, K, P, c).permute(0, 1, 3, 2), atol=1e-6)
-    Ef, avail = lb_pad(E, K)
-    eps, D = demos(Ef, avail, K)
-    M = len(o)
-    assert torch.allclose(eps, E[:, M - 1].permute(0, 2, 1, 3).reshape(b, c, K * P))  # query = origin L - K*P
-    assert D['k'].shape[1] == M - K and bool(D['mask'].all())
-    assert torch.allclose(D['v'][:, -1], eps)                                            # latest demo value = the query's own row
-    assert torch.allclose(D['k'][:, 0], E[:, 0].permute(0, 2, 1, 3).reshape(b, c, K * P))
+    x = torch.arange(b * L * c, dtype=torch.float).reshape(b, L, c)
+    def fkv(w, y, si):
+        assert w.shape[1:] == (lb, c) and y.shape[1:] == (K * P, c)
+        assert torch.equal(y[:, 0] - w[:, -1], torch.full_like(y[:, 0], c))            # future starts right after the window
+        assert torch.equal(((w[:, 0, 0] // c) // L).long(), si)                           # sample index
+        return w[:, -1, :, None].expand(-1, c, K * P), y[:, -1, :, None].expand(-1, c, K * P)   # key: last input, value: last target
+    D = lb_pairs(x, lb, K, P, fkv, chunk=3)
+    ends = list(range(lb, L - K * P + 1, P))
+    assert D['k'].shape == (b, len(ends), c, K * P) and bool(D['mask'].all())
+    for m, s_ in enumerate(ends):
+        assert torch.equal(D['k'][:, m, :, 0], x[:, s_ - 1]) and torch.equal(D['v'][:, m, :, 0], x[:, s_ + K * P - 1])
+    assert torch.equal(D['v'][:, -1, :, 0], x[:, L - 1])
+    assert lb_pairs(x[:, :lb + K * P - 1], lb, K, P, fkv) is None

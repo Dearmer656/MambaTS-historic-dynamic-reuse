@@ -1,6 +1,6 @@
 #!/bin/bash
-# PAT-313 decoupled lookback: base forecast from the last 384 steps only; demos = errors of every patch origin's own 384-step forecast
-# inside the L_ctx input (R1_ICL_LB=384), demo stride DS (R1_ICL_DSTRIDE). usage: sbatch ... icl_lb.sbatch "E:3047 ..." <Lctx> "<DS ...>"
+# PAT-313 decoupled lookback (v2): forecast and TEFL query exactly as at L = 384 (the last 384 steps); demos = TEFL's own (input, target)
+# pairs from every earlier 384-step window inside the L_ctx input (R1_ICL_LB=384, lb_pairs), demo stride DS. usage: ... "E:3047 ..." <Lctx> "<DS ...>"
 #SBATCH --job-name=pat313_lb
 #SBATCH --output=patchmem/logs/server/slurm_%j_lb.txt
 #SBATCH --partition=gpu_long
@@ -25,8 +25,8 @@ one() {   # D SEED
   esac
   env SEED=$s R1_HMIN=4 R1_HMAX=4 R1_TEST_H=192 R1_TEST_L=$LC R1_VAL_GRID=1440:192 R1_TEFL=ms R1_ICL=hyb \
       R1_EVAL_FROM=${CK}_${P}IclHybH192s${s}_0/checkpoint.pth R1_AUDIT_FLAGS=test R1_AUDIT_GRID=$LC:192 R1_AUDIT_PERM_REPS=0 \
-      R1_ICL_XAUDIT=$XA R1_ICL_LB=384 R1_ICL_DSTRIDE=$DS R1_ICL_CASEDUMP=$O/${D}_s$s DES=${P}IclHybH192s${s}lb${LC}s$DS EXTRA="--is_training 0" bash $SH > $O/${D}_s$s.txt 2>&1
+      R1_ICL_XAUDIT=$XA R1_ICL_LB=384 R1_ICL_DSTRIDE=$DS R1_ICL_CASEDUMP=$O/${D}_s$s DES=${P}IclHybH192s${s}lbv2${LC}s$DS EXTRA="--is_training 0" bash $SH > $O/${D}_s$s.txt 2>&1
   echo "end $D s$s $(date) | $(grep -E 'audit test\] L=1440|Traceback|Error' $O/${D}_s$s.txt | cut -c1-200)"
 }
-for DS in ${3:-1}; do O=patchmem/logs/server/icl_lb/L${LC}s$DS; mkdir -p $O; for r in $1; do one ${r%%:*} ${r##*:} & sleep 20; done; done
+for DS in ${3:-1}; do O=patchmem/logs/server/icl_lbv2/L${LC}s$DS; mkdir -p $O; for r in $1; do one ${r%%:*} ${r##*:} & sleep 20; done; done
 wait

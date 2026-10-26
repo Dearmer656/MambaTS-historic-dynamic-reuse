@@ -112,34 +112,29 @@ def demos_ced(E, avail, K):
     return eps, dict(k=flat(diag(o)).detach(), v=flat(E[:, o]).detach(), mask=mask)
 
 
-def lb_errors(x, lb, K, P, fc, stdev, chunk=256):
-    """PAT-313 decoupled lookback (R1_ICL_LB = lb): every patch origin o = lb, lb+P, ..., L-K*P of the input x (b, L, C) is forecast K
-    patches ahead from its own last lb steps only, fc(windows (B, lb, C), K, sample index (B,)) -> (B, K*P, C) de-normalised. Errors on the observed
-    targets x[:, o:o+K*P], normalised by stdev (b, 1, C) (the final forecast window's RevIN scale). Returns (b, M, K, C, P), origins
-    in time order (the last one, o = L-K*P, is the forecast issued one horizon ago = TEFL's query)."""
+def lb_pairs(x, lb, K, P, fkv, chunk=256):
+    """PAT-313 decoupled lookback (R1_ICL_LB = lb): the forecast (and TEFL's query) uses only the last lb steps of x (b, L, C), exactly as
+    at L = lb; the demonstrations are TEFL's own (input, target) pairs taken from earlier lb-step windows inside x. For every window end
+    s = lb, lb+P, ..., L-K*P (time order), window w_s = x[s-lb:s] and its observed future y_s = x[s:s+K*P]:
+      fkv(w_s (B, lb, C), y_s (B, K*P, C), sample index (B,)) -> key (B, C, K*P) = TEFL's eps of w_s (the in-window origin one horizon
+      before s), value (B, C, K*P) = error of the backbone forecast issued at s on y_s, both in w_s's RevIN units.
+    Returns dict(k, v (b, n, C, K*P), mask (b, n)) or None (n < 1). The last demo (s = L-K*P) ends one horizon before the query's target."""
     b, L, c = x.shape
-    o = torch.arange(lb, L - K * P + 1, P, device=x.device)
-    M = len(o)
-    assert M >= 1, f'R1_ICL_LB needs L >= lb + H ({L}, {lb}, {K * P})'
-    flat = (torch.arange(b, device=x.device)[:, None] * L + o[None]).reshape(-1)          # (b*M,) sample-major window ends
-    win = torch.arange(-lb, 0, device=x.device)
+    s = torch.arange(lb, L - K * P + 1, P, device=x.device)
+    n = len(s)
+    if n < 1:
+        return None
+    flat = (torch.arange(b, device=x.device)[:, None] * L + s[None]).reshape(-1)         # (b*n,) sample-major window ends
+    win, fut = torch.arange(-lb, 0, device=x.device), torch.arange(K * P, device=x.device)
     xf = x.reshape(b * L, c)
+    ks, vs = [], []
     with torch.no_grad():                                                                # windows built per chunk (memory)
-        pred = torch.cat([fc(xf[flat[i:i + chunk, None] + win[None]], K, flat[i:i + chunk] // L)
-                          for i in range(0, b * M, chunk)], 0).reshape(b, M, K * P, c)
-    tgt = x[:, o[:, None] + torch.arange(K * P, device=x.device)[None]]                  # (b, M, K*P, C)
-    E = (tgt - pred) / stdev[:, None]
-    return E.reshape(b, M, K, P, c).permute(0, 1, 2, 4, 3).contiguous().detach()
-
-
-def lb_pad(E, K):
-    """Lay lb_errors' origins out as multistep_residuals' (b, T-1, K, C, P) with T-1 = M+K-1: K-1 unobserved origins appended, so
-    demos() takes the query at index M-1 (= origin L-K*P) and the demos j = 0..M-1-K with values j+K (all observed)."""
-    b, M = E.shape[:2]
-    Ef = torch.cat([E, E.new_zeros(b, K - 1, *E.shape[2:])], 1)
-    avail = torch.zeros(b, M + K - 1, K, dtype=torch.bool, device=E.device)
-    avail[:, :M] = True
-    return Ef, avail
+        for i in range(0, b * n, chunk):
+            f = flat[i:i + chunk]
+            k_, v_ = fkv(xf[f[:, None] + win[None]], xf[f[:, None] + fut[None]], f // L)
+            ks.append(k_); vs.append(v_)
+    k, v = torch.cat(ks).reshape(b, n, c, K * P), torch.cat(vs).reshape(b, n, c, K * P)
+    return dict(k=k.detach(), v=v.detach(), mask=torch.ones(b, n, dtype=torch.bool, device=x.device))
 
 
 class R1TeflICL(R1TeflMS):
@@ -177,7 +172,7 @@ class R1TeflICL(R1TeflMS):
         self.sel_phase, self.sel_log, self.K_last = [], [], self.hmax                   # PAT-313 point 6 (iclsel*)
         self.sel_wdump = None
         self.selw_cache = {}                                                             # iclselw_<tag>: R1_ICL_SELW_<tag>.pt
-        self._lbE = None                                                                 # R1_ICL_LB: fixed-lookback errors of this forward
+        self._lbD = None                                                                 # R1_ICL_LB: demos of this forward (lb_pairs)
 
     def set_audit(self, mode=None, seed=0):
         self.win_ptr = 0                                                                  # PAT-313: window index within an eval pass
@@ -196,16 +191,15 @@ class R1TeflICL(R1TeflMS):
         if lb and x.shape[1] > lb:                                                       # PAT-313 decoupled lookback (eval only)
             assert kw.get('lens') is None and not self.training and not a, 'R1_ICL_LB: eval, full windows, keyword arguments'
             K = min(n_out, self.hmax) if self.k_follow else self.hmax
-            stdev = self.revin(x[:, -lb:])[1]
-            if kw.get('perm') is None:                                                   # one scan order for base windows and final forecast
+            if kw.get('perm') is None:                                                   # one scan order for demo windows and forecast
                 kw['perm'] = self.scan_order(x.shape[0], x.device)
             pm = kw['perm']
-            fc = lambda xw, k, si: R1.forward(self, xw, k, perm=pm[si])['pred']
-            self._lbE = lb_errors(x, lb, K, self.P, fc, stdev, int(os.environ.get('R1_ICL_LBCHUNK', '256')))
+            self._lbD = lb_pairs(x, lb, K, self.P, lambda w, y, si: self.tefl_pair(w, y, pm[si], K),
+                                 int(os.environ.get('R1_ICL_LBCHUNK', '256')))
             try:
                 return super().forward(x[:, -lb:], n_out, *a, **kw)
             finally:
-                self._lbE = None
+                self._lbD = None
         return super().forward(x, n_out, *a, **kw)
 
     def error(self, x, xn, xo, yh, perm, means, stdev, lens=None):
@@ -216,19 +210,31 @@ class R1TeflICL(R1TeflMS):
         assert T - 1 - K >= 0, f'T0-MS needs T >= K + 1 ({T}, {K})'
         _, _, _, t0, tm = self.revin(x, lens)
         tok = self.embed(self.to_scan(xo, perm)).reshape(b, T * c, -1)
-        if self._lbE is not None:                                                        # R1_ICL_LB: origins' own lb-step forecasts
-            assert self._lbE.shape[2] == K, (self._lbE.shape, K)
-            E, avail = lb_pad(self._lbE, K)
-        else:
-            E, avail = multistep_residuals(self, tok, xo, perm, tm, t0, K)             # (b, T-1, K, C, P), (b, T-1, K)
+        E, avail = multistep_residuals(self, tok, xo, perm, tm, t0, K)                 # (b, T-1, K, C, P), (b, T-1, K)
         self.K_last = K
         eps, self.demo = (demos_ced if self.key == 'ced' else demos)(E, avail, K)
+        if self._lbD is not None:                                                        # R1_ICL_LB: query as at L = lb, demos from lb_pairs
+            assert self.key == 'row' and self._lbD['k'].shape[-1] == K * P, 'R1_ICL_LB: row key'
+            self.demo = dict(self._lbD)
         if K < self.hmax:                                                                # zero-pad leads K+1..Hmax: W1 input size fixed
             pad = lambda e: torch.cat([e, e.new_zeros(*e.shape[:-1], (self.hmax - K) * P)], -1)
             eps = pad(eps)
             if self.demo is not None:
                 self.demo.update(k=pad(self.demo['k']), v=pad(self.demo['v']))
         return eps
+
+    def tefl_pair(self, w, y, perm, K):
+        """R1_ICL_LB demo of window w (B, lb, C) with observed future y (B, K*P, C): key = TEFL's eps of w (the K lead errors of the
+        in-window origin T-1-K, as error()), value = (y - backbone forecast issued at the end of w) in w's RevIN units. (B, C, K*P) each."""
+        B, L, c = w.shape
+        P, T = self.P, w.shape[1] // self.P
+        means, stdev, xn, _, _ = self.revin(w)
+        xo = xn.permute(0, 2, 1).reshape(B, c, T, P).permute(0, 2, 1, 3)
+        tok = self.embed(self.to_scan(xo, perm)).reshape(B, T * c, -1)
+        E, _ = multistep_residuals(self, tok, xo, perm, None, None, K)
+        key = E[:, T - 1 - K].permute(0, 2, 1, 3).reshape(B, c, K * P)
+        pred = R1.forward(self, w, K, perm=perm)['pred']                                 # (B, K*P, C) de-normalised
+        return key, ((y - pred) / stdev).transpose(1, 2)
 
     def phi(self, e, role):
         if self.variant in ('id', 'ridge'):
