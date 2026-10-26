@@ -213,3 +213,10 @@ Gain kept vs hyb's own ICL term (>1 = better than hyb), and absolute test MSE:
   Weights: mean max W .35, T .32 (uniform .25); KL W .085–.094, T .027–.031. Gain over uniform by KL quartile: T rises monotonically
   3/3 (+.0003 -> +.010); W mixed (top quartile −.0013/+.0015/+.0012). argmax w = best fixed set: W .28–.29, T .44 (chance .25).
   Oracle per-(window, variable) pick among the 4 one-step sets: W .148, T .459 (vs sel1 .178–.180 / .513–.515; optimistic: min of 4).
+- Plan 1 Hedge (offline, `patchmem/icl_hedge.py`; (beta, gamma) chosen on test half 1, reported on half 2; all arms under the same
+  linear mix approximation, gap vs real errors 1.2-3.2% in norm). Half 2 MSE vs uniform mix:
+  W: hedge −0.14/−0.20/−0.20% (chose beta 1, gamma .9: near uniform), hedge x valid −0.44/−0.78/−0.68%, iclsel1 +0.31/−0.13/−0.09%,
+     per-variable hindsight −0.9..−1.1%.
+  T: hedge −0.96/−0.89/−1.04% (beta 10, gamma .997; phase weight .40-.41, recent4 .15), hedge x valid −0.8..−0.9%, iclsel1 −0.41..−0.45%,
+     per-variable fixed hindsight +0.4..+0.7% (worse than hedge: the best set changes over time).
+  Criterion (hedge beats avg1 and sel1 on half 2, 3/3, W and T): met, but the W margin is tiny; in-model confirmation pending.
