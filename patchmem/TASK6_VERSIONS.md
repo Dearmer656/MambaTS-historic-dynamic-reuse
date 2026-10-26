@@ -243,3 +243,6 @@ One normalised GD step on W1 (a1 / sum |k_j|^2, ReLU mask) then hyb's W2 step on
 - Layer-2 NLMS normalisation Z2 = sum |h'_j|^2 (job 9633 elm73, commit 55ff4fc), test time on the hyb (trained with the old norm),
   H192 s3047, a2 (x learned eta) and a1 chosen on half 1, half-2 MSE vs hyb: E a1 0 a2 1 +0.37%; W a1 0 a2 3 −0.86%; T a1 0 a2 3 −0.40%
   (a1 0.1 no better). a2 = 3 is the grid edge on W / T: the old eta is too small for Z2 there -> train the variant hybz.
+- Z2 test-time check, all 3 seeds (jobs 9633, 9648, 9649 elm73), a1 = 0, a2 chosen on half 1, half-2 MSE vs hyb:
+  W −0.86/−0.82/−0.40% (a2 = 3 x3, grid edge); T −0.40/−0.52/−0.30% (a2 = 3 x3); E +0.37/+0.66/+3.00% (a2 1/1/3). Stable 3/3 on W and T,
+  3/3 worse on E. a1 = 0.1 never better. Next: train hybz (eta learned under Z2).
