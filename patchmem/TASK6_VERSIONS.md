@@ -234,3 +234,9 @@ Gain kept vs hyb's own ICL term (>1 = better than hyb), and absolute test MSE:
 - E: iclsel1 +0.40/+0.43/+0.40%, avg1 ≈ +0.4%, topk8 −0.63/−0.70/−1.49%, phase +1.6..+2.2%, recent4 +2.5..+2.7%.
 - Converged ridge (iclsel / iclselavg) overfits at H192: W +8.3..+9.6%, E +17..+20%, T +1..+1.8% (22 demos, 192-dim rows; lam = mean |phi|^2 too weak).
 - Set weights ~uniform (.23–.27). Criterion (iclsel1 or avg1 beats hyb 3/3): W yes, T yes, E no (E only topk8, not the pre-registered arm).
+
+### PAT-313 two-layer test-time update (job 9615 elm66, commit 5269d9c, `patchmem/icl_2l_summ.py`), H192 hyb s3047, L1440 test
+One normalised GD step on W1 (a1 / sum |k_j|^2, ReLU mask) then hyb's W2 step on the updated features; a1 picked on half 1.
+- Half-2 MSE vs hyb: E icl2l +0.09% (a1 .1), icl2lw1 +1.10%; W icl2l +0.01% (a1 .1), icl2lw1 +0.93%; T icl2l −0.07% (a1 .3), icl2lw1 +0.52%.
+- All windows: larger a1 diverges (a1 10: E 8.26, W .855, T .611). Optimal a1 -> 0: the per-window W1 step adds nothing at H192
+  (22 demos vs a 64 x 192 W1); the hyb gain is the W2 step. Single seed, test-time only (no training of eta1).
