@@ -240,3 +240,6 @@ One normalised GD step on W1 (a1 / sum |k_j|^2, ReLU mask) then hyb's W2 step on
 - Half-2 MSE vs hyb: E icl2l +0.09% (a1 .1), icl2lw1 +1.10%; W icl2l +0.01% (a1 .1), icl2lw1 +0.93%; T icl2l −0.07% (a1 .3), icl2lw1 +0.52%.
 - All windows: larger a1 diverges (a1 10: E 8.26, W .855, T .611). Optimal a1 -> 0: the per-window W1 step adds nothing at H192
   (22 demos vs a 64 x 192 W1); the hyb gain is the W2 step. Single seed, test-time only (no training of eta1).
+- Layer-2 NLMS normalisation Z2 = sum |h'_j|^2 (job 9633 elm73, commit 55ff4fc), test time on the hyb (trained with the old norm),
+  H192 s3047, a2 (x learned eta) and a1 chosen on half 1, half-2 MSE vs hyb: E a1 0 a2 1 +0.37%; W a1 0 a2 3 −0.86%; T a1 0 a2 3 −0.40%
+  (a1 0.1 no better). a2 = 3 is the grid edge on W / T: the old eta is too small for Z2 there -> train the variant hybz.
