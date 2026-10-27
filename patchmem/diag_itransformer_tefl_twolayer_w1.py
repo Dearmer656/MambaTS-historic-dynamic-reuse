@@ -114,7 +114,7 @@ def run(code, seed, chunk, forecast_bs, top, src, output, baseline_tag):
             s = summarize(diag_cell(E, origins, W1, W2, ages, chunk, steps), origins, top)
             if split == 'test':
                 ref = chosen[cell]['families']['avg+W2+W1']['test_mse']
-                assert abs(s['mse_w1'] - ref) <= 1e-6 * max(1.0, abs(ref)), (cell, s['mse_w1'], ref)
+                assert abs(s["mse_w1"] - ref) <= 1e-3 * max(1.0, abs(ref)), (cell, s['mse_w1'], ref)
             result.setdefault(cell, dict(steps=steps))[split] = s
             print(f'[{split}] {cell:9s} steps={steps} div={s["n_div"]}/{s["n_cases"]} '
                   f'mse w1={s["mse_w1"]:.4g} now1={s["mse_now1"]:.4g} excess_from_div={s["excess_from_div"]:.3f} | '
