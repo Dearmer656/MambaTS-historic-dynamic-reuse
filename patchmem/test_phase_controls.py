@@ -132,3 +132,33 @@ def test_stepsize_rules():
                              E[s - L][None].permute(0, 3, 1, 2)[:, c:c + 1].double(),
                              E[t - L][None].permute(0, 2, 1)[:, c:c + 1].double(), W1, W2, [(rule, a2, a1)])
         assert abs(float(one[rule, a2, a1][0]) - float((y - pred).square().mean())) < 1e-10, rule
+
+
+def test_joint_icl():
+    import patchmem.eval_itransformer_joint_icl as jt
+    from patchmem.eval_itransformer_pure_icl import score_grid_pure
+    E, W1, _, N, origins, ages = setup()
+    W2 = torch.randn(H, 16, dtype=torch.float64) / 4
+    cands = [('cos', 0.3, 0.0), ('nlms', 0.5, 3.0), ('cos', 0.0, 1.0), ('mean', 0.0, 0.0)]
+    got = jt.score_cell(E, origins, W1, W2, ages, 5, cands)
+    # W2-only from a random W2 with g - g0 equals the pure-ICL W2-only step (W2 starts at 0).
+    pure = score_grid_pure(E, origins, W1, torch.zeros_like(W2), ages, 5, [(0.0, 0.3)])
+    assert torch.allclose(got['cos', 0.3, 0.0], pure[0.0, 0.3], atol=1e-9)
+    assert torch.allclose(got['mean', 0.0, 0.0], E[origins - L].double().square().mean((1, 2)), atol=1e-9)
+    i, c = 4, 0
+    t = origins[i]
+    s = t - torch.tensor(ages)
+    q = E[t - H - L][:, c].double(); y = E[t - L][:, c].double()
+    K = E[s - H - L][:, :, c].double(); V = E[s - L][:, :, c].double()
+    hk = torch.relu(K @ W1.T)
+    for rule, a2, a1 in (('nlms', 0.5, 3.0), ('cos', 0.0, 1.0)):
+        hq = torch.relu(W1 @ q)
+        eta2 = a2 / hk.square().sum() if rule == 'nlms' else a2 / (hq.norm() * hk.norm(dim=-1).sum() + 1e-6)
+        W2n = W2 + eta2 * V.T @ hk
+        W1n = W1 + a1 / K.square().sum() * ((V @ W2) * (K @ W1.T > 0).double()).T @ K
+        pred = W2n @ torch.relu(W1n @ q) - W2 @ hq
+        one = jt.score_chunk(E[t - H - L][None].permute(0, 2, 1)[:, c:c + 1].double(),
+                             E[s - H - L][None].permute(0, 3, 1, 2)[:, c:c + 1].double(),
+                             E[s - L][None].permute(0, 3, 1, 2)[:, c:c + 1].double(),
+                             E[t - L][None].permute(0, 2, 1)[:, c:c + 1].double(), W1, W2, [(rule, a2, a1)])
+        assert abs(float(one[rule, a2, a1][0]) - float((y - pred).square().mean())) < 1e-10, rule
