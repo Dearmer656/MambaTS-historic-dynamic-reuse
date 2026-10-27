@@ -261,3 +261,34 @@ the extra information is period-specific -> use it inside the per-window in-cont
   full-test means W none .1949, W1 .1886, W2 .1833, W1+W2 .1810; T none .6162, W1 .5875, W2 .5547, W1+W2 .5511.
   Half 2 vs W2 only: W1+W2 W −1.19/−1.17/−1.38%, T −0.54/−0.65/−0.61% (3/3); W1 only W +2.84/+2.38/+2.06%, T +4.10/+4.71/+3.99%.
   => At H96 both layers help (W1+W2 best 3/3); at H192 the W1 step adds nothing. Slides: method = W1+W2, layer ablation H96 + H192.
+
+### PAT-314 periodicity vs ICL controls (job 10538, `patchmem/eval_itransformer_tefl_phase_controls.py`, uncommitted)
+Fixed in advance: iTransformer-TEFL paper ckpts (TEFL_paper_L96_E192), Traffic N2880 P168 (14 demos, ages 336..2520), seeds 3047/2024/2025.
+Same demos and TEFL residuals r_j for every arm; only the combination differs: icl_w2 (method, W2-only step), icl_w2_shufK
+(similarity weights deranged among same-phase demos, 3 perms), phase_mean, phase_normw (icl_w2 with cos=1), phase_persist
+(latest demo), ridge / ridge_icpt (kernel ridge on h=ReLU(W1 k), anchored at TEFL). Scales/lambda chosen on val, test once.
+Decision rule: ICL mapping supported only if icl_w2 < phase_mean, phase_normw and shufK on test 3/3 seeds.
+Result (job 10538, elm43, 14 min). Test MSE s3047/2024/2025 (TEFL .4201/.4208/.4201):
+  icl_w2 .3961/.3959/.3964 | phase_mean .3959/.3956/.3962 | phase_normw .3975/.3971/.3978 | shufK .4006/.4005/.4009
+  phase_persist .4157/.4158/.4156 | ridge .4062/.4065/.4065 | ridge_icpt (lam100 a.5) .3944/.3943/.3947
+  Paired per-case win rate of icl_w2: vs phase_mean .488/.489/.481, vs ridge_icpt .394/.406/.393.
+=> Decision rule FAILS: phase_mean <= icl_w2 3/3. The Traffic gain is a periodic error template (mean of 14 weekly residuals);
+   similarity weighting adds nothing over uniform; a key-dependent part on top of the mean (ridge_icpt) gives only ~0.35% more, 3/3.
+Codex review: no result-changing bug (icl_w2 picked a=1.0 = reference; normw differs only when h_q=0; n=1 derangement impossible).
+Known diag bug: test neff_frac blows up where sum of scores is 0 (dead h_q); val value .71 is valid.
+ETT/Weather controls (jobs 10568-10571, val-selected cells, 3 seeds s2024/2025/3047), test gain vs TEFL %:
+  E N1440 P24 (41 demos): icl_w2 1.37/1.38/1.30 | phase_mean 1.03/0.98/0.95 | normw .80/.79/.76 | shufK .44/.43/.33 | ridge_icpt 1.54/1.43/1.29
+  M1 N2880 P672 (3 demos): icl_w2 1.57/1.59/1.62 | phase_mean 1.60/1.66/1.65 | shufK 1.49/1.11/1.54 | ridge_icpt -.35/-.15/-.12
+  M2 N2880 P96 (26 demos): icl_w2 1.25/1.37/1.39 | phase_mean 2.27/2.25/2.26 | normw .90/1.06/1.01 | ridge_icpt 2.30/2.40/2.42
+  W N2880 P144 (17 demos): icl_w2 .20/.18/.05 | phase_mean 1.00/1.10/1.12 | shufK .40/.42/.48 | ridge_icpt 1.29/1.56/1.49
+=> Decision rule passes only on ETTh2 (icl_w2 > phase_mean by ~0.35pp, > shufK by ~0.95pp, 3/3). Fails on M1, M2, W, T.
+   Uniform mean of demo residuals beats icl_w2 clearly on M2 (+1pp) and W (+0.9pp). Mean + ridge key part is best on E/M2/W/T.
+Standalone-backbone controls (--backbone base, srun job 10615 elm82, same cells, 3 seeds; W1 random, W2 zero so r_j = backbone error).
+3-seed mean test MSE: base | base+mean | base+icl_w2 || TEFL | TEFL+mean | TEFL+icl_w2
+  E  .3794 | .3763 | .3714 || .3724 | .3687 | .3672
+  M1 .3798 | .3676 | .3683 || .3584 | .3525 | .3527
+  M2 .2535 | .2426 | .2445 || .2353 | .2300 | .2321
+  W  .2262 | .2224 | .2219 || .2108 | .2085 | .2105
+  T  .4123 | .3961 | .3938 || .4203 | .3959 | .3961
+=> base+mean beats TEFL only on Traffic (TEFL joint training hurts f there). On ETT/Weather TEFL keeps a clear lead over any
+   training-free correction of the standalone backbone. On base, icl_w2 > mean on E (3/3, ~1.3pp) and T (3/3, ~0.6pp).

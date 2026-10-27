@@ -3,8 +3,8 @@ Input window of length L + H: context x[:, :L] (the forecast issued one horizon 
   eps = x[:, L:L+H] - f(x[:, :L])               (d x H, the full error of the forecast issued at t-H; error window = H)
   y'  = f(x[:, H:]) + ReLU(eps W1) W2            (W1: H -> r = 64, W2: r -> H, shared over variables, no bias)
 Same f (same weights) for both calls, gradients through both (no stop-gradient: Algorithm 1 shows none).
-Training (paper Sec. 3.3 / Alg. 1): warm-up TEFL_WARM = 3 epochs, f only, loss MSE + alpha * SF(y - f) (spectral flatness = geometric /
-arithmetic mean of the residual power spectrum over time, per variable; alpha = TEFL_ALPHA = 1, "equal weights", App. D.1); then joint
+Training (paper Sec. 3.3 / Alg. 1): warm-up TEFL_WARM = 3 epochs, f only, loss MAE + alpha * SF(y - f) (spectral flatness = geometric /
+arithmetic mean of the residual power spectrum over consecutive forecast origins in each ordered batch; alpha = TEFL_ALPHA = 1, "equal weights", App. D.1); then joint
 training of f and g for TEFL_JOINT = 12 epochs with AdamW (lr continues the official schedule). Vali/test use y' (TEFL on).
 Unspecified in the paper, our choices: W2 = 0 at init (joint training starts at f), eps in the dataset's scaled units (not RevIN'd),
 early stopping (official patience) and best-vali checkpoint over the joint phase only. TEFL_OFF_TEST=1 (default) also reports the test MSE of
@@ -19,12 +19,13 @@ ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT))
 from exp.exp_long_term_forecasting import Exp_Long_Term_Forecast
 from models.MambaTS import Model
 from utils.tools import EarlyStopping, adjust_learning_rate
+from torch.utils.data import DataLoader
 
 
-def spectral_flatness(r, eps=1e-8):
-    """r (b, H, C) -> mean over (b, C) of exp(mean_k log P_k) / mean_k P_k, P = |rfft_time(r)|^2."""
-    P = torch.fft.rfft(r, dim=1).abs().square() + eps
-    return (P.log().mean(1).exp() / P.mean(1)).mean()
+def spectral_flatness(r, eps=1e-8, axis=1):
+    """Spectral flatness over `axis`; the paper uses ordered forecast origins (0)."""
+    P = torch.fft.rfft(r, dim=axis).abs().square() + eps
+    return (P.log().mean(axis).exp() / P.mean(axis)).mean()
 
 
 class A0Tefl(nn.Module):
@@ -39,11 +40,13 @@ class A0Tefl(nn.Module):
     def forward(self, x, x_mark=None, dec=None, dec_mark=None):
         L, H = self.L, self.H
         assert x.shape[1] == L + H, (x.shape, L, H)
+        if x_mark is not None:
+            assert x_mark.shape[1] == L + H, (x_mark.shape, L, H)
         if self.use_g:
-            yc = self.base(x[:, :L], None, None, None)                                  # forecast issued one horizon ago (own window)
+            yc = self.base(x[:, :L], None if x_mark is None else x_mark[:, :L], None, None)  # forecast issued one horizon ago
             eps = x[:, L:L + H] - yc                                                     # (b, H, C)
             g = self.W2(torch.relu(self.W1(eps.transpose(1, 2)))).transpose(1, 2)
-        y = self.base(x[:, H:], None, None, None)                                        # current forecast (called last: VPT state)
+        y = self.base(x[:, H:], None if x_mark is None else x_mark[:, H:], None, None)    # current forecast (called last: VPT state)
         return y + g if self.use_g else y
 
     def batch_update_state(self, cost):
@@ -70,12 +73,23 @@ class Exp_A0Tefl(Exp_Long_Term_Forecast):
 
     def train(self, setting):
         a = self.args
-        _, train_loader = self._get_data(flag='train')
+        paper = os.environ.get('TEFL_PAPER_TRAIN', '0') == '1'
+        train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
         test_data, test_loader = self._get_data(flag='test')
+        if paper:
+            warm_loader = DataLoader(train_data, batch_size=a.batch_size, shuffle=False,
+                                     num_workers=a.num_workers, drop_last=True)
+            vali_loader = DataLoader(vali_data, batch_size=a.batch_size, shuffle=False,
+                                     num_workers=a.num_workers, drop_last=False)
+        else:
+            warm_loader = train_loader
         path = os.path.join(a.checkpoints, setting); os.makedirs(path, exist_ok=True)
         warm, joint = int(os.environ.get('TEFL_WARM', '3')), int(os.environ.get('TEFL_JOINT', '12'))
         alpha = float(os.environ.get('TEFL_ALPHA', '1'))
+        # Algorithm 1 uses L1 for both warm-up accuracy and joint training.
+        if paper:
+            assert a.loss == 'L1', 'TEFL paper reproduction requires --loss L1'
         criterion = self._select_criterion()
         m = self.model
         opt = torch.optim.Adam(m.base.parameters(), lr=a.learning_rate)                 # warm-up: f only (official optimiser)
@@ -86,16 +100,17 @@ class Exp_A0Tefl(Exp_Long_Term_Forecast):
                 opt = torch.optim.AdamW(m.parameters(), lr=opt.param_groups[0]['lr'])
             m.use_g = phase == 'joint'
             m.train(); t0 = time.time(); tl = []
-            for i, (bx, by, _, _) in enumerate(train_loader):
+            phase_loader = warm_loader if phase == 'warm' else train_loader
+            for i, (bx, by, bx_mark, _) in enumerate(phase_loader):
                 opt.zero_grad()
                 bx, by = bx.float().to(self.device), by[:, -a.pred_len:].float().to(self.device)
-                out = m(bx)
+                out = m(bx, bx_mark.float().to(self.device))
                 loss = criterion(out, by)
                 if a.VPT_mode in [1]:
                     m.batch_update_state(loss)
                     loss = loss.mean()
                 if phase == 'warm':
-                    loss = loss + alpha * spectral_flatness(by - out)
+                    loss = loss + alpha * spectral_flatness(by - out, axis=0 if paper else 1)
                 loss.backward(); opt.step(); tl.append(loss.item())
                 if (i + 1) % 100 == 0:
                     print(f'\titers: {i + 1}, epoch: {epoch + 1} ({phase}) | loss: {loss.item():.7f}', flush=True)
@@ -121,8 +136,8 @@ class Exp_A0Tefl(Exp_Long_Term_Forecast):
             _, test_loader = self._get_data(flag='test')
             m = self.model; m.eval(); m.use_g = False; se = n = 0
             with torch.no_grad():
-                for bx, by, _, _ in test_loader:
-                    out = m(bx.float().to(self.device)).cpu()
+                for bx, by, bx_mark, _ in test_loader:
+                    out = m(bx.float().to(self.device), bx_mark.float().to(self.device)).cpu()
                     se += (out - by[:, -self.args.pred_len:].float()).square().sum().item(); n += out.numel()
             m.use_g = True
             print(f'[A0-TEFL test] g removed (f alone) mse {se / n:.6f}', flush=True)
