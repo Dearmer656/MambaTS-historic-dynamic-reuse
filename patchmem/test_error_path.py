@@ -3,6 +3,7 @@ import torch
 import patchmem.eval_error_path as ep
 
 L, H = ep.L, ep.H
+AGES = [192, 200, 230, 264]
 
 
 def synth(seed=0, T=1200, C=3):
@@ -12,75 +13,90 @@ def synth(seed=0, T=1200, C=3):
                 M=torch.randn(T, 4, generator=g), origins=origins)
 
 
-AGES = [192, 200, 230, 264]
+def as_double(b):
+    return {k: (v.double() if torch.is_tensor(v) and v.is_floating_point() else v) for k, v in b.items()}
 
 
-def models():
+def models(beta_mode):
     torch.manual_seed(0)
-    return {v: ep.ErrorPath(v, 4).double() for v in ep.VARIANTS}
+    return {v: ep.ErrorPath(v, 4, beta_mode).double() for v in ep.VARIANTS}
 
 
-def run_all(data, t, c):
-    b = ep.gather(data, t, c, AGES, True)
-    b = {k: (v.double() if torch.is_tensor(v) and v.is_floating_point() else v) for k, v in b.items()}
-    return {v: m(b)[0] for v, m in MODELS.items()}
-
-
-MODELS = models()
+def run_all(ms, data, t, c):
+    b = as_double(ep.gather(data, t, c, AGES, True))
+    return {v: m(b)[0] for v, m in ms.items()}
 
 
 def test_causality_unknown_future_is_ignored():
-    data = synth()
-    t = torch.tensor([900]); c = torch.tensor([2])
-    ref = run_all(data, t, c)
-    pert = {k: (v.clone() if torch.is_tensor(v) else v) for k, v in data.items()}
-    tq = int(t.min())
-    o = torch.arange(pert['E'].shape[0])[:, None] + L                  # origin of each row
-    unknown = (o + torch.arange(H)[None]) >= tq                        # y_{o+h} not yet observed at tq
-    pert['E'][unknown] += 100 * torch.randn(int(unknown.sum()), pert['E'].shape[2])
-    pert['X'][tq:] += 100 * torch.randn_like(pert['X'][tq:])
-    got = run_all(pert, t, c)
-    for v in ep.VARIANTS:
-        assert torch.equal(got[v], ref[v]), v
-    # Sanity: perturbing one observed input (y at t-1) does change the path variants.
-    pert['X'][tq - 1] += 1.0
-    moved = run_all(pert, t, c)
-    for v in ('End', 'C', 'Crev'):
-        assert not torch.equal(moved[v], ref[v]), v
+    for mode in ('two', 'learn'):
+        ms = models(mode)
+        data = synth()
+        t, c = torch.tensor([900]), torch.tensor([2])
+        ref = run_all(ms, data, t, c)
+        pert = {k: (v.clone() if torch.is_tensor(v) else v) for k, v in data.items()}
+        tq = int(t[0])
+        o = torch.arange(pert['E'].shape[0])[:, None] + L                  # origin of each row
+        unknown = (o + torch.arange(H)[None]) >= tq                        # y_{o+h} not observed before t
+        pert['E'][unknown] += 100 * torch.randn(int(unknown.sum()), pert['E'].shape[2])
+        pert['X'][tq:] += 100 * torch.randn_like(pert['X'][tq:])
+        got = run_all(ms, pert, t, c)
+        for v in ep.VARIANTS:
+            assert torch.equal(got[v], ref[v]), (mode, v)
+        pert['X'][tq - 1] += 1.0                                           # an observed input does matter
+        moved = run_all(ms, pert, t, c)
+        for v in ('End', 'C', 'Cmean', 'Crev'):
+            assert not torch.equal(moved[v], ref[v]), (mode, v)
 
 
-def test_path_scores_bruteforce_and_order():
+def explicit_P(u, beta, a):
+    d = u.shape[-1]
+    P = torch.eye(d, dtype=u.dtype)
+    for k in range(a):                                     # P = A[k=0] @ A[k=1] @ ... @ A[k=a-1]
+        P = P @ (torch.eye(d, dtype=u.dtype) - beta[k] * torch.outer(u[k], u[k]))
+    return P
+
+
+def test_path_products_bruteforce_order_and_norm():
     torch.manual_seed(1)
     n, d, K = len(AGES), ep.D_EMB, max(AGES)
     fq = torch.randn(2, d, dtype=torch.float64); fk = torch.randn(2, n, d, dtype=torch.float64)
     u = torch.nn.functional.normalize(torch.randn(2, K, d, dtype=torch.float64), dim=-1)
-    beta = 2 * torch.rand(2, K, dtype=torch.float64)
-    ages = torch.tensor(AGES)
-    sc, _ = MODELS['C'].path_scores(fq, fk, ages, u, beta)
-    sr, _ = MODELS['Crev'].path_scores(fq, fk, ages, u, beta)
-    for b in range(2):
-        A = [torch.eye(d, dtype=torch.float64) - beta[b, k] * torch.outer(u[b, k], u[b, k]) for k in range(K)]
-        for j, a in enumerate(AGES):
-            P = torch.eye(d, dtype=torch.float64)          # P_j = A_{t-1} ... A_{s_j} = A[k=0] @ ... @ A[k=a-1]
-            for k in range(a):
-                P = P @ A[k]
-            assert abs(float(fq[b] @ P @ fk[b, j]) - float(sc[b, j])) < 1e-9
-            assert abs(float(fq[b] @ P.T @ fk[b, j]) - float(sr[b, j])) < 1e-9
-    assert (sc - sr).abs().max() > 1e-3                    # order matters
+    for beta in (2 * torch.rand(2, K, dtype=torch.float64), torch.full((2, K), 2.0, dtype=torch.float64)):
+        ms = models('learn')
+        sc, _ = ms['C'].path_scores(fq, fk, AGES, u, beta)
+        sr, _ = ms['Crev'].path_scores(fq, fk, AGES, u, beta)
+        pk = ep.sweep(fk, u, beta, AGES, ep.factor_order(AGES, 'P'))
+        ptk = ep.sweep(fk, u, beta, AGES, ep.factor_order(AGES, 'PT'))
+        perm = ep.sweep(fk, u, beta, AGES, ep.factor_order(AGES, 'perm', torch.Generator().manual_seed(0)))
+        for b in range(2):
+            for j, a in enumerate(AGES):
+                P = explicit_P(u[b], beta[b], a)
+                assert abs(float(fq[b] @ P @ fk[b, j]) - float(sc[b, j])) < 1e-9
+                assert abs(float(fq[b] @ P.T @ fk[b, j]) - float(sr[b, j])) < 1e-9
+                assert torch.allclose(P @ fk[b, j], pk[b, j]) and torch.allclose(P.T @ fk[b, j], ptk[b, j])
+        assert (sc - sr).abs().max() > 1e-3 and ((fq[:, None] * perm).sum(-1) - sc).abs().max() > 1e-3
+    # beta = 2: exact reflections keep the norm over the whole path
+    assert torch.allclose(pk.norm(dim=-1), fk.norm(dim=-1)) and torch.allclose(perm.norm(dim=-1), fk.norm(dim=-1))
 
 
-def test_zero_beta_reduces_to_dot():
-    n, d, K = len(AGES), ep.D_EMB, max(AGES)
-    fq = torch.randn(3, d, dtype=torch.float64); fk = torch.randn(3, n, d, dtype=torch.float64)
-    u = torch.nn.functional.normalize(torch.randn(3, K, d, dtype=torch.float64), dim=-1)
-    beta = torch.zeros(3, K, dtype=torch.float64)
-    for v in ('C', 'Crev'):
-        s, dev = MODELS[v].path_scores(fq, fk, torch.tensor(AGES), u, beta)
-        assert torch.allclose(s, (fq[:, None] * fk).sum(-1)) and float(dev.abs().max()) < 1e-12
+def test_identity_transition_matches_Bp():
+    """A_r = I (beta = 0) with C sharing Bp's parameters gives Bp case by case."""
+    torch.manual_seed(3)
+    bp = ep.ErrorPath('Bp', 4).double()
+    c = ep.ErrorPath('C', 4, 'learn').double()
+    c.load_state_dict({**c.state_dict(), **bp.state_dict()})
+    c.transitions = lambda b: (torch.nn.functional.normalize(torch.randn(*b['yr'].shape[:2], ep.D_EMB,
+                                                                         dtype=torch.float64), dim=-1),
+                               torch.zeros(b['yr'].shape[:2], dtype=torch.float64))
+    data = synth(4)
+    b = as_double(ep.gather(data, torch.tensor([880, 930, 1000]), torch.tensor([0, 1, 2]), AGES, True))
+    assert torch.allclose(c(b)[0], bp(b)[0], atol=1e-12)
 
 
-def test_variant_A_is_scaled_mean():
-    data = synth(2)
-    b = ep.gather(data, torch.tensor([1000]), torch.tensor([1]), AGES, False)
-    out, _ = ep.ErrorPath('A', 4)(b)
-    assert torch.allclose(out, 0.3 * b['V'].mean(1), atol=1e-6)
+def test_model_order_diag_matches_C_and_A_is_mean():
+    ms = models('two')
+    data = synth(5)
+    b = as_double(ep.gather(data, torch.tensor([950, 1000]), torch.tensor([1, 0]), AGES, True))
+    assert torch.allclose(ms['C'](b)[0], ms['C'](b, ep.factor_order(AGES, 'P'))[0], atol=1e-10)
+    out, _ = ms['A'](b)
+    assert torch.allclose(out, 0.3 * b['V'].mean(1))
