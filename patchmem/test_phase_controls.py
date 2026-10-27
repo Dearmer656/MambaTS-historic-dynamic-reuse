@@ -63,3 +63,39 @@ def test_avg_icl_consistency():
         m.TAU_COS = old
     assert m.phase_ages(168, 3) == [336, 504, 672] and m.phase_ages(24, 2) == [192, 216]
     assert m.phase_ages(1008, 2) == [1008, 2016]
+
+
+def test_twolayer_reductions_and_bruteforce():
+    import patchmem.eval_itransformer_tefl_twolayer as tl
+    from patchmem.eval_itransformer_tefl_phase_controls import settings_mse
+    E, W1, W2, N, origins, ages = setup()
+    S0, S1, S2, _ = collect(E, origins, W1, W2, ages, 5, 1, 0)
+    ref = settings_mse(S0, S1, S2)
+    combos = [(0.3, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 0.1), (0.5, 0.3, 0.3)]
+    got = tl.score_cell(E, origins, W1, W2, ages, 5, combos)
+    assert torch.allclose(got[0.3, 0.0, 0.0], ref[('phase_mean', 0.3)], atol=1e-9)
+    assert torch.allclose(got[0.0, 1.0, 0.0], ref[('icl_w2', 1.0)], atol=1e-9)
+    w1ref, _ = score_grid(E, origins, W1, W2, N, 1, 5, [(0.1, 0.0)], ages)
+    assert torch.allclose(got[0.0, 0.0, 0.1], w1ref[0.1, 0.0], atol=1e-9)
+    # Brute force with explicit dW2 / dW1 matrices for one case and channel.
+    ab, a2, a1 = 0.5, 0.3, 0.3
+    i, c = 7, 1
+    t = origins[i]
+    s = t - torch.tensor(ages)
+    q = E[t - H - L][:, c].double(); y = E[t - L][:, c].double()
+    K = E[s - H - L][:, :, c].double(); V = E[s - L][:, :, c].double()
+    hk = torch.relu(K @ W1.T); hq = torch.relu(W1 @ q)
+    r = V - hk @ W2.T
+    b = ab * r.mean(0)
+    v = r - b
+    eta = a2 / (hq.norm() * hk.norm(dim=-1).sum() + 1e-6)
+    W2n = W2 + eta * v.T @ hk
+    e = V - b - hk @ W2n.T
+    grad = (e @ W2n) * (K @ W1.T > 0).double()
+    W1n = W1 + a1 * grad.T @ K / K.square().sum()
+    pred = W2n @ torch.relu(W1n @ q) + b
+    one = tl.score_chunk(E[t - H - L][None].permute(0, 2, 1)[:, c:c + 1].double(),
+                         E[s - H - L][None].permute(0, 3, 1, 2)[:, c:c + 1].double(),
+                         E[s - L][None].permute(0, 3, 1, 2)[:, c:c + 1].double(),
+                         E[t - L][None].permute(0, 2, 1)[:, c:c + 1].double(), W1, W2, [(ab, a2, a1)])
+    assert abs(float(one[ab, a2, a1][0]) - float((y - pred).square().mean())) < 1e-10

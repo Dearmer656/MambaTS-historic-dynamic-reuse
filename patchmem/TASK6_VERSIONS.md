@@ -292,3 +292,13 @@ Standalone-backbone controls (--backbone base, srun job 10615 elm82, same cells,
   T  .4123 | .3961 | .3938 || .4203 | .3959 | .3961
 => base+mean beats TEFL only on Traffic (TEFL joint training hurts f there). On ETT/Weather TEFL keeps a clear lead over any
    training-free correction of the standalone backbone. On base, icl_w2 > mean on E (3/3, ~1.3pp) and T (3/3, ~0.6pp).
+
+### PAT-314 average + centered softmax ICL, day vs week (srun job 10694 elm82, commit ca91629, `eval_itransformer_tefl_avg_icl.py`)
+Fixed in advance: n in {4,8,16} demos per phase (day/week, same n on every dataset), a2=1, tau_dot=1 (/sqrt64), tau_cos=0.1, avg scale a=1;
+avg_valA (a on val) as reference only. Test gain vs TEFL % (3-seed mean):
+  avg a=1 is harmful almost everywhere (e.g. E day_n4 -70.9, T day_n16 -6.7); only T week_n8/n16 +1.5/+3.0, M2 week_n16 +0.1.
+  softmax ICL on top (a2=1) is worse than avg a=1 in every cell (dot -8..-76, cos -19..-94).
+  avg_valA: E day .33 (n16) / week 1.09 (n8); M1 day .94 / week 2.39 (n8); M2 day .45 / week 1.50 (n16);
+            W day .87 / week .56 (n16); T day .13 / week 6.11 (n8). a_val identical across seeds in every cell.
+=> Unshrunk corrections (a=1, a2=1) add mostly noise: step size must be shrunk. Weekly phase >= daily on E, M1, M2, T.
+Codex review: no bug for default n (std NaN only when n=1).
