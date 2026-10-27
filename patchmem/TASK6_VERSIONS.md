@@ -302,3 +302,18 @@ avg_valA (a on val) as reference only. Test gain vs TEFL % (3-seed mean):
             W day .87 / week .56 (n16); T day .13 / week 6.11 (n8). a_val identical across seeds in every cell.
 => Unshrunk corrections (a=1, a2=1) add mostly noise: step size must be shrunk. Weekly phase >= daily on E, M1, M2, T.
 Codex review: no bug for default n (std NaN only when n=1).
+
+### PAT-314 two-layer case-wise GD on TEFL head: bias -> W2 -> W1 (srun job 10727 elm82, commit 95dc8a4, `eval_itransformer_tefl_twolayer.py`)
+Per case: b = a_b*mean r_j; W2 step on v_j = r_j - b (eta = a2/(|h_q| sum|h_j|)); W1 NLMS step on post-W2 residual (/sum_j |k_j|^2, x a1).
+Steps chosen per family on val (grids a_b 7 x a2 5 x a1 5); test scored once. Same day/week n in {4,8,16} cells as above.
+Best-cell test gain vs TEFL % (3-seed mean; all 3 seeds same direction):
+  E  week_n8 : avg 1.09 | avg+W2 1.38 | avg+W2+W1 1.38   (avg+W2 > avg also in week_n4 .35->.69, day_n16 .33->.55; week_n16 .88->.72)
+  M1 week_n8 : avg 2.39 | avg+W2 2.53 | avg+W2+W1 2.68   (avg+W2 > avg in all 6 cells; W1 adds 0..+0.15, s3047 week_n4 3.29 outlier)
+  M2 week_n16: avg 1.50 | avg+W2 1.64 | avg+W2+W1 1.64   (week_n8 avg+W2 < avg; W1 diverges on week_n4/n8)
+  W  day_n16 : avg .86  | avg+W2 .90  | W1 diverges      (week cells avg+W2 < avg)
+  T  week_n8 : avg 6.11 | avg+W2 5.74 | W1 diverges      (W2 harmful in week_n4/n8; +.04 at week_n16)
+W1 step diverges on test (1e3..1e36 x MSE) on T, W, M2 week_n4/n8 even at a1=0.03 chosen on val. Suspected cause (not verified):
+per-channel /sum|k_j|^2 makes the q shift ~|q|/|k|; channels with near-zero demo errors blow up.
+=> Gain remains mostly the same-phase residual average. W2 adds a stable +0.1..0.3pp on E/M1/M2 best cells, hurts T, ~0 on W.
+   Note: M2 best here (1.64, n<=16) is below phase_mean with 26 day demos (2.26) above.
+Codex review: no bugs.
