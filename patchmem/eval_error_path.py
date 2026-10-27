@@ -309,7 +309,7 @@ def main():
     p.add_argument('--bs', type=int, default=128)
     p.add_argument('--lr', type=float, default=1e-3)
     p.add_argument('--patience', type=int, default=2)
-    p.add_argument('--eval_bs', type=int, default=512)
+    p.add_argument('--eval_bs', type=int, default=2048)
     p.add_argument('--val_cases', type=int, default=40000)
     p.add_argument('--test_cases', type=int, default=None)
     p.add_argument('--forecast_bs', type=int, default=8)
