@@ -7,6 +7,7 @@ step sizes are chosen on validation, then evaluated once on test.
 """
 import argparse
 import json
+import os
 from pathlib import Path
 
 import torch
@@ -21,7 +22,8 @@ DEFAULT_PERIODS = {
     'E': (24, 168), 'M1': (96, 672), 'M2': (96, 672),
     'W': (144, 1008), 'T': (24, 168),
 }
-L, H = 96, 192
+L = 96
+H = int(os.environ.get('ITR_H', '192'))  # forecast horizon; set ITR_H for H != 192
 
 
 def aligned_demo_ages(history, period):

@@ -8,6 +8,7 @@ only causally available forecast errors.  Validation selects step sizes.
 import argparse
 import json
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -21,7 +22,8 @@ from patchmem.eval_itransformer_tefl_icl_periodic import aligned_demo_ages
 
 
 ROOT = Path('patchmem/logs/server/itr_pure_icl')
-L, H, RANK = 96, 192, 64
+L, RANK = 96, 64
+H = int(os.environ.get('ITR_H', '192'))  # forecast horizon; set ITR_H for H != 192
 A1_GRID = (0.0, 0.001, 0.01, 0.03, 0.1, 1.0, 10.0)
 A2_GRID = (0.1, 0.3, 1.0, 3.0)
 FAMILIES = {'W1+W2': lambda a1,a2: a1 > 0 and a2 > 0,
@@ -31,7 +33,7 @@ FAMILIES = {'W1+W2': lambda a1,a2: a1 > 0 and a2 > 0,
 def load_base(code, seed):
     c = CONFIG[code]
     argv = (f'--task_name long_term_forecast --is_training 0 --model iTransformer '
-            f'--model_id {c["name"]}_96_192_BASE --data {c["data"]} '
+            f'--model_id {c["name"]}_96_{H}_BASE --data {c["data"]} '
             f'--root_path {c["root"]} --data_path {c["file"]} --features M '
             f'--seq_len {L} --label_len 48 --pred_len {H} '
             f'--enc_in {c["channels"]} --dec_in {c["channels"]} --c_out {c["channels"]} '
@@ -40,7 +42,7 @@ def load_base(code, seed):
             f'--VPT_mode 0 --seed {seed} --des ICL_base_s{seed}').split()
     args = official_args(argv)
     exp = Exp_Long_Term_Forecast(args)
-    setting = f'iTransformer_base_{code}_L96_H192_s{seed}'
+    setting = f'iTransformer_base_{code}_L96_H{H}_s{seed}'
     checkpoint = Path(args.checkpoints) / setting / 'checkpoint.pth'
     if not checkpoint.exists():
         raise FileNotFoundError(checkpoint)

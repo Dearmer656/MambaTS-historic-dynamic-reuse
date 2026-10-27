@@ -22,6 +22,7 @@ backbone error and icl_w2 equals the pure-ICL W2-only step.
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -34,7 +35,8 @@ from patchmem.eval_itransformer_tefl_icl import forecast_errors, load_model
 from patchmem.eval_itransformer_tefl_icl_periodic import aligned_demo_ages
 from patchmem.eval_itransformer_pure_icl import forecast_errors_base, load_base, zero_output_head
 
-L, H = 96, 192
+L = 96
+H = int(os.environ.get('ITR_H', '192'))  # forecast horizon; set ITR_H for H != 192
 A_GRID = (0.1, 0.2, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0, 3.0)
 RIDGE_LAM = (1e-3, 1e-2, 1e-1, 1.0, 10.0, 100.0)
 RIDGE_A = (0.5, 1.0, 1.5, 2.0)
