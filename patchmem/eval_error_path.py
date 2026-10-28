@@ -34,7 +34,9 @@ A_r = I - beta_r u_r u_r^T, u_r = l2-normalised (as PaTH's w), beta_r = 2 (exact
 reflection, norm preserving; --beta two, main) or 2 sigmoid(.) in (0, 2) (PaTH; --beta learn).
 q/k use RMSNorm as PaTH's qk-norm.  Parameters are shared over channels and trained on the
 train split (in-sample backbone residuals; a known limitation), val is used only for early
-stopping, test is scored once.  For C, a factor-order permutation of the trained model
+stopping, test is scored once.  --train_split val (out-of-sample targets): train on the first 75% of val
+origins, early-stop on the last 25% (after an H-step gap so no training target overlaps them); demo
+errors of early val origins still reach back into the train period (fraction logged).  For C, a factor-order permutation of the trained model
 (per demo, same factor set and endpoints) is evaluated on a test subset as a diagnostic.
 """
 import argparse
@@ -378,7 +380,17 @@ def run(code, seed, kind, variant, args):
     torch.cuda.empty_cache()
     model = ErrorPath(variant, splits['train']['M'].shape[1], args.beta).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
-    tr = splits['train']
+    if args.train_split == 'val':
+        o = splits['val']['origins']
+        cut = int(0.75 * len(o))
+        tr = dict(splits['val'], origins=o[:cut])
+        stop = dict(splits['val'], origins=o[cut + H:])
+        s_all = tr['origins'][:, None] - torch.as_tensor(ages)[None]
+        insample = float((s_all + H - 1 < cell['history']).double().mean())   # demo value y-window ends before val
+        print(f'[trval] train origins {len(tr["origins"])} stop origins {len(stop["origins"])} '
+              f'demo values ending in train period {insample:.3f}', flush=True)
+    else:
+        tr, stop, insample = splits['train'], splits['val'], None
     C = tr['X'].shape[1]
     gen = torch.Generator().manual_seed(seed + 7)
     need = variant in PATH_VARIANTS + ('Cmean',)
@@ -398,7 +410,7 @@ def run(code, seed, kind, variant, args):
             loss.backward()
             opt.step()
             tot += float(loss)
-        val = mse_eval(model, splits['val'], ages, device, args.eval_bs, args.val_cases, seed, diag_batches=1)
+        val = mse_eval(model, stop, ages, device, args.eval_bs, args.val_cases, seed, diag_batches=1)
         log.append(dict(epoch=epoch, train_loss=tot / args.iters, val_mse=val['mse'], val_base=val['mse_base'],
                         scale=float(model.scale), sec=time.time() - t0))
         print(f'[epoch {epoch}] train={tot / args.iters:.5f} val={val["mse"]:.6f} (base {val["mse_base"]:.6f}) '
@@ -438,8 +450,9 @@ def run(code, seed, kind, variant, args):
     out = dict(dataset=code, seed=seed, H=H, L=L, demos=kind, variant=variant, beta_mode=args.beta, ages=ages,
                d=D_EMB, win=WIN, w_state=W_STATE, n_probe=N_PROBE, checkpoint=str(checkpoint), residual_stats=rstats,
                train_cases_per_epoch=args.iters * args.bs, args=vars(args), log=log, best_val=best, test=test,
-               order_diag=order_diag)
-    output = Path(args.out_dir) / f'{code}_H{H}_{kind}_{variant}_{args.beta}_s{seed}.json'
+               order_diag=order_diag, train_split=args.train_split, demo_values_in_train_period=insample)
+    tag = '' if args.train_split == 'train' else '_trval'
+    output = Path(args.out_dir) / f'{code}_H{H}_{kind}_{variant}_{args.beta}{tag}_s{seed}.json'
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(out, indent=2) + '\n')
     print(f'[done] {output}', flush=True)
@@ -462,6 +475,7 @@ def main():
     p.add_argument('--test_cases', type=int, default=None)
     p.add_argument('--diag_cases', type=int, default=200000)
     p.add_argument('--forecast_bs', type=int, default=8)
+    p.add_argument('--train_split', default='train', choices=('train', 'val'))
     p.add_argument('--out_dir', default='patchmem/logs/server/error_path')
     a = p.parse_args()
     if a.variant in STATE_VARIANTS and a.beta != 'two':
