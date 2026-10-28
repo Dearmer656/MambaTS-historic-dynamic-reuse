@@ -441,3 +441,11 @@ tau/s on train. Test gain % (s3047/s2024/s2025, mean):
 cat3 < e+y96 3/3 (-.33..34), cat3n < e+y96 3/3 (-.25..27), cat3n > cat3 3/3, cat3 < e+y24 3/3.
 => A single cosine on the concatenation is worse than separate per-segment cosines: the best key weights y96 4x the
    error, and the old forecast's input y[o-H-L:o-H] plus the first half of y[o-H:o] dilute it (cf. y192 < y96).
+
+### PAT-315 multi-step kernel GD of the one-layer ICL (`eval_raw_multistep.py`, jobs 11455-11457)
+Key e + y96 (tau_e 1, tau_y 4); f_{k+1} = f_k + eta sum_j a(x, x_j)(e_j - f_k(x_j)); K, eta, s on train; test once.
+Test gain % (s3047/s2024/s2025, mean):
+  K1 5.63/5.73/5.72 5.69 | self K2 5.75 | self K3 5.71/5.80/5.80 5.77 (val pick) | self K5 5.77 | self K10 5.76
+  loo K2 5.76 (val pick) | loo K3 5.74 | loo K5 5.75 | loo K10 5.74
+Every K > 1 beats K1 3/3 (+.05..+.09pp); gain saturates at K~2-3; self ~ loo.
+=> Multi-step (stacked) in-case GD helps a little and consistently; a few steps are enough.
