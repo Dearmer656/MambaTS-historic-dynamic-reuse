@@ -425,3 +425,11 @@ Fage > F0 3/3 (+.19..22): age decay helps. FoX < Fage 3/3 by 3.1-3.7pp although 
 (s3047 .3252 vs .3245): test-only collapse. Lead gain at leads 100-150 goes negative. Diagnostics from the first 20 test
 batches look normal (log f ~ -4e-4/step, logD smooth -.15 .. -1.0, entropy as Fage) -> suspected gate blow-up on later
 test y windows (data-dependent forget summed over up to 2520 steps), not yet verified.
+
+### PAT-315 observed-y key length (training-free cos, select on train; `eval_raw_ylen.py`, jobs 11434-11436)
+Test gain % (s3047/s2024/s2025, mean; s = .55 everywhere):
+  mean 4.45 | e+y24 5.41 | e+y96 5.62/5.72/5.71 5.68 (tau_e 1, tau_y 4) | e+y192 5.58 | e+y24+y192 5.58
+  e+y96c 5.42 | e+y192c 5.33 (window mean removed) | y96 alone 5.55 | y192 alone 5.45
+e+y96 > e+y24 3/3 (+.26..29); e+y192 > e+y24 3/3 (+.16..18); centred versions lose the gain.
+=> The backbone's current input window (y[t-96:t]) is the best y key; its level matters, not only its shape.
+   Training-free e+y96 (5.68) matches the learned Smean (5.70) and beats Fage (5.63).
