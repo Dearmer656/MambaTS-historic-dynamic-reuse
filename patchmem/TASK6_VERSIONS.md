@@ -357,3 +357,17 @@ Order diag on trained Spre (200k test cases, random per-batch order at eval): 5.
 State cos q50 ~.8 (Spre) / .67-.80 (Sperm). Spre s2024 hit the 10-epoch cap.
 => Decision rule (Spre > Bp and > Sperm 3/3): FAILS on Sperm. First variant over Bp 3/3: each side's accumulated past day
    adds ~+0.15pp beyond lag + error similarity. Trained Spre relies on order, but an order-free state trained as such reaches ~the same.
+
+### PAT-315 out-of-sample training (--train_split val, commit d8d5262, jobs 11188-11190)
+Module trained on first 75% of val origins (1173), early stop on last 25% (200, after H gap); test unchanged.
+77.7% of training demo values still lie in the train period (only targets strictly out-of-sample).
+Test gain vs base % (s3047/s2024/s2025, mean) | train-split result:
+  A      3.37/3.53/3.52  3.47 | 4.46
+  Bp     4.37/4.52/4.33  4.41 | 5.43
+  Spre   4.53/4.79/4.47  4.60 | 5.58
+  Sperm  4.49/4.68/4.50  4.56 | 5.52
+All variants ~1pp worse than training on train (0/3), including A (only the output scale is learned):
+learned scale ~.72-.76 (val) vs ~.53-.54 (train). The val period favours a larger correction than test does.
+Ranking unchanged: Bp > A 3/3 (+.8..1.0), Spre > Bp 3/3 (+.14/+.27/+.17), Spre > Sperm 2/3 (+.04/+.11/-.04).
+Order diag on Spre: 4.28->4.21, 4.80->4.60, 4.46->4.48.
+=> In-sample targets do not suppress the gain; training on train is better (more data, scale closer to test).
