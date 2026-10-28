@@ -23,7 +23,9 @@ def models(beta_mode):
 
 
 def run_all(ms, data, t, c):
-    b = as_double(ep.gather(data, t, c, AGES, True))
+    b = as_double(ep.gather(data, t, c, AGES, True, True))
+    for v in ep.STATE_VARIANTS:
+        ms[v].pgen.manual_seed(0)                                        # same Sperm draw in every call
     return {v: m(b)[0] for v, m in ms.items()}
 
 
@@ -44,7 +46,7 @@ def test_causality_unknown_future_is_ignored():
             assert torch.equal(got[v], ref[v]), (mode, v)
         pert['X'][tq - 1] += 1.0                                           # an observed input does matter
         moved = run_all(ms, pert, t, c)
-        for v in ('End', 'C', 'Cmean', 'Crev'):
+        for v in ('End', 'C', 'Cmean', 'Crev', 'Spre', 'Sperm'):
             assert not torch.equal(moved[v], ref[v]), (mode, v)
 
 
@@ -100,3 +102,25 @@ def test_model_order_diag_matches_C_and_A_is_mean():
     assert torch.allclose(ms['C'](b)[0], ms['C'](b, ep.factor_order(AGES, 'P'))[0], atol=1e-10)
     out, _ = ms['A'](b)
     assert torch.allclose(out, 0.3 * b['V'].mean(1))
+
+
+def test_state_bruteforce_order_and_norm():
+    """Spre state = A_{r-1} ... A_{r-W} h0 (explicit matrices), norm preserved; Sperm draw changes it."""
+    ms = models('two')
+    m = ms['Spre']
+    data = synth(6)
+    b = as_double(ep.gather(data, torch.tensor([990]), torch.tensor([1]), AGES, True, True))
+    idx = m.state_order(False)
+    hq = m.state(b['yqw'], idx)[0]                                       # m d
+    u = torch.nn.functional.normalize(m.strans(ep.window_features(b['yqw'][0])), dim=-1)   # W d (k = 0 latest)
+    P = torch.eye(ep.D_EMB, dtype=torch.float64)
+    for k in range(ep.W_STATE):                                          # P = A_{r-1} @ ... @ A_{r-W}
+        P = P @ (torch.eye(ep.D_EMB, dtype=torch.float64) - 2 * torch.outer(u[k], u[k]))
+    assert torch.allclose(hq, m.h0.double() @ P.T, atol=1e-10)
+    assert torch.allclose(hq.norm(dim=-1), m.h0.double().norm(dim=-1))
+    # demo state for demo j matches the query-style state of origin s_j
+    j = 2
+    bs = as_double(ep.gather(data, torch.tensor([990 - AGES[j]]), torch.tensor([1]), AGES, True, True))
+    assert torch.allclose(m.state(b['ysw'], idx)[0, j], m.state(bs['yqw'], idx)[0])
+    perm = torch.randperm(ep.W_STATE, generator=torch.Generator().manual_seed(1))
+    assert (m.state(b['yqw'], perm)[0] - hq).abs().max() > 1e-3

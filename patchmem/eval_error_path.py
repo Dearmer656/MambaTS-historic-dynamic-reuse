@@ -25,6 +25,10 @@ path-conditioned *retrieval/weighting*, not error transport):
          (same per-step inputs and capacity as C, but a commutative summary of the path)
   Crev   C with the factor order reversed: A_{s_j} ... A_{t-1} = P_j^T   (diagnostic only)
   Cerr   C with A_r generated from realized lead-0 errors instead of y
+  Spre   Bp + sum_m h_{t,m}^T h_{s_j,m} / sqrt(d): each side's own accumulated past day,
+         h_{r,m} = A_{r-1} A_{r-2} ... A_{r-W} h0_m (W = 24 factors, m = 4 learned probes, beta = 2)
+  Sperm  Spre with the W factors multiplied in a random order (one permutation per batch, shared by
+         the query and all demos, redrawn every batch in training and eval): order carries no information
 
 A_r = I - beta_r u_r u_r^T, u_r = l2-normalised (as PaTH's w), beta_r = 2 (exact Householder
 reflection, norm preserving; --beta two, main) or 2 sigmoid(.) in (0, 2) (PaTH; --beta learn).
@@ -52,8 +56,10 @@ sys.path.insert(0, str(ROOT))
 L = 96
 H = int(os.environ.get('ITR_H', '192'))  # forecast horizon; set ITR_H for H != 192
 D_EMB, WIN, HID = 16, 8, 32
-VARIANTS = ('A', 'B', 'Bp', 'End', 'C', 'Cmean', 'Crev', 'Cerr')
+W_STATE, N_PROBE = 24, 4
+VARIANTS = ('A', 'B', 'Bp', 'End', 'C', 'Cmean', 'Crev', 'Cerr', 'Spre', 'Sperm')
 PATH_VARIANTS = ('C', 'Crev', 'Cerr')
+STATE_VARIANTS = ('Spre', 'Sperm')
 CELLS = {'T': dict(history=2880, period=168, stride=24)}
 
 
@@ -96,7 +102,7 @@ def residual_stats(data):
     return dict(mean=float(r.mean()), std=float(r.std()), mse=float(r.square().mean()))
 
 
-def gather(data, t, c, ages, need_path):
+def gather(data, t, c, ages, need_path, need_state=False):
     """Batch tensors for query origins t (B,) and channels c (B,); all strictly causal for t."""
     E, X, M = data['E'], data['X'], data['M']
     ages = torch.as_tensor(ages, dtype=torch.long)
@@ -114,6 +120,12 @@ def gather(data, t, c, ages, need_path):
         out['yr'] = X[r[..., None] - w, cc[..., None]]                # B K WIN
         # realized lead-0 error at time r: forecast issued at r, y_r observed (r <= t-1)
         out['er'] = E[r[..., None] - w - L, 0, cc[..., None]]         # B K WIN
+    if need_state:
+        k = torch.arange(W_STATE)                                    # k = 0 <-> step r = end - 1
+        rq = (t - 1)[:, None] - k                                    # B W
+        rs = (s - 1)[..., None] - k                                  # B n W
+        out['yqw'] = X[rq[..., None] - w, c[:, None, None]]          # B W WIN
+        out['ysw'] = X[rs[..., None] - w, cc[..., None, None]]       # B n W WIN
     return out
 
 
@@ -187,6 +199,24 @@ class ErrorPath(nn.Module):
             self.trans = mlp(2 * WIN, D_EMB + 1)
         if variant == 'Cmean':
             self.pool = mlp(2 * WIN, D_EMB)
+        if variant in STATE_VARIANTS:
+            self.strans = mlp(2 * WIN, D_EMB)
+            self.h0 = nn.Parameter(F.normalize(torch.randn(N_PROBE, D_EMB), dim=-1))
+            self.pgen = torch.Generator().manual_seed(0)                 # Sperm order draws (reseeded per eval)
+
+    def state(self, yw, idx):
+        """h_m = A_{idx[-1]} ... A_{idx[0]} h0_m; yw: ... W WIN (k = 0 <-> latest step), beta = 2."""
+        u = F.normalize(self.strans(window_features(yw)), dim=-1)     # ... W d
+        h = self.h0.expand(*u.shape[:-2], N_PROBE, D_EMB)
+        two = h.new_full(h.shape[:-1], 2.0)
+        for k in idx.tolist():
+            h = reflect(h, u[..., k, None, :], two)
+        return h                                                     # ... m d
+
+    def state_order(self, perm):
+        if perm:
+            return torch.randperm(W_STATE, generator=self.pgen)
+        return torch.arange(W_STATE - 1, -1, -1)                      # oldest factor first
 
     def transitions(self, b):
         src = b['er'] if self.variant == 'Cerr' else b['yr']
@@ -223,7 +253,7 @@ class ErrorPath(nn.Module):
             score = V.new_zeros(V.shape[:2])
         else:
             score = self.lag(lag_features(b['ages'].to(V.device), b['mt'], b['ms']))[..., 0]
-        if self.variant in ('Bp', 'End'):
+        if self.variant in ('Bp', 'End') + STATE_VARIANTS:
             fq, fk = self.embed(b)
             score = score + (fq[:, None] * fk).sum(-1) / math.sqrt(D_EMB)
         if self.variant == 'End':
@@ -246,6 +276,11 @@ class ErrorPath(nn.Module):
                 qratio = None
             score = score + ps / math.sqrt(D_EMB)
             diag = dict(beta=beta.detach(), qratio=None if qratio is None else qratio.detach())
+        if self.variant in STATE_VARIANTS:
+            idx = self.state_order(self.variant == 'Sperm' or order == 'perm')
+            hq, hs = self.state(b['yqw'], idx), self.state(b['ysw'], idx)   # B m d / B n m d
+            score = score + (hq[:, None] * hs).sum((-1, -2)) / math.sqrt(D_EMB)
+            diag['state_cos'] = F.cosine_similarity(hq[:, None], hs, dim=-1).mean(-1).detach()   # B n
         att = torch.softmax(score, -1)
         diag['entropy'] = (-(att * att.clamp_min(1e-12).log()).sum(-1) / math.log(att.shape[-1])).detach()
         diag['score_std'] = score.std(-1).detach()
@@ -271,14 +306,18 @@ def mse_eval(model, data, ages, device, bs, max_cases=None, seed=0, order=None, 
     """Squared errors (backbone, corrected) over (origin, channel) cases, plus path diagnostics."""
     t_all, c_all = all_cases(data, max_cases, seed)
     need = model.variant in PATH_VARIANTS + ('Cmean',)
+    need_state = model.variant in STATE_VARIANTS
+    if need_state:
+        pstate = model.pgen.get_state()                              # keep the training draw sequence intact
+        model.pgen.manual_seed(seed + 13)
     se_base = se = 0.0
     lead_base = torch.zeros(H, dtype=torch.float64)
     lead = torch.zeros(H, dtype=torch.float64)
-    D = {k: [] for k in ('beta', 'qratio', 'kratio', 'entropy', 'score_std')}
+    D = {k: [] for k in ('beta', 'qratio', 'kratio', 'entropy', 'score_std', 'state_cos')}
     model.eval()
     with torch.no_grad():
         for bi, i in enumerate(range(0, len(t_all), bs)):
-            b = to_dev(gather(data, t_all[i:i + bs], c_all[i:i + bs], ages, need), device)
+            b = to_dev(gather(data, t_all[i:i + bs], c_all[i:i + bs], ages, need, need_state), device)
             corr, diag = model(b, order)
             r0 = b['target'].double()
             r1 = (b['target'] - corr).double()
@@ -289,6 +328,8 @@ def mse_eval(model, data, ages, device, bs, max_cases=None, seed=0, order=None, 
             if bi < diag_batches:
                 D['entropy'].append(diag['entropy'].cpu())
                 D['score_std'].append(diag['score_std'].cpu())
+                if 'state_cos' in diag:
+                    D['state_cos'].append(diag['state_cos'].cpu())
                 if model.variant in PATH_VARIANTS and order is None:
                     D['beta'].append(diag['beta'].flatten()[::97].cpu())
                     if diag['qratio'] is not None:
@@ -297,12 +338,18 @@ def mse_eval(model, data, ages, device, bs, max_cases=None, seed=0, order=None, 
                     u, beta = model.transitions(b)
                     pk = sweep(fk, u, beta, b['ages'], factor_order(b['ages'], 'P'))
                     D['kratio'].append((pk.norm(dim=-1) / fk.norm(dim=-1).clamp_min(1e-8)).cpu())
+    if need_state:
+        model.pgen.set_state(pstate)
     n = len(t_all) * H
     out = dict(cases=len(t_all), mse_base=se_base / n, mse=se / n,
                lead_gain_pct=(100 * (lead_base - lead) / lead_base).tolist())
     qs = torch.tensor([0.1, 0.5, 0.9])
     out['attn_entropy_q10_50_90'] = torch.quantile(torch.cat(D['entropy']).float(), qs).tolist()
     out['score_std_q10_50_90'] = torch.quantile(torch.cat(D['score_std']).float(), qs).tolist()
+    if D['state_cos']:
+        sc = torch.cat(D['state_cos']).float()
+        out['state_cos_q10_50_90'] = torch.quantile(sc.flatten(), qs).tolist()
+        out['state_cos_median_by_demo'] = sc.median(0).values.tolist()
     if D['beta']:
         out['beta_q10_50_90'] = torch.quantile(torch.cat(D['beta']).float(), qs).tolist()
         kr = torch.cat(D['kratio']).float()
@@ -335,6 +382,7 @@ def run(code, seed, kind, variant, args):
     C = tr['X'].shape[1]
     gen = torch.Generator().manual_seed(seed + 7)
     need = variant in PATH_VARIANTS + ('Cmean',)
+    need_state = variant in STATE_VARIANTS
     best, best_state, bad, log = float('inf'), None, 0, []
     t0 = time.time()
     for epoch in range(args.epochs):
@@ -343,7 +391,7 @@ def run(code, seed, kind, variant, args):
         for it in range(args.iters):
             ti = tr['origins'][torch.randint(len(tr['origins']), (args.bs,), generator=gen)]
             ci = torch.randint(C, (args.bs,), generator=gen)
-            b = to_dev(gather(tr, ti, ci, ages, need), device)
+            b = to_dev(gather(tr, ti, ci, ages, need, need_state), device)
             corr, _ = model(b)
             loss = (b['target'] - corr).square().mean()
             opt.zero_grad()
@@ -380,9 +428,15 @@ def run(code, seed, kind, variant, args):
         sub['permuted'] = mse_eval(model, splits['test'], ages, device, args.eval_bs, args.diag_cases, seed + 1,
                                    order=perm, diag_batches=1)
         order_diag = {k: dict(mse=v['mse'], mse_base=v['mse_base']) for k, v in sub.items()}
+    if variant == 'Spre':
+        # Diagnostic: same trained Spre, factors in a random order per batch (as Sperm) on a test subset.
+        sub = {k: mse_eval(model, splits['test'], ages, device, args.eval_bs, args.diag_cases, seed + 1,
+                           order=o, diag_batches=1) for k, o in (('model_order', None), ('permuted', 'perm'))}
+        order_diag = {k: dict(mse=v['mse'], mse_base=v['mse_base']) for k, v in sub.items()}
+    if order_diag is not None:
         print(f'[order diag] {order_diag}', flush=True)
     out = dict(dataset=code, seed=seed, H=H, L=L, demos=kind, variant=variant, beta_mode=args.beta, ages=ages,
-               d=D_EMB, win=WIN, checkpoint=str(checkpoint), residual_stats=rstats,
+               d=D_EMB, win=WIN, w_state=W_STATE, n_probe=N_PROBE, checkpoint=str(checkpoint), residual_stats=rstats,
                train_cases_per_epoch=args.iters * args.bs, args=vars(args), log=log, best_val=best, test=test,
                order_diag=order_diag)
     output = Path(args.out_dir) / f'{code}_H{H}_{kind}_{variant}_{args.beta}_s{seed}.json'
@@ -410,6 +464,8 @@ def main():
     p.add_argument('--forecast_bs', type=int, default=8)
     p.add_argument('--out_dir', default='patchmem/logs/server/error_path')
     a = p.parse_args()
+    if a.variant in STATE_VARIANTS and a.beta != 'two':
+        p.error('Spre/Sperm use beta = 2 only')
     run(a.data, a.seed, a.demos, a.variant, a)
 
 
