@@ -416,3 +416,12 @@ Same 1353 late-test origins x 862 channels for every band; 4 same-phase demos pe
    time-local drift, not a fixed map. (2) "more similar y / past error -> more similar error" holds at every age with
    about the same slope (top-decile cos ~.11-.16): a weak but age-stable state -> error relation.
    Per-pair error similarity is small (cos <= .16); the late-test subset has much less correctable error than the full test.
+
+### PAT-315 FoX-family retrieval (commit eb562f6, jobs 11380-11382)
+Raw cos logits tau_e cos(q,k_j) + tau_y cos(past-day y); test gain % (s3047/s2024/s2025, mean):
+  F0 5.35/5.48/5.43 5.42 | Fage 5.54/5.69/5.65 5.63 | Fage_sink 5.55/5.69/5.65 5.63 (sink weight ~.005)
+  FoX 1.82/2.56/2.15 2.18 | FoX_sink 3.17/3.50/3.17 3.28 | (Smean 5.70, Bp 5.43)
+Fage > F0 3/3 (+.19..22): age decay helps. FoX < Fage 3/3 by 3.1-3.7pp although its best val MSE equals Fage's
+(s3047 .3252 vs .3245): test-only collapse. Lead gain at leads 100-150 goes negative. Diagnostics from the first 20 test
+batches look normal (log f ~ -4e-4/step, logD smooth -.15 .. -1.0, entropy as Fage) -> suspected gate blow-up on later
+test y windows (data-dependent forget summed over up to 2520 steps), not yet verified.
