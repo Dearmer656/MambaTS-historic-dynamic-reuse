@@ -449,3 +449,31 @@ Test gain % (s3047/s2024/s2025, mean):
   loo K2 5.76 (val pick) | loo K3 5.74 | loo K5 5.75 | loo K10 5.74
 Every K > 1 beats K1 3/3 (+.05..+.09pp); gain saturates at K~2-3; self ~ loo.
 => Multi-step (stacked) in-case GD helps a little and consistently; a few steps are enough.
+
+### PAT-315 PF same-clock forget gate (job 11520/11521, L96 H192)
+Test gain % (s3047/s2024/s2025, mean): F0 5.42 | Fage 5.63 | PFm 5.54/5.68/5.62 5.61 | PFc 5.58/5.71/5.67 5.65 | *_sink = no sink.
+=> Forgetting only over the same-clock points ~ Fage; the sink is unused.
+
+### PAT-315 lookback fairness: L = 720 backbone (`run_itransformer_base.py --seq_len 720`, job 11453; ICL job 11519)
+Backbone test MSE: L96 0.412 | L720 0.3630/0.3657/0.3633 (-11.7%).
+ICL on L720 (test gain % over L720, s3047/s2024/s2025): multistep K1 .42/.35/.36 (K>1 no extra; Kval = K1);
+  ylen: mean .24/.25/.30 | e+y96 .33/.34/.41 | cat3 .33/.35/.41 | best cat3n <= .44.
+=> Pre-set criterion (ICL > 2% on L720) FAILS 3/3. The L96 gain (5.8%) mostly substitutes for the weekly history the
+   short-input backbone cannot see.
+
+### PAT-315 upper-bound diagnostic: fresh / cross-channel errors (`eval_fresh_diag.py`, ridge per lead, fit train, lam on val)
+Test gain % (s3047/s2024/s2025), segments h1-24 / h25-96 / h97-192 for s3047:
+  L96 : ret 5.63/5.74/5.73 | fresh .10/.08/.08 | fresh+ret 5.81/5.90/5.89 | fresh+cross .08/.07/.07 | all 5.80/5.89/5.88
+  L720: ret .46/.40/.42 (1.06/.68/.19) | fresh .02/.02/.04 | fresh+ret .49/.41/.46 | fresh+cross .01/.01/.02 | all .48/.40/.45
+=> The freshest observed errors (1-step errors of the last 24 h, errors on y_{t-1} from older origins) and all channels'
+   recent 1-step errors (PCA 16 x 4 lags) carry ~no linear signal for the next H on Traffic. Remaining gain on L720 <0.5%.
+
+### PAT-315 age scan: demos at every hourly age (`eval_age_scan.py`, 50k test cases, 14-demo sets, gain_opt = best-scale)
+gain_opt % (s3047/s2024/s2025):
+  L96 : phase 5.52/5.54/5.67 | top-14 by logit over all ages 4.49/4.42/4.40 | top-14 excl same clock 2.79/2.62/2.66 |
+        random .09/.08/.05 | oracle top-14 by cos(e_j,target) 39.1/40.2/39.9
+  L720: phase .34/.40/.31 | top-14 .15/.17/.11 | excl same clock .03/.05/.01 | random 0 | oracle 39.1/39.8/39.1
+Per-age mean cos(e_j, target): same clock .11 (L96) / .04 (L720); same hour other day .01 / .00; other ages 0.
+=> Only same-clock demos carry error information; full-history top-k picks look-alike states with unrelated errors and
+   is worse than the fixed phase set. The oracle is mostly selection-on-target noise (max cos of 2400 random 192-d
+   vectors is ~.3), not an attainable bound.

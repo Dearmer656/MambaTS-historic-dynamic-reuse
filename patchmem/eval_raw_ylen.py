@@ -121,7 +121,7 @@ def run(code, seed, args):
         print(f'[test] {f:12s} tau={x["tau"]} s={x["s"]} gain={result[f]["test_gain_pct"]:+.3f}%', flush=True)
     out = dict(dataset=code, seed=seed, H=H, ages=ages, ylen=YLEN, taus=TAUS, taus3=TAUS3, select_split='train',
                select_cases=args.select_cases, checkpoint=str(checkpoint), test_base=base, families=result)
-    output = Path(args.out_dir) / f'{code}_H{H}_phase_rawylen2_s{seed}.json'
+    output = Path(args.out_dir) / (f'{code}_H{H}_phase_rawylen2_s{seed}.json' if L == 96 else f'{code}_H{H}_L{L}_phase_rawylen2_s{seed}.json')
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(out, indent=2) + '\n')
     print(f'[done] {output}', flush=True)
