@@ -402,3 +402,17 @@ Test gain vs base % (s3047/s2024/s2025, mean):
   learned (train)      : A 4.46 | Bp 5.43 | Spre 5.58 | Sperm 5.52 | Smean 5.70 | C 5.30
 => With the same scale protocol, raw-mean == learned A (4.45 vs 4.46). Raw cos e+y (5.41) == learned Bp (5.43);
    only Smean's learned past-day map adds +.29pp over raw cos e+y (3/3). Cosine is robust across selection splits, L2 is not.
+
+### PAT-315 mechanism: demo-age bands (`eval_age_bands.py`, 3 seeds)
+Same 1353 late-test origins x 862 channels for every band; 4 same-phase demos per band; all demo keys/values out-of-sample
+(target window after the train split). tau fixed (train-selected): e 2, y 4, e+y 2/2. 3-seed mean:
+  optimal-scale gain % (mean / cos e / cos y / cos e+y) and s_opt:
+    w02-05 1.38/1.47/1.49/1.56 s .23 | w06-09 .47/.57/.48/.57 s .14 | w10-13 .55/.62/.57/.63 s .14
+    w14-17 .47/.50/.47/.51 s .13     | w18-21 .24/.29/.26/.30 s .09
+  gain at s=.55 is negative in every band (-0.8 .. -6.5): on these late-test cases the correction must be shrunk to s~.1-.25.
+  cos(e_j, target): mean .074 (w2-5) -> .046 (w18-21); by sim_y decile low->high .05->.15 (w2-5), .03->.11 (w18-21);
+                    by sim_e decile .04->.13 (w2-5), .01->.13 (w18-21).
+=> Two parts: (1) the unconditional same-phase error template decays with demo age (mean gain 1.38 -> .24, s_opt .23 -> .09):
+   time-local drift, not a fixed map. (2) "more similar y / past error -> more similar error" holds at every age with
+   about the same slope (top-decile cos ~.11-.16): a weak but age-stable state -> error relation.
+   Per-pair error similarity is small (cos <= .16); the late-test subset has much less correctable error than the full test.
