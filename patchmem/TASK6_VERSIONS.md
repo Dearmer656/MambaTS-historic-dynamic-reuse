@@ -500,3 +500,16 @@ demos had age >= H (8 days). v2: tiled pool s = t - p j, p in {24,168}, j = 1..8
 value / both; naive24 / naive168 (tile of the last day / week); y^ = f + a(mu_t - f) + c sigma_t v^, (a, c) LS.
 Readout + hyper on train, P + (a, c) on val (global / per lead). Pools tiled, phase, daily. Stats saved (*_obsicl2_s*_stats.pt).
 Tests 4 pass; Codex: no bugs. Criterion unchanged: B (tiled) clear gain at L720; C beats B 3/3 seeds, mean >= 0.3 pt.
+
+### obsicl v2 results, H192, test gain %, seeds 2024/2025/3047 (global (a, c); per-lead weights are <= global everywhere)
+- L720 tiled: level 0.61/0.71/0.65 | naive24 0.62/0.75/0.66 | naive168 0.11/0.30/0.18 | B(value) 0.77/0.80/0.70 |
+  C1 0.84/0.97/0.85 | C2 0.84/0.94/0.78 | Bmean 0.83/0.90/0.82
+- L720 phase: B(value, beta 4-8) 1.68/1.70/1.65 | C2:value 1.60/1.70/1.58 | C1 1.15/1.32/1.20 | Bmean 1.35/1.53/1.39 |
+  B:shape ~0.2 | B:both ~0.2 ; a ~0.21, c ~0.17
+- L720 daily: B 0.73/0.86/0.78 | C1 0.70/0.86/0.74 | C2 0.81/0.93/-0.05 | Bmean 0.65/0.83/0.67
+- L96 phase: B 7.70/7.56/7.91 | C2:value 6.69/6.67/6.79 | C1 3.87/3.85/3.97 | Bmean 6.31/6.07/6.46
+- L96 tiled: B 6.55/6.53/6.79 | naive168 2.0/2.1/2.1 ; L96 daily: B 2.85/3.06/3.09, C2 3.19/3.31/3.32
+- Reading: decoupled (a, c) + value readout of same-clock past weeks lifts L720 from 0.38 (residual ICL) / 0.37 (v1 B) to 1.68%,
+  L96 from 5.7 to 7.7%. Fresh tiled candidates are worse than the phase pool (freshness not the driver here). Shape readout hurts.
+  C criterion fails: C2 ~ B (-0.08/0.00/-0.07 at L720 phase), C1 well below; retrieval B is best. The working form is a
+  linear forecast combination y^ = f + a(mu_t - f) + c(r_B - mu_t), r_B = softmax-weighted raw same-clock past continuations.
