@@ -345,3 +345,15 @@ Order diag (200k test cases, per-demo random factor order): model vs permuted di
 Entropy/log n q50 ~.96 (near uniform) for all score variants.
 => Observed y path between demo and query adds no error-predictive info beyond lag + error similarity on Traffic H192;
    order of Householder factors is irrelevant ("no path info", not just "no non-commutative benefit").
+
+### PAT-315 prefix-state similarity (commit e7e6147, jobs 11169-11171)
+Each side's own past day: h_{r,m} = A_{r-1}...A_{r-24} h0_m (4 learned probes, beta=2, u from y window via MLP).
+Spre = Bp + sum_m h_t^T h_s / sqrt(d); Sperm = same with the 24 factors in a random order per batch (query and demos shared).
+Same cell as stage 1 (Traffic H192, 14 same-phase demos). Test gain vs base % (s3047/s2024/s2025, mean):
+  Bp    5.37/5.50/5.42  5.43
+  Spre  5.49/5.69/5.55  5.58   > Bp 3/3 (+.12/+.19/+.13)
+  Sperm 5.49/5.49/5.58  5.52   > Bp 2/3; Spre > Sperm 2/3 (+.00/+.20/-.03)
+Order diag on trained Spre (200k test cases, random per-batch order at eval): 5.29->5.21, 5.68->5.52, 5.63->5.52 (3/3 drop .08-.16pp).
+State cos q50 ~.8 (Spre) / .67-.80 (Sperm). Spre s2024 hit the 10-epoch cap.
+=> Decision rule (Spre > Bp and > Sperm 3/3): FAILS on Sperm. First variant over Bp 3/3: each side's accumulated past day
+   adds ~+0.15pp beyond lag + error similarity. Trained Spre relies on order, but an order-free state trained as such reaches ~the same.
