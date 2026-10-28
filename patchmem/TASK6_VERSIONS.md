@@ -378,3 +378,16 @@ Test gain vs base % (s3047/s2024/s2025, mean): Bp 5.43 | Spre 5.58 | Sperm 5.52 
 Smean > Bp 3/3 (+.30/+.24/+.29); Spre > Smean 0/3 (-.18/-.05/-.15); Sperm > Smean 0/3. State cos q50 ~.96.
 => The past-day gain comes from a plain commutative summary of the recent y windows; Householder ordered accumulation
    is worse than the mean. No evidence for an ordered/path structure on Traffic H192.
+
+### PAT-315 training-free raw similarity (commit 6734b60, `eval_raw_sim.py`, jobs 11313-11315)
+e_hat = s * sum_j softmax(tau_e sim(q, k_j) + tau_y sim(y past 24 steps at t, at s_j)) e_j, no learned map;
+tau in {0,.5,...,64}, s in .05..2.0 chosen on full val, test once. Test gain vs base % (s2024/s2025/s3047):
+  mean (tau=0)  3.04/3.19/3.15 (s=.8)
+  cos e        3.62/3.77/3.72 (tau_e=2)
+  cos y        3.68/3.83/3.79 (tau_y=2)
+  cos e+y      3.96/4.11/4.06 (tau_e=1, tau_y=2)  > mean 3/3 by ~+.9pp
+  l2 e / y / e+y  -.05..15 / 1.57..1.71 / 1.66..1.75 (val picked the smallest tau=.5: grid too coarse for L2, not conclusive)
+Val picks s=.8 for every family, while the train-split modules learn s~.53 (A: 4.46 with the same uniform weights),
+so absolute numbers across protocols are confounded by the scale; compare within protocol:
+  training-free: cos e+y - mean = +0.9pp;  learned (train split): Smean - A = +1.25pp, Bp - A = +1.0pp.
+=> Raw cosine on errors and on past-day y each helps, and they add; learned maps add a further ~0.3pp over raw.
