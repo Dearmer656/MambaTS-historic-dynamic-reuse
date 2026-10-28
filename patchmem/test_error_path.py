@@ -46,7 +46,7 @@ def test_causality_unknown_future_is_ignored():
             assert torch.equal(got[v], ref[v]), (mode, v)
         pert['X'][tq - 1] += 1.0                                           # an observed input does matter
         moved = run_all(ms, pert, t, c)
-        for v in ('End', 'C', 'Cmean', 'Crev', 'Spre', 'Sperm', 'Smean'):
+        for v in ('End', 'C', 'Cmean', 'Crev', 'Spre', 'Sperm', 'Smean') + ep.FOX_VARIANTS:
             assert not torch.equal(moved[v], ref[v]), (mode, v)
 
 
@@ -134,3 +134,32 @@ def test_smean_is_order_free():
     yw = b['ysw']
     assert torch.allclose(m.state(yw, perm), m.state(yw[..., perm, :], perm), atol=1e-12)
     assert torch.allclose(m.state(yw, perm).norm(dim=-1), m.gain.double().abs().expand(1, len(AGES), -1))
+
+
+def test_fox_forget_sum_and_sink():
+    """FoX logit term = sum_{r=s_j}^{t-1} log f_r computed explicitly from X; sink -> 0 correction when b0 is huge."""
+    ms = models('two')
+    data = synth(9)
+    t, c = 1000, 1
+    b = as_double(ep.gather(data, torch.tensor([t]), torch.tensor([c]), AGES, True, True))
+    m = ms['FoX']
+    _, diag = m(b)
+    w = torch.arange(ep.WIN - 1, -1, -1)
+    for j, a in enumerate(AGES):
+        tot = 0.0
+        for r in range(t - a, t):                                     # r = s_j .. t-1
+            win = data['X'][r - w, c].double()[None]
+            tot += float(torch.nn.functional.logsigmoid(m.fgate(ep.window_features(win)))[0, 0])
+        assert abs(tot - float(diag['logD'][0, j])) < 1e-9
+    sk = ms['FoX_sink']
+    with torch.no_grad():
+        sk.b0.fill_(1e4)
+    out, d = sk(b)
+    assert out.abs().max() < 1e-12 and abs(float(d['sink'][0]) - 1) < 1e-12
+    f0 = ms['F0']
+    out0, _ = f0(b)
+    ce = torch.nn.functional.cosine_similarity(b['q'][:, None], b['K'], dim=-1)
+    att = torch.softmax(2 * ce + 2 * torch.nn.functional.cosine_similarity(b['yqw'][:, None, :, -1], b['ysw'][..., -1], dim=-1), -1)
+    assert torch.allclose(out0, 0.3 * (att[..., None] * b['V']).sum(1))
+    # yqw[..., k, -1] is y at t-1-k
+    assert torch.equal(b['yqw'][0, :, -1], data['X'][t - 1 - torch.arange(ep.W_STATE), c].double())

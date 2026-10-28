@@ -31,6 +31,12 @@ path-conditioned *retrieval/weighting*, not error transport):
          the query and all demos, redrawn every batch in training and eval): order carries no information
   Smean  Bp + sum_m h_{t,m}^T h_{s_j,m} / sqrt(d) with a commutative state: h_{r,m} = g_m * l2norm(mean over the
          same W steps of psi_m(y window at r)), psi: per-step MLP -> m x d, g_m learned (Spre keeps |h| = |h0_m|)
+  FoX family (raw cosine logits, no lag MLP / phi): base = tau_e cos(q, k_j) + tau_y cos(y_{t-24:t}, y_{s_j-24:s_j})
+    F0        base (learned tau, s): trained twin of eval_raw_sim cos e+y
+    Fage      base - softplus(lam) * age_j / 168                      (constant forget gate, ALiBi-like)
+    FoX       base + sum_{r=s_j}^{t-1} log f_r, f_r = sigmoid(MLP(y window at r))   (data-dependent forget gate)
+    *_sink    an extra zero-valued demo with learned logit b0 in the softmax: when all demos are forgotten
+              the weight flows to it and the correction shrinks (Mamba-like unnormalised magnitude)
 
 A_r = I - beta_r u_r u_r^T, u_r = l2-normalised (as PaTH's w), beta_r = 2 (exact Householder
 reflection, norm preserving; --beta two, main) or 2 sigmoid(.) in (0, 2) (PaTH; --beta learn).
@@ -64,6 +70,14 @@ W_STATE, N_PROBE = 24, 4
 VARIANTS = ('A', 'B', 'Bp', 'End', 'C', 'Cmean', 'Crev', 'Cerr', 'Spre', 'Sperm', 'Smean')
 PATH_VARIANTS = ('C', 'Crev', 'Cerr')
 STATE_VARIANTS = ('Spre', 'Sperm', 'Smean')
+FOX_VARIANTS = ('F0', 'Fage', 'Fage_sink', 'FoX', 'FoX_sink')
+VARIANTS = VARIANTS + FOX_VARIANTS
+
+
+def needs(variant):
+    """(path inputs yr/er, past-day windows yqw/ysw) required by a variant."""
+    return (variant in PATH_VARIANTS + ('Cmean', 'FoX', 'FoX_sink'),
+            variant in STATE_VARIANTS + FOX_VARIANTS)
 CELLS = {'T': dict(history=2880, period=168, stride=24)}
 
 
@@ -192,9 +206,9 @@ class ErrorPath(nn.Module):
         super().__init__()
         self.variant, self.beta_mode = variant, beta_mode
         self.scale = nn.Parameter(torch.tensor(0.3))
-        if variant != 'A':
+        if variant not in ('A',) + FOX_VARIANTS:
             self.lag = mlp(5 + 2 * n_marks, 1)
-        if variant not in ('A', 'B'):
+        if variant not in ('A', 'B') + FOX_VARIANTS:
             self.phi = nn.Linear(H, D_EMB, bias=False)
             self.qn, self.kn = nn.RMSNorm(D_EMB), nn.RMSNorm(D_EMB)
         if variant == 'End':
@@ -203,6 +217,17 @@ class ErrorPath(nn.Module):
             self.trans = mlp(2 * WIN, D_EMB + 1)
         if variant == 'Cmean':
             self.pool = mlp(2 * WIN, D_EMB)
+        if variant in FOX_VARIANTS:
+            self.tau = nn.Parameter(torch.tensor([2.0, 2.0]))
+        if variant.startswith('Fage'):
+            self.lam = nn.Parameter(torch.tensor(-4.0))                  # softplus(-4) ~ .018 per week
+        if variant.startswith('FoX'):
+            self.fgate = mlp(2 * WIN, 1)
+            with torch.no_grad():
+                self.fgate[-1].weight.mul_(0.1)
+                self.fgate[-1].bias.fill_(8.0)                           # log f ~ -3e-4 per step at init
+        if variant.endswith('_sink'):
+            self.b0 = nn.Parameter(torch.tensor(-2.0))
         if variant == 'Smean':
             self.spool = mlp(2 * WIN, N_PROBE * D_EMB)
             self.gain = nn.Parameter(torch.ones(N_PROBE))
@@ -264,6 +289,19 @@ class ErrorPath(nn.Module):
         diag = {}
         if self.variant == 'A':
             score = V.new_zeros(V.shape[:2])
+        elif self.variant in FOX_VARIANTS:
+            ce = F.cosine_similarity(b['q'][:, None], b['K'], dim=-1, eps=1e-8)
+            cy = F.cosine_similarity(b['yqw'][:, None, :, -1], b['ysw'][..., -1], dim=-1, eps=1e-8)
+            score = self.tau[0] * ce + self.tau[1] * cy
+            ages = b['ages'].to(V.device)
+            if self.variant.startswith('Fage'):
+                score = score - F.softplus(self.lam) * ages.to(V.dtype)[None] / 168
+            if self.variant.startswith('FoX'):
+                logf = F.logsigmoid(self.fgate(window_features(b['yr']))[..., 0])   # B K (k = 0 <-> r = t-1)
+                logD = logf.cumsum(1)[:, ages - 1]                                # sum over r = s_j .. t-1
+                score = score + logD
+                diag['logf'] = logf.detach()
+                diag['logD'] = logD.detach()
         else:
             score = self.lag(lag_features(b['ages'].to(V.device), b['mt'], b['ms']))[..., 0]
         if self.variant in ('Bp', 'End') + STATE_VARIANTS:
@@ -294,8 +332,13 @@ class ErrorPath(nn.Module):
             hq, hs = self.state(b['yqw'], idx), self.state(b['ysw'], idx)   # B m d / B n m d
             score = score + (hq[:, None] * hs).sum((-1, -2)) / math.sqrt(D_EMB)
             diag['state_cos'] = F.cosine_similarity(hq[:, None], hs, dim=-1).mean(-1).detach()   # B n
-        att = torch.softmax(score, -1)
-        diag['entropy'] = (-(att * att.clamp_min(1e-12).log()).sum(-1) / math.log(att.shape[-1])).detach()
+        if self.variant.endswith('_sink'):
+            full = torch.softmax(torch.cat([score, self.b0.expand(score.shape[0], 1)], -1), -1)
+            att = full[:, :-1]
+            diag['sink'] = full[:, -1].detach()
+        else:
+            full = att = torch.softmax(score, -1)
+        diag['entropy'] = (-(full * full.clamp_min(1e-12).log()).sum(-1) / math.log(full.shape[-1])).detach()
         diag['score_std'] = score.std(-1).detach()
         return self.scale * (att[..., None] * V).sum(1), diag
 
@@ -318,15 +361,17 @@ def all_cases(data, max_cases=None, seed=0):
 def mse_eval(model, data, ages, device, bs, max_cases=None, seed=0, order=None, diag_batches=20):
     """Squared errors (backbone, corrected) over (origin, channel) cases, plus path diagnostics."""
     t_all, c_all = all_cases(data, max_cases, seed)
-    need = model.variant in PATH_VARIANTS + ('Cmean',)
-    need_state = model.variant in STATE_VARIANTS
-    if need_state:
+    need, need_state = needs(model.variant)
+    if model.variant in STATE_VARIANTS:
         pstate = model.pgen.get_state()                              # keep the training draw sequence intact
         model.pgen.manual_seed(seed + 13)
     se_base = se = 0.0
     lead_base = torch.zeros(H, dtype=torch.float64)
     lead = torch.zeros(H, dtype=torch.float64)
-    D = {k: [] for k in ('beta', 'qratio', 'kratio', 'entropy', 'score_std', 'state_cos')}
+    D = {k: [] for k in ('beta', 'qratio', 'kratio', 'entropy', 'score_std', 'state_cos', 'logf', 'logD')}
+    sink_sum = torch.zeros(len(data['origins']), dtype=torch.float64)
+    sink_cnt = torch.zeros(len(data['origins']), dtype=torch.float64)
+    o0 = int(data['origins'][0])
     model.eval()
     with torch.no_grad():
         for bi, i in enumerate(range(0, len(t_all), bs)):
@@ -338,7 +383,14 @@ def mse_eval(model, data, ages, device, bs, max_cases=None, seed=0, order=None, 
             se += float(r1.square().sum())
             lead_base += r0.square().sum(0).cpu()
             lead += r1.square().sum(0).cpu()
+            if 'sink' in diag:
+                oi = t_all[i:i + bs] - o0
+                sink_sum.index_add_(0, oi, diag['sink'].double().cpu())
+                sink_cnt.index_add_(0, oi, torch.ones(len(oi), dtype=torch.float64))
             if bi < diag_batches:
+                for kk in ('logf', 'logD'):
+                    if kk in diag:
+                        D[kk].append(diag[kk].flatten()[::7].cpu() if kk == 'logf' else diag[kk].cpu())
                 D['entropy'].append(diag['entropy'].cpu())
                 D['score_std'].append(diag['score_std'].cpu())
                 if 'state_cos' in diag:
@@ -351,7 +403,7 @@ def mse_eval(model, data, ages, device, bs, max_cases=None, seed=0, order=None, 
                     u, beta = model.transitions(b)
                     pk = sweep(fk, u, beta, b['ages'], factor_order(b['ages'], 'P'))
                     D['kratio'].append((pk.norm(dim=-1) / fk.norm(dim=-1).clamp_min(1e-8)).cpu())
-    if need_state:
+    if model.variant in STATE_VARIANTS:
         model.pgen.set_state(pstate)
     n = len(t_all) * H
     out = dict(cases=len(t_all), mse_base=se_base / n, mse=se / n,
@@ -359,6 +411,14 @@ def mse_eval(model, data, ages, device, bs, max_cases=None, seed=0, order=None, 
     qs = torch.tensor([0.1, 0.5, 0.9])
     out['attn_entropy_q10_50_90'] = torch.quantile(torch.cat(D['entropy']).float(), qs).tolist()
     out['score_std_q10_50_90'] = torch.quantile(torch.cat(D['score_std']).float(), qs).tolist()
+    if D['logf']:
+        out['logf_q01_10_50_90'] = torch.quantile(torch.cat(D['logf']).float(), torch.tensor([0.01, 0.1, 0.5, 0.9])).tolist()
+        out['logD_median_by_demo'] = torch.cat(D['logD']).float().median(0).values.tolist()
+    if sink_cnt.sum() > 0:
+        m = sink_cnt > 0
+        out['sink_mean'] = float(sink_sum[m].sum() / sink_cnt[m].sum())
+        out['sink_by_origin'] = (sink_sum[m] / sink_cnt[m]).tolist()
+        out['sink_origins'] = data['origins'][m].tolist()
     if D['state_cos']:
         sc = torch.cat(D['state_cos']).float()
         out['state_cos_q10_50_90'] = torch.quantile(sc.flatten(), qs).tolist()
@@ -404,8 +464,7 @@ def run(code, seed, kind, variant, args):
         tr, stop, insample = splits['train'], splits['val'], None
     C = tr['X'].shape[1]
     gen = torch.Generator().manual_seed(seed + 7)
-    need = variant in PATH_VARIANTS + ('Cmean',)
-    need_state = variant in STATE_VARIANTS
+    need, need_state = needs(variant)
     best, best_state, bad, log = float('inf'), None, 0, []
     t0 = time.time()
     for epoch in range(args.epochs):
