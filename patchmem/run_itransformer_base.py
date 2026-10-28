@@ -42,13 +42,14 @@ def main():
     parser.add_argument('--data', required=True, choices=CONFIG)
     parser.add_argument('--seed', type=int, default=3047)
     parser.add_argument('--pred_len', type=int, default=192)
+    parser.add_argument('--seq_len', type=int, default=96)
     args0 = parser.parse_args()
-    code, seed, H = args0.data, args0.seed, args0.pred_len
+    code, seed, H, L = args0.data, args0.seed, args0.pred_len, args0.seq_len
     c = CONFIG[code]
     argv = (f'--task_name long_term_forecast --is_training 1 --model iTransformer '
-            f'--model_id {c["name"]}_96_{H}_BASE --data {c["data"]} '
+            f'--model_id {c["name"]}_{L}_{H}_BASE --data {c["data"]} '
             f'--root_path {c["root"]} --data_path {c["file"]} --features M '
-            f'--seq_len 96 --label_len 48 --pred_len {H} '
+            f'--seq_len {L} --label_len 48 --pred_len {H} '
             f'--enc_in {c["channels"]} --dec_in {c["channels"]} --c_out {c["channels"]} '
             f'--e_layers {c["layers"]} --d_model {c["dim"]} --d_ff {c["ff"]} '
             f'--batch_size {c["batch"]} --learning_rate {c["lr"]} '
@@ -56,7 +57,7 @@ def main():
             f'--seed {seed} --itr 1 --des ICL_base_s{seed}').split()
     args = official_args(argv)
     set_seed(seed)
-    setting = f'iTransformer_base_{code}_L96_H{H}_s{seed}'
+    setting = f'iTransformer_base_{code}_L{L}_H{H}_s{seed}'
     print(f'[base train] {setting} {json.dumps(vars(args), default=str)}', flush=True)
     exp = Exp_Long_Term_Forecast(args)
     exp.train(setting)

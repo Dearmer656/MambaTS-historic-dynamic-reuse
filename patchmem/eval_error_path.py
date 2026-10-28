@@ -67,7 +67,7 @@ import torch.nn.functional as F
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-L = 96
+L = int(os.environ.get('ITR_L', '96'))  # backbone lookback (ITR_L=720 for the long-input control)
 H = int(os.environ.get('ITR_H', '192'))  # forecast horizon; set ITR_H for H != 192
 D_EMB, WIN, HID = 16, 8, 32
 W_STATE, N_PROBE = 24, 4
@@ -85,7 +85,7 @@ def needs(variant):
     return (variant in PATH_VARIANTS + ('Cmean', 'FoX', 'FoX_sink'),
             variant in STATE_VARIANTS + FOX_VARIANTS,
             variant in PERIOD_VARIANTS)
-CELLS = {'T': dict(history=2880, period=168, stride=24)}
+CELLS = {'T': dict(history=2880 + L - 96, period=168, stride=24)}   # same 14 phase demos for any L
 
 
 def demo_ages(kind, history, period, stride):
