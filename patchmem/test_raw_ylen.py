@@ -40,3 +40,22 @@ def test_y192c_window_and_centering():
         want += float((E[t - L, :, c] * eh).sum())
     got = float(r['probe', (3.0,)][1])
     assert abs(got - want) < 1e-4 * abs(want), (got, want)
+
+
+def test_cat3_key_segments():
+    """cat3 key = [y[o-H-L:o-H], y[o-H:o], E_{o-H}] (any consistent element order gives the same cosine)."""
+    data = synth(13, T=1600, C=2)
+    t, ages = 1100, [200, 264]
+    data['origins'] = torch.tensor([t])
+    r = ry.sums(data, ages, 'cpu', 8, [('cat3', (5.0,))])
+    X, E, H, L = data['X'].double(), data['E'].double(), ry.H, ry.L
+    want = 0.0
+    for c in range(X.shape[1]):
+        def key(o):
+            return torch.cat([X[o - H - L:o - H, c], X[o - H:o, c], E[o - H - L, :, c]])
+        sims = torch.stack([torch.nn.functional.cosine_similarity(key(t), key(t - a), dim=0) for a in ages])
+        w = torch.softmax(5.0 * sims, 0)
+        eh = sum(w[j] * E[t - a - L, :, c] for j, a in enumerate(ages))
+        want += float((E[t - L, :, c] * eh).sum())
+    got = float(r['cat3', (5.0,)][1])
+    assert abs(got - want) < 1e-4 * abs(want), (got, want)

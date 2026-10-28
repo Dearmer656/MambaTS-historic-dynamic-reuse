@@ -7,6 +7,9 @@ tau and s selected on a fixed 1M-case train subset, test once).  Components (que
   y96    cos(y[t-96:t], ...)                              backbone's current input (L = 96)
   y192   cos(y[t-H:t], ...)                               same window as the error
   y96c / y192c  as above after removing each window's own mean (shape only)
+  cat3   one cos on the concatenation x_o = [y[o-H-L:o-H], y[o-H:o], E_{o-H}] (old forecast's input, the window
+         it covered, its error): one-layer W1 one-step-GD ICL in the exp-kernel = softmax attention, value E_{s_j}
+  cat3n  same concatenation after l2-normalising each of the three segments
 e_hat = s * sum_j softmax_j(sum_c tau_c sim_c) e_j.
 """
 import argparse
@@ -23,11 +26,11 @@ sys.path.insert(0, str(ROOT))
 from patchmem.eval_error_path import CELLS, H, L, all_cases, demo_ages, load_split
 from patchmem.eval_raw_sim import S_GRID, mse_at
 
-TAUS = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0)
+TAUS = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0)
 TAUS3 = (0.5, 1.0, 2.0, 4.0, 8.0)
 FAMILIES = {'mean': (), 'e+y24': ('e', 'y24'), 'e+y96': ('e', 'y96'), 'e+y192': ('e', 'y192'),
             'e+y96c': ('e', 'y96c'), 'e+y192c': ('e', 'y192c'), 'e+y24+y192': ('e', 'y24', 'y192'),
-            'y192': ('y192',), 'y96': ('y96',)}
+            'y192': ('y192',), 'y96': ('y96',), 'cat3': ('cat3',), 'cat3n': ('cat3n',)}
 YLEN = {'y24': 24, 'y96': 96, 'y192': H, 'y96c': 96, 'y192c': H}
 
 
@@ -50,7 +53,7 @@ def cos(a, b):
 def sums(data, ages, device, bs, cands, max_cases=None, seed=0):
     E, X = data['E'], data['X']
     ag = torch.as_tensor(ages)
-    kmax = max(YLEN.values())
+    kmax = H + L                                                      # y back to o-H-L
     k = torch.arange(kmax)
     t_all, c_all = all_cases(data, max_cases, seed)
     acc = {c: torch.zeros(3, dtype=torch.float64, device=device) for c in cands}
@@ -66,6 +69,11 @@ def sums(data, ages, device, bs, cands, max_cases=None, seed=0):
         yq = X[(t - 1)[:, None] - k, c[:, None]].to(device)          # B kmax, index 0 = y_{t-1}
         ys = X[(s - 1)[..., None] - k, cc[..., None]].to(device)     # B n kmax
         S = {'e': cos(q, K)}
+        y1q, y2q = yq[:, H:H + L], yq[:, :H]                            # y[t-H-L:t-H], y[t-H:t] (reversed time order)
+        y1s, y2s = ys[..., H:H + L], ys[..., :H]
+        S['cat3'] = cos(torch.cat([y1q, y2q, q], -1), torch.cat([y1s, y2s, K], -1))
+        nz = lambda a: F.normalize(a, dim=-1)
+        S['cat3n'] = cos(torch.cat([nz(y1q), nz(y2q), nz(q)], -1), torch.cat([nz(y1s), nz(y2s), nz(K)], -1))
         for name, ln in YLEN.items():
             a, b = yq[:, :ln], ys[..., :ln]
             if name.endswith('c'):
@@ -113,7 +121,7 @@ def run(code, seed, args):
         print(f'[test] {f:12s} tau={x["tau"]} s={x["s"]} gain={result[f]["test_gain_pct"]:+.3f}%', flush=True)
     out = dict(dataset=code, seed=seed, H=H, ages=ages, ylen=YLEN, taus=TAUS, taus3=TAUS3, select_split='train',
                select_cases=args.select_cases, checkpoint=str(checkpoint), test_base=base, families=result)
-    output = Path(args.out_dir) / f'{code}_H{H}_phase_rawylen_s{seed}.json'
+    output = Path(args.out_dir) / f'{code}_H{H}_phase_rawylen2_s{seed}.json'
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(out, indent=2) + '\n')
     print(f'[done] {output}', flush=True)
