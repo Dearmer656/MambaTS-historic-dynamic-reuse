@@ -37,6 +37,10 @@ path-conditioned *retrieval/weighting*, not error transport):
     FoX       base + sum_{r=s_j}^{t-1} log f_r, f_r = sigmoid(MLP(y window at r))   (data-dependent forget gate)
     *_sink    an extra zero-valued demo with learned logit b0 in the softmax: when all demos are forgotten
               the weight flows to it and the correction shrinks (Mamba-like unnormalised magnitude)
+    PFm / PFc  same-clock FoX: forget only at the period points between demo and query,
+              logD_j = sum_{m=1}^{m_j-1} log f_m (m-th point s_m = t - 168 m; m = 0 is the query and cancels)
+              PFm: f_m = sigmoid(MLP(l2norm(past-day y at s_m)))
+              PFc: f_m = sigmoid(a + b cos(y_day@m, y_day@m-1) + c cos(k_m, k_{m-1}))   (3 parameters)
 
 A_r = I - beta_r u_r u_r^T, u_r = l2-normalised (as PaTH's w), beta_r = 2 (exact Householder
 reflection, norm preserving; --beta two, main) or 2 sigmoid(.) in (0, 2) (PaTH; --beta learn).
@@ -70,14 +74,17 @@ W_STATE, N_PROBE = 24, 4
 VARIANTS = ('A', 'B', 'Bp', 'End', 'C', 'Cmean', 'Crev', 'Cerr', 'Spre', 'Sperm', 'Smean')
 PATH_VARIANTS = ('C', 'Crev', 'Cerr')
 STATE_VARIANTS = ('Spre', 'Sperm', 'Smean')
-FOX_VARIANTS = ('F0', 'Fage', 'Fage_sink', 'FoX', 'FoX_sink')
+PERIOD_VARIANTS = ('PFm', 'PFm_sink', 'PFc', 'PFc_sink')
+FOX_VARIANTS = ('F0', 'Fage', 'Fage_sink', 'FoX', 'FoX_sink') + PERIOD_VARIANTS
+PERIOD = 168
 VARIANTS = VARIANTS + FOX_VARIANTS
 
 
 def needs(variant):
-    """(path inputs yr/er, past-day windows yqw/ysw) required by a variant."""
+    """(path inputs yr/er, past-day windows yqw/ysw, same-clock points ypp/kpp) required by a variant."""
     return (variant in PATH_VARIANTS + ('Cmean', 'FoX', 'FoX_sink'),
-            variant in STATE_VARIANTS + FOX_VARIANTS)
+            variant in STATE_VARIANTS + FOX_VARIANTS,
+            variant in PERIOD_VARIANTS)
 CELLS = {'T': dict(history=2880, period=168, stride=24)}
 
 
@@ -120,7 +127,7 @@ def residual_stats(data):
     return dict(mean=float(r.mean()), std=float(r.std()), mse=float(r.square().mean()))
 
 
-def gather(data, t, c, ages, need_path, need_state=False):
+def gather(data, t, c, ages, need_path, need_state=False, need_period=False):
     """Batch tensors for query origins t (B,) and channels c (B,); all strictly causal for t."""
     E, X, M = data['E'], data['X'], data['M']
     ages = torch.as_tensor(ages, dtype=torch.long)
@@ -144,6 +151,12 @@ def gather(data, t, c, ages, need_path, need_state=False):
         rs = (s - 1)[..., None] - k                                  # B n W
         out['yqw'] = X[rq[..., None] - w, c[:, None, None]]          # B W WIN
         out['ysw'] = X[rs[..., None] - w, cc[..., None, None]]       # B n W WIN
+    if need_period:
+        M = int(ages.max()) // PERIOD
+        sm = t[:, None] - PERIOD * torch.arange(M + 1)                 # B M+1 (m = 0 is the query origin)
+        k = torch.arange(W_STATE)
+        out['ypp'] = X[(sm - 1)[..., None] - k, c[:, None, None]]      # B M+1 W (past day, ends at s_m - 1)
+        out['kpp'] = E[sm - H - L, :, c[:, None]]                     # B M+1 H (key error of point m)
     return out
 
 
@@ -226,6 +239,13 @@ class ErrorPath(nn.Module):
             with torch.no_grad():
                 self.fgate[-1].weight.mul_(0.1)
                 self.fgate[-1].bias.fill_(8.0)                           # log f ~ -3e-4 per step at init
+        if variant.startswith('PFm'):
+            self.pgate = mlp(W_STATE, 1)
+            with torch.no_grad():
+                self.pgate[-1].weight.mul_(0.1)
+                self.pgate[-1].bias.fill_(4.0)                           # log f ~ -.018 per week at init
+        if variant.startswith('PFc'):
+            self.pabc = nn.Parameter(torch.tensor([4.0, 0.0, 0.0]))
         if variant.endswith('_sink'):
             self.b0 = nn.Parameter(torch.tensor(-2.0))
         if variant == 'Smean':
@@ -302,6 +322,21 @@ class ErrorPath(nn.Module):
                 score = score + logD
                 diag['logf'] = logf.detach()
                 diag['logD'] = logD.detach()
+            if self.variant in PERIOD_VARIANTS:
+                assert bool((ages % PERIOD == 0).all()) and int(ages.min()) >= 2 * PERIOD
+                yp = F.normalize(b['ypp'], dim=-1)                            # B M+1 W
+                if self.variant.startswith('PFm'):
+                    z = self.pgate(yp[:, 1:])[..., 0]                         # points m = 1..M
+                else:
+                    cyy = (yp[:, 1:] * yp[:, :-1]).sum(-1)                    # cos(y_day@m, y_day@m-1)
+                    ckk = F.cosine_similarity(b['kpp'][:, 1:], b['kpp'][:, :-1], dim=-1, eps=1e-8)
+                    z = self.pabc[0] + self.pabc[1] * cyy + self.pabc[2] * ckk
+                logf = F.logsigmoid(z)                                        # B M (index m - 1)
+                logD = logf.cumsum(1)[:, ages // PERIOD - 2]                  # sum_{m=1}^{m_j - 1}
+                score = score + logD
+                diag['logf1'] = logf[:, 0].detach()                           # forget at t - 168 (last week)
+                diag['logf'] = logf.detach()
+                diag['logD'] = logD.detach()
         else:
             score = self.lag(lag_features(b['ages'].to(V.device), b['mt'], b['ms']))[..., 0]
         if self.variant in ('Bp', 'End') + STATE_VARIANTS:
@@ -361,7 +396,7 @@ def all_cases(data, max_cases=None, seed=0):
 def mse_eval(model, data, ages, device, bs, max_cases=None, seed=0, order=None, diag_batches=20):
     """Squared errors (backbone, corrected) over (origin, channel) cases, plus path diagnostics."""
     t_all, c_all = all_cases(data, max_cases, seed)
-    need, need_state = needs(model.variant)
+    need, need_state, need_period = needs(model.variant)
     if model.variant in STATE_VARIANTS:
         pstate = model.pgen.get_state()                              # keep the training draw sequence intact
         model.pgen.manual_seed(seed + 13)
@@ -370,12 +405,13 @@ def mse_eval(model, data, ages, device, bs, max_cases=None, seed=0, order=None, 
     lead = torch.zeros(H, dtype=torch.float64)
     D = {k: [] for k in ('beta', 'qratio', 'kratio', 'entropy', 'score_std', 'state_cos', 'logf', 'logD')}
     sink_sum = torch.zeros(len(data['origins']), dtype=torch.float64)
+    f1_sum = torch.zeros(len(data['origins']), dtype=torch.float64)
     sink_cnt = torch.zeros(len(data['origins']), dtype=torch.float64)
     o0 = int(data['origins'][0])
     model.eval()
     with torch.no_grad():
         for bi, i in enumerate(range(0, len(t_all), bs)):
-            b = to_dev(gather(data, t_all[i:i + bs], c_all[i:i + bs], ages, need, need_state), device)
+            b = to_dev(gather(data, t_all[i:i + bs], c_all[i:i + bs], ages, need, need_state, need_period), device)
             corr, diag = model(b, order)
             r0 = b['target'].double()
             r1 = (b['target'] - corr).double()
@@ -383,6 +419,10 @@ def mse_eval(model, data, ages, device, bs, max_cases=None, seed=0, order=None, 
             se += float(r1.square().sum())
             lead_base += r0.square().sum(0).cpu()
             lead += r1.square().sum(0).cpu()
+            if 'logf1' in diag:
+                f1_sum.index_add_(0, t_all[i:i + bs] - o0, diag['logf1'].double().cpu())
+                if 'sink' not in diag:
+                    sink_cnt.index_add_(0, t_all[i:i + bs] - o0, torch.ones(len(diag['logf1']), dtype=torch.float64))
             if 'sink' in diag:
                 oi = t_all[i:i + bs] - o0
                 sink_sum.index_add_(0, oi, diag['sink'].double().cpu())
@@ -414,7 +454,11 @@ def mse_eval(model, data, ages, device, bs, max_cases=None, seed=0, order=None, 
     if D['logf']:
         out['logf_q01_10_50_90'] = torch.quantile(torch.cat(D['logf']).float(), torch.tensor([0.01, 0.1, 0.5, 0.9])).tolist()
         out['logD_median_by_demo'] = torch.cat(D['logD']).float().median(0).values.tolist()
-    if sink_cnt.sum() > 0:
+    if sink_cnt.sum() > 0 and f1_sum.abs().sum() > 0:
+        m = sink_cnt > 0
+        out['logf1_by_origin'] = (f1_sum[m] / sink_cnt[m]).tolist()
+        out['logf1_origins'] = data['origins'][m].tolist()
+    if sink_sum.sum() > 0:
         m = sink_cnt > 0
         out['sink_mean'] = float(sink_sum[m].sum() / sink_cnt[m].sum())
         out['sink_by_origin'] = (sink_sum[m] / sink_cnt[m]).tolist()
@@ -464,7 +508,7 @@ def run(code, seed, kind, variant, args):
         tr, stop, insample = splits['train'], splits['val'], None
     C = tr['X'].shape[1]
     gen = torch.Generator().manual_seed(seed + 7)
-    need, need_state = needs(variant)
+    need, need_state, need_period = needs(variant)
     best, best_state, bad, log = float('inf'), None, 0, []
     t0 = time.time()
     for epoch in range(args.epochs):
@@ -473,7 +517,7 @@ def run(code, seed, kind, variant, args):
         for it in range(args.iters):
             ti = tr['origins'][torch.randint(len(tr['origins']), (args.bs,), generator=gen)]
             ci = torch.randint(C, (args.bs,), generator=gen)
-            b = to_dev(gather(tr, ti, ci, ages, need, need_state), device)
+            b = to_dev(gather(tr, ti, ci, ages, need, need_state, need_period), device)
             corr, _ = model(b)
             loss = (b['target'] - corr).square().mean()
             opt.zero_grad()
@@ -520,7 +564,8 @@ def run(code, seed, kind, variant, args):
     out = dict(dataset=code, seed=seed, H=H, L=L, demos=kind, variant=variant, beta_mode=args.beta, ages=ages,
                d=D_EMB, win=WIN, w_state=W_STATE, n_probe=N_PROBE, checkpoint=str(checkpoint), residual_stats=rstats,
                train_cases_per_epoch=args.iters * args.bs, args=vars(args), log=log, best_val=best, test=test,
-               order_diag=order_diag, train_split=args.train_split, demo_values_in_train_period=insample)
+               order_diag=order_diag, pabc=model.pabc.tolist() if hasattr(model, 'pabc') else None,
+               train_split=args.train_split, demo_values_in_train_period=insample)
     tag = '' if args.train_split == 'train' else '_trval'
     output = Path(args.out_dir) / f'{code}_H{H}_{kind}_{variant}_{args.beta}{tag}_s{seed}.json'
     output.parent.mkdir(parents=True, exist_ok=True)

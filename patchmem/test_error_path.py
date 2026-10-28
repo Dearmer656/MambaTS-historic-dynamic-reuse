@@ -19,11 +19,11 @@ def as_double(b):
 
 def models(beta_mode):
     torch.manual_seed(0)
-    return {v: ep.ErrorPath(v, 4, beta_mode).double() for v in ep.VARIANTS}
+    return {v: ep.ErrorPath(v, 4, beta_mode).double() for v in ep.VARIANTS if v not in ep.PERIOD_VARIANTS}
 
 
 def run_all(ms, data, t, c):
-    b = as_double(ep.gather(data, t, c, AGES, True, True))
+    b = as_double(ep.gather(data, t, c, AGES, True, True, True))
     for v in ep.STATE_VARIANTS:
         ms[v].pgen.manual_seed(0)                                        # same Sperm draw in every call
     return {v: m(b)[0] for v, m in ms.items()}
@@ -42,11 +42,11 @@ def test_causality_unknown_future_is_ignored():
         pert['E'][unknown] += 100 * torch.randn(int(unknown.sum()), pert['E'].shape[2])
         pert['X'][tq:] += 100 * torch.randn_like(pert['X'][tq:])
         got = run_all(ms, pert, t, c)
-        for v in ep.VARIANTS:
+        for v in ref:
             assert torch.equal(got[v], ref[v]), (mode, v)
         pert['X'][tq - 1] += 1.0                                           # an observed input does matter
         moved = run_all(ms, pert, t, c)
-        for v in ('End', 'C', 'Cmean', 'Crev', 'Spre', 'Sperm', 'Smean') + ep.FOX_VARIANTS:
+        for v in [v for v in ('End', 'C', 'Cmean', 'Crev', 'Spre', 'Sperm', 'Smean') + ep.FOX_VARIANTS if v in ref]:
             assert not torch.equal(moved[v], ref[v]), (mode, v)
 
 
@@ -163,3 +163,42 @@ def test_fox_forget_sum_and_sink():
     assert torch.allclose(out0, 0.3 * (att[..., None] * b['V']).sum(1))
     # yqw[..., k, -1] is y at t-1-k
     assert torch.equal(b['yqw'][0, :, -1], data['X'][t - 1 - torch.arange(ep.W_STATE), c].double())
+
+
+def test_same_clock_forget():
+    """PFc/PFm logD_j = sum over period points m = 1..m_j-1 (s_m = t - 168 m), computed explicitly."""
+    torch.manual_seed(4)
+    ages = [336, 504, 840]
+    data = synth(10, T=2000, C=2)
+    t, c = 1500, 1
+    b = as_double(ep.gather(data, torch.tensor([t]), torch.tensor([c]), ages, False, True, True))
+    for v in ('PFc', 'PFm'):
+        m = ep.ErrorPath(v, 4).double()
+        if v == 'PFc':
+            with torch.no_grad():
+                m.pabc.copy_(torch.tensor([1.0, 2.0, -3.0]))
+        _, diag = m(b)
+        def day(mm):
+            sm = t - 168 * mm
+            return torch.nn.functional.normalize(data['X'][sm - 1 - torch.arange(24), c].double(), dim=0)
+        def key(mm):
+            return data['E'][t - 168 * mm - ep.H - ep.L, :, c].double()
+        for j, a in enumerate(ages):
+            tot = 0.0
+            for mm in range(1, a // 168):
+                if v == 'PFc':
+                    z = 1.0 + 2.0 * float(day(mm) @ day(mm - 1)) - 3.0 * float(torch.nn.functional.cosine_similarity(key(mm), key(mm - 1), dim=0))
+                    tot += float(torch.nn.functional.logsigmoid(torch.tensor(z, dtype=torch.float64)))
+                else:
+                    tot += float(torch.nn.functional.logsigmoid(m.pgate(day(mm)[None]))[0, 0])
+            assert abs(tot - float(diag['logD'][0, j])) < 1e-9, (v, j)
+        assert torch.equal(b['kpp'][0, 2], b['K'][0, 0]) and torch.equal(b['kpp'][0, 0], b['q'][0])
+        # causality: unknown future (errors not matured by t, y at >= t) does not change the output
+        ref, _ = m(b)
+        pert = {k: (x.clone() if torch.is_tensor(x) else x) for k, x in data.items()}
+        o = torch.arange(pert['E'].shape[0])[:, None] + ep.L
+        unknown = (o + torch.arange(ep.H)[None]) >= t
+        pert['E'][unknown] += 100 * torch.randn(int(unknown.sum()), pert['E'].shape[2])
+        pert['X'][t:] += 100
+        got, _ = m(as_double(ep.gather(pert, torch.tensor([t]), torch.tensor([c]), ages, False, True, True)))
+        assert torch.equal(got, ref), v
