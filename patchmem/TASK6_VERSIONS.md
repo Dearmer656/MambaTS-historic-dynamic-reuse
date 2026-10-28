@@ -433,3 +433,11 @@ Test gain % (s3047/s2024/s2025, mean; s = .55 everywhere):
 e+y96 > e+y24 3/3 (+.26..29); e+y192 > e+y24 3/3 (+.16..18); centred versions lose the gain.
 => The backbone's current input window (y[t-96:t]) is the best y key; its level matters, not only its shape.
    Training-free e+y96 (5.68) matches the learned Smean (5.70) and beats Fage (5.63).
+
+### PAT-315 one-layer W1 ICL, concatenated key (commit after 517dcd4, `eval_raw_ylen.py` rawylen2)
+x_o = [y[o-H-L:o-H], y[o-H:o], E_{o-H}] (480 dims), one cos on the concatenation, softmax, value E_{s_j}; training-free,
+tau/s on train. Test gain % (s3047/s2024/s2025, mean):
+  cat3 5.28/5.40/5.37 5.35 | cat3n (segments l2-normalised) 5.35/5.48/5.44 5.42 | e+y96 (separate cos, tau_e 1, tau_y 4) 5.68
+cat3 < e+y96 3/3 (-.33..34), cat3n < e+y96 3/3 (-.25..27), cat3n > cat3 3/3, cat3 < e+y24 3/3.
+=> A single cosine on the concatenation is worse than separate per-segment cosines: the best key weights y96 4x the
+   error, and the old forecast's input y[o-H-L:o-H] plus the first half of y[o-H:o] dilute it (cf. y192 < y96).
