@@ -477,3 +477,12 @@ Per-age mean cos(e_j, target): same clock .11 (L96) / .04 (L720); same hour othe
 => Only same-clock demos carry error information; full-history top-k picks look-alike states with unrelated errors and
    is worse than the fixed phase set. The oracle is mostly selection-on-target noise (max cos of 2400 random 192-d
    vectors is ~.3), not an attainable bound.
+
+## PAT-315 Observation-conditioned ICL (C group), 2026-10-28
+Motivation: residual ICL value = same-clock backbone errors = periodic error only (FreshCast M_p, Prop 4.3); L720 gain <= 0.4%,
+dense error pools worse (L720 s3047 H192: phase 0.41 / daily ~0.1 / hourly ~0.2%). Residual-ICL jobs stopped.
+`patchmem/eval_obs_icl.py` (test `test_obs_icl.py`, 4 pass; Codex: 3 fixes applied - C2 ridge floor, 2x2 eta ridge, P chosen on val per b rule)
+- demo s (age >= H, ages <= 2880-96-H, same for every L): k = (y[s-96:s]-mu_s)/sigma_s, v = (y[s:s+H]-mu_s)/sigma_s, mu/sigma of y[s-P:s], P in {24,168}, sigma >= 0.1
+- level (v^=0) | B softmax(beta k.k_t/96) v, beta in {0,..,16} | C1 one W2 GD step = mean_j (k_j.k_t/96) v_j | C2 closed-form LS W2, lam in {0.01..10}
+- r = mu_t + eta sigma_t v^, y^ = f + b (r - f); eta + beta/lam on train (200k), P + b (global / per lead) on val (200k), test once (400k)
+- pools phase / daily / hourly; H192, L720 and L96, 3 seeds. Criterion (fixed): C beats B on 3/3 seeds, mean >= 0.3 pt.
