@@ -8,6 +8,8 @@ observed by t).  Per (case, age):
   cv  cos(E_s, E_t)                  how similar the demo's value is to the target error (oracle quantity)
 Aggregates over a random sample of test cases:
   by age            mean se / sy / lg / cv, and single-demo gain_opt(a) = (sum t.e)^2 / (sum e^2 sum t^2)
+                    (the mod-24 / mod-168 folds and the printed age groups AVERAGE gain_opt(a) over ages; this is
+                    the mean single-demo value, not the gain of pooling those ages)
   by age mod 24 / mod 168
   14-demo sets      phase (the current same-clock demos) | top-k by logit over all ages | top-k by logit excluding
                     same clock | random | oracle top-k by cv; softmax(lg) weights inside the set (oracle: same);
