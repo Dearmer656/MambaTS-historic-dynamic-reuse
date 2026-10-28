@@ -371,3 +371,10 @@ learned scale ~.72-.76 (val) vs ~.53-.54 (train). The val period favours a large
 Ranking unchanged: Bp > A 3/3 (+.8..1.0), Spre > Bp 3/3 (+.14/+.27/+.17), Spre > Sperm 2/3 (+.04/+.11/-.04).
 Order diag on Spre: 4.28->4.21, 4.80->4.60, 4.46->4.48.
 => In-sample targets do not suppress the gain; training on train is better (more data, scale closer to test).
+
+### PAT-315 Smean order-free control (commit 0459d62)
+Smean = Bp + sum_m h_t^T h_s / sqrt(d), h_m = g_m * l2norm(mean over the same 24 steps of MLP(y window)) (m=4, d=16).
+Test gain vs base % (s3047/s2024/s2025, mean): Bp 5.43 | Spre 5.58 | Sperm 5.52 | Smean 5.67/5.74/5.71 5.70
+Smean > Bp 3/3 (+.30/+.24/+.29); Spre > Smean 0/3 (-.18/-.05/-.15); Sperm > Smean 0/3. State cos q50 ~.96.
+=> The past-day gain comes from a plain commutative summary of the recent y windows; Householder ordered accumulation
+   is worse than the mean. No evidence for an ordered/path structure on Traffic H192.
