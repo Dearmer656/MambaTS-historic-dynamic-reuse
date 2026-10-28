@@ -35,6 +35,8 @@ CONFIG = {
               channels=21, layers=3, dim=512, ff=512, batch=32, lr=0.0001),
     'T': dict(name='traffic', data='custom', root='./dataset/traffic', file='traffic.csv',
               channels=862, layers=4, dim=512, ff=512, batch=16, lr=0.001),
+    'EL': dict(name='electricity', data='custom', root='./dataset/electricity', file='electricity.csv',
+               channels=321, layers=3, dim=512, ff=512, batch=16, lr=0.0005),      # official iTransformer ECL recipe
 }
 A1_GRID = (0.0, 0.03, 0.1, 0.3, 1.0)
 A2_GRID = (0.0, 0.1, 0.3, 1.0, 3.0)

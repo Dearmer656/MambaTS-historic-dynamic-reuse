@@ -85,7 +85,8 @@ def needs(variant):
     return (variant in PATH_VARIANTS + ('Cmean', 'FoX', 'FoX_sink'),
             variant in STATE_VARIANTS + FOX_VARIANTS,
             variant in PERIOD_VARIANTS)
-CELLS = {'T': dict(history=2880 + L - 96, period=168, stride=24)}   # same 14 phase demos for any L
+CELLS = {'T': dict(history=2880 + L - 96, period=168, stride=24),   # same 14 phase demos for any L
+         'EL': dict(history=2880 + L - 96, period=168, stride=24)}
 
 
 def demo_ages(kind, history, period, stride):

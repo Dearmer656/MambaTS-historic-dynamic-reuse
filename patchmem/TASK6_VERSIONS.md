@@ -513,3 +513,10 @@ Tests 4 pass; Codex: no bugs. Criterion unchanged: B (tiled) clear gain at L720;
   L96 from 5.7 to 7.7%. Fresh tiled candidates are worse than the phase pool (freshness not the driver here). Shape readout hurts.
   C criterion fails: C2 ~ B (-0.08/0.00/-0.07 at L720 phase), C1 well below; retrieval B is best. The working form is a
   linear forecast combination y^ = f + a(mu_t - f) + c(r_B - mu_t), r_B = softmax-weighted raw same-clock past continuations.
+
+## PAT-315 obs ICL v2 sweep (2026-10-29)
+- Traffic H96/336/720 x L96/L720, pools phase,tiled (jobs 11782-11787; H192 done above).
+- Electricity (code EL): dataset/electricity/electricity.csv from HF thuml/Time-Series-Library (26304 x 321,
+  sha256 7e45845d...a497ad). iTransformer official ECL recipe: e_layers 3, d_model 512, d_ff 512, batch 16, lr 5e-4,
+  patience 3, 10 epochs. CELLS EL = Traffic window (history 2880+L-96, period 168). `slurm/obs_train_pack.sh EL L H`:
+  train 3 seeds then eval_obs_icl phase,tiled. L96/L720 x H96/192/336/720 (jobs 11798-11805).
