@@ -391,3 +391,14 @@ Val picks s=.8 for every family, while the train-split modules learn s~.53 (A: 4
 so absolute numbers across protocols are confounded by the scale; compare within protocol:
   training-free: cos e+y - mean = +0.9pp;  learned (train split): Smean - A = +1.25pp, Bp - A = +1.0pp.
 => Raw cosine on errors and on past-day y each helps, and they add; learned maps add a further ~0.3pp over raw.
+
+### PAT-315 raw similarity, matched scale protocol (commit after 571c20f, jobs 11324-11329)
+tau grid adds .03/.06/.125/.25. Main: tau and s selected on 1M fixed train cases (as the learned modules fit s on train).
+Test gain vs base % (s3047/s2024/s2025, mean):
+  raw, select on train : mean 4.37/4.50/4.46 4.45 (s=.55) | cos e 5.06 | cos y 5.15 | cos e+y 5.34/5.46/5.42 5.41 (tau 2,2; s .55)
+                         l2 e 1.56 | l2 y 1.79 | l2 e+y 1.40 (train picks tau .5-1; train errors are smaller -> L2 tau mis-scaled)
+  raw, fixed s=.7      : mean 3.91 (= PAT-314 phase_mean exactly) | cos e 4.52 | cos y 4.55 | cos e+y 4.84
+  raw, select on val   : mean 3.13 (s .8) | cos e+y 4.04 | l2 y 4.15 (tau .03, s .65) | l2 e+y 3.65
+  learned (train)      : A 4.46 | Bp 5.43 | Spre 5.58 | Sperm 5.52 | Smean 5.70 | C 5.30
+=> With the same scale protocol, raw-mean == learned A (4.45 vs 4.46). Raw cos e+y (5.41) == learned Bp (5.43);
+   only Smean's learned past-day map adds +.29pp over raw cos e+y (3/3). Cosine is robust across selection splits, L2 is not.
