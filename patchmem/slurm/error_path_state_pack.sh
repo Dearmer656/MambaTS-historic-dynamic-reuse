@@ -7,6 +7,6 @@ export PATH=/cl/work5/hongyu-s/conda/envs/mamba_iso/bin:$PATH
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 J=${SLURM_JOB_ID:-local}
 mkdir -p patchmem/logs/server/error_path
-for spec in "Spre two" "Sperm two"; do echo $spec; done |
+for v in ${VARS:-Spre Sperm}; do echo "$v two"; done |
   xargs -P "${3:-5}" -L 1 bash -c 'python -u patchmem/eval_error_path.py --seed '"$1"' --demos '"$2"' --variant $0 --beta $1 \
     > patchmem/logs/server/error_path/T_H192_'"$2"'_${0}_${1}_s'"$1"'_'"$J"'.txt 2>&1 || echo "FAIL $0 $1 '"$1"'"'

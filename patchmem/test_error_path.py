@@ -46,7 +46,7 @@ def test_causality_unknown_future_is_ignored():
             assert torch.equal(got[v], ref[v]), (mode, v)
         pert['X'][tq - 1] += 1.0                                           # an observed input does matter
         moved = run_all(ms, pert, t, c)
-        for v in ('End', 'C', 'Cmean', 'Crev', 'Spre', 'Sperm'):
+        for v in ('End', 'C', 'Cmean', 'Crev', 'Spre', 'Sperm', 'Smean'):
             assert not torch.equal(moved[v], ref[v]), (mode, v)
 
 
@@ -124,3 +124,13 @@ def test_state_bruteforce_order_and_norm():
     assert torch.allclose(m.state(b['ysw'], idx)[0, j], m.state(bs['yqw'], idx)[0])
     perm = torch.randperm(ep.W_STATE, generator=torch.Generator().manual_seed(1))
     assert (m.state(b['yqw'], perm)[0] - hq).abs().max() > 1e-3
+
+
+def test_smean_is_order_free():
+    ms = models('two')
+    m = ms['Smean']
+    b = as_double(ep.gather(synth(7), torch.tensor([990]), torch.tensor([0]), AGES, True, True))
+    perm = torch.randperm(ep.W_STATE, generator=torch.Generator().manual_seed(2))
+    yw = b['ysw']
+    assert torch.allclose(m.state(yw, perm), m.state(yw[..., perm, :], perm), atol=1e-12)
+    assert torch.allclose(m.state(yw, perm).norm(dim=-1), m.gain.double().abs().expand(1, len(AGES), -1))

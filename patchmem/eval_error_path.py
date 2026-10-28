@@ -29,6 +29,8 @@ path-conditioned *retrieval/weighting*, not error transport):
          h_{r,m} = A_{r-1} A_{r-2} ... A_{r-W} h0_m (W = 24 factors, m = 4 learned probes, beta = 2)
   Sperm  Spre with the W factors multiplied in a random order (one permutation per batch, shared by
          the query and all demos, redrawn every batch in training and eval): order carries no information
+  Smean  Bp + sum_m h_{t,m}^T h_{s_j,m} / sqrt(d) with a commutative state: h_{r,m} = g_m * l2norm(mean over the
+         same W steps of psi_m(y window at r)), psi: per-step MLP -> m x d, g_m learned (Spre keeps |h| = |h0_m|)
 
 A_r = I - beta_r u_r u_r^T, u_r = l2-normalised (as PaTH's w), beta_r = 2 (exact Householder
 reflection, norm preserving; --beta two, main) or 2 sigmoid(.) in (0, 2) (PaTH; --beta learn).
@@ -59,9 +61,9 @@ L = 96
 H = int(os.environ.get('ITR_H', '192'))  # forecast horizon; set ITR_H for H != 192
 D_EMB, WIN, HID = 16, 8, 32
 W_STATE, N_PROBE = 24, 4
-VARIANTS = ('A', 'B', 'Bp', 'End', 'C', 'Cmean', 'Crev', 'Cerr', 'Spre', 'Sperm')
+VARIANTS = ('A', 'B', 'Bp', 'End', 'C', 'Cmean', 'Crev', 'Cerr', 'Spre', 'Sperm', 'Smean')
 PATH_VARIANTS = ('C', 'Crev', 'Cerr')
-STATE_VARIANTS = ('Spre', 'Sperm')
+STATE_VARIANTS = ('Spre', 'Sperm', 'Smean')
 CELLS = {'T': dict(history=2880, period=168, stride=24)}
 
 
@@ -201,13 +203,22 @@ class ErrorPath(nn.Module):
             self.trans = mlp(2 * WIN, D_EMB + 1)
         if variant == 'Cmean':
             self.pool = mlp(2 * WIN, D_EMB)
-        if variant in STATE_VARIANTS:
+        if variant == 'Smean':
+            self.spool = mlp(2 * WIN, N_PROBE * D_EMB)
+            self.gain = nn.Parameter(torch.ones(N_PROBE))
+        if variant in ('Spre', 'Sperm'):
             self.strans = mlp(2 * WIN, D_EMB)
             self.h0 = nn.Parameter(F.normalize(torch.randn(N_PROBE, D_EMB), dim=-1))
+        if variant in STATE_VARIANTS:
             self.pgen = torch.Generator().manual_seed(0)                 # Sperm order draws (reseeded per eval)
 
     def state(self, yw, idx):
-        """h_m = A_{idx[-1]} ... A_{idx[0]} h0_m; yw: ... W WIN (k = 0 <-> latest step), beta = 2."""
+        """Spre/Sperm: h_m = A_{idx[-1]} ... A_{idx[0]} h0_m; yw: ... W WIN (k = 0 <-> latest step), beta = 2.
+        Smean: order-free mean state (idx unused)."""
+        if self.variant == 'Smean':
+            z = self.spool(window_features(yw)).mean(-2)                 # ... m*d (order-free)
+            z = F.normalize(z.unflatten(-1, (N_PROBE, D_EMB)), dim=-1)
+            return self.gain[:, None] * z
         u = F.normalize(self.strans(window_features(yw)), dim=-1)     # ... W d
         h = self.h0.expand(*u.shape[:-2], N_PROBE, D_EMB)
         two = h.new_full(h.shape[:-1], 2.0)
