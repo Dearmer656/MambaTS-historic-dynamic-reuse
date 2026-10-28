@@ -486,3 +486,17 @@ dense error pools worse (L720 s3047 H192: phase 0.41 / daily ~0.1 / hourly ~0.2%
 - level (v^=0) | B softmax(beta k.k_t/96) v, beta in {0,..,16} | C1 one W2 GD step = mean_j (k_j.k_t/96) v_j | C2 closed-form LS W2, lam in {0.01..10}
 - r = mu_t + eta sigma_t v^, y^ = f + b (r - f); eta + beta/lam on train (200k), P + b (global / per lead) on val (200k), test once (400k)
 - pools phase / daily / hourly; H192, L720 and L96, 3 seeds. Criterion (fixed): C beats B on 3/3 seeds, mean >= 0.3 pt.
+
+### obsicl v1 results (coupled b: y^ = f + b(mu_t - f) + b eta sigma_t v^), H192, test gain %, seeds 3047/2024/2025
+- L720 phase: level 0.65/0.61/0.71 | B 0.33/0.35/0.42 | C1 0.56/0.61/0.78 | C2 0.35/0.44/0.63 | Bmean -0.18/-0.06/-0.08
+- L720 daily: B 0.27/0.24/0.40 | C1 0.64/0.58/0.72 | C2 0.18/0.07/0.25 | Bmean 0.60/0.52/0.59
+- L96 phase: level 0.19/0.11/0.19 | B 5.73/5.56/5.43 | C1 2.81/2.69/2.62 | C2 4.80/4.67/4.62 ; daily B ~1.6, C2 ~1.6, C1 ~0.34; hourly B ~1.1-1.3
+- Reading: at L720 a level refresh alone (r = mean of last 168 h, b ~0.05) gives 0.65% > residual ICL 0.38%; nothing beats level;
+  the shared b ties the level and shape terms (shape wants b ~0.3, level ~0.05). C1 > B is only C1's smaller shape term.
+
+## obsicl v2 (2026-10-28): fresh tiled candidates + decoupled weights
+FreshCast seasonal analogs use reference points 1..8 periods back with the following PERIOD tiled to H (age >= 1 day), our
+demos had age >= H (8 days). v2: tiled pool s = t - p j, p in {24,168}, j = 1..8, cont = y[s + h mod p]; readouts shape /
+value / both; naive24 / naive168 (tile of the last day / week); y^ = f + a(mu_t - f) + c sigma_t v^, (a, c) LS.
+Readout + hyper on train, P + (a, c) on val (global / per lead). Pools tiled, phase, daily. Stats saved (*_obsicl2_s*_stats.pt).
+Tests 4 pass; Codex: no bugs. Criterion unchanged: B (tiled) clear gain at L720; C beats B 3/3 seeds, mean >= 0.3 pt.

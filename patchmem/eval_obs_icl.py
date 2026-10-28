@@ -1,19 +1,24 @@
 """PAT-315 C group: normalized observation-to-continuation ICL (value = future observations, not backbone errors).
 
-Demo at origin s (age a = t - s >= H, so its continuation is fully observed at t), channel c:
+Candidate (reference origin s, continuation period p), channel c:
   mu_s, sigma_s   mean / std of y[s-P:s]  (P in {24, 168}; sigma floored at SIG_FLOOR, data is train-standardized)
   k_s = (y[s-R:s] - mu_s) / sigma_s       R = 96, phi = identity
-  v_s = (y[s:s+H] - mu_s) / sigma_s
-Query t: k_t from y[t-R:t] with mu_t, sigma_t of y[t-P:t].  Predicted normalized future v^ by
-  level   v^ = 0                                         (r = mu_t: level-only control)
-  B       v^ = sum_j softmax_j(beta k_j.k_t / R) v_j     (retrieval, same dot product; beta = 0 is the plain mean)
-  C1      v^ = 1/N sum_j v_j (k_j.k_t / R)               (one W2 GD step from W2 = 0, eta absorbed below)
-  C2      v^ = k_t^T (K^T K / N + lam m I)^-1 K^T V / N  (closed-form least-squares W2; m = tr(K^T K / N) / R)
-r = mu_t + eta sigma_t v^,  y^ = f + b (r - f),  f = backbone forecast of the L-lookback iTransformer.
-Every method gets the same free eta (fitted with b on train), so B / C differ only in how v^ is formed.
-Selection: hyper (beta / lam) and eta on train; P and b (global, or per lead) on val; test once.
-Demo pools (ages within 2880 - 96 - H, the same for every L):  phase (multiples of 168) | daily (24) | hourly (1).
-Statistics are second moments of g1 = mu_t - f and g2 = sigma_t v^ against e = y - f, so any (eta, b) is exact.
+  cont_s[h] = y[s + h]            age pools (p = 0): phase / daily / hourly, ages >= H so cont_s is observed at t
+  cont_s[h] = y[s + h mod p]      tiled pool: s = t - p j, p in {24, 168}, j = 1..8 (FreshCast seasonal analogs;
+                                  only the period after s is used, observed since age >= p)
+Two readouts of the continuation, as normalized values v (r = mu_t + sigma_t v):
+  shape  v = (cont_s - mu_s) / sigma_s        (re-anchored to the query level and scale)
+  value  v = (cont_s - mu_t) / sigma_t        (raw values)
+  both   the shape and value candidates of every reference, keys duplicated
+Predicted v^:
+  level    v^ = 0                                        (r = mu_t)
+  naive24 / naive168  value readout of the tile of the last day / week (tiled pool only)
+  B        v^ = sum_j softmax_j(beta k_j.k_t / R) v_j     (retrieval, same dot product; Bmean: beta = 0)
+  C1       v^ = 1/N sum_j v_j (k_j.k_t / R)               (one W2 GD step from W2 = 0)
+  C2       v^ = k_t^T (K^T K / N + lam m I)^-1 K^T V / N  (closed-form least-squares W2; m = tr(K^T K / N) / R)
+Combination with decoupled level and readout weights:  y^ = f + a (mu_t - f) + c sigma_t v^.
+Selection: readout and hyper (beta / lam) on train (a, c fitted on train); P and (a, c) on val, global or per lead;
+test once.  Statistics are second moments of g1 = mu_t - f, g2 = sigma_t v^ and e = y - f, so every fit is exact.
 """
 import argparse
 import json
@@ -31,19 +36,23 @@ PS = (24, 168)
 SIG_FLOOR = 0.1
 BETAS = (0.0, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0)
 LAMS = (0.01, 0.1, 1.0, 10.0)
-POOLS = {'phase': 168, 'daily': 24, 'hourly': 1}
-BS = {'phase': 2048, 'daily': 512, 'hourly': 64}
-SPAN = 2880 - 96                                 # demo ages <= SPAN - H (same window as the residual ICL at L = 96)
+READOUTS = ('shape', 'value', 'both')
+POOLS = {'phase': 168, 'daily': 24, 'hourly': 1, 'tiled': None}
+TILE_P, TILE_J = (24, 168), 8
+BS = {'phase': 2048, 'daily': 256, 'hourly': 24, 'tiled': 2048}
+SPAN = 2880 - 96                                 # age-pool ages <= SPAN - H (same window as the residual ICL at L = 96)
+FAMILIES = ('level', 'naive24', 'naive168', 'B', 'C1', 'C2', 'Bmean')
 
 
-def pool_ages(pool):
+def pool_cands(pool):
+    """(ages, periods); period 0 = full H-step continuation."""
+    if pool == 'tiled':
+        c = [(p * j, p) for p in TILE_P for j in range(1, TILE_J + 1)]
+        return [a for a, _ in c], [p for _, p in c]
     step, last = POOLS[pool], SPAN - H
     first = ((H + step - 1) // step) * step
-    return list(range(first, last + 1, step))
-
-
-def methods():
-    return [('level', 0.0)] + [('B', b) for b in BETAS] + [('C1', 0.0)] + [('C2', lam) for lam in LAMS]
+    ages = list(range(first, last + 1, step))
+    return ages, [0] * len(ages)
 
 
 def rolling(X, P):
@@ -61,39 +70,59 @@ def rolling(X, P):
     return mu.float(), sd.float()
 
 
-def predict(X, stats, t, c, ages):
-    """Per method: v^ (B, H); plus g1 = mu_t - f is built by the caller.  Returns mu_t, sd_t, {method: v^}."""
-    mu, sd = stats
-    s = t[:, None] - ages[None]                                         # B N
-    cc = c[:, None]
-    kr, kh = torch.arange(-R, 0, device=X.device), torch.arange(H, device=X.device)
-    mu_s, sd_s = mu[s, cc][..., None], sd[s, cc][..., None]
-    K = (X[s[..., None] + kr, cc[..., None]] - mu_s) / sd_s            # B N R
-    V = (X[s[..., None] + kh, cc[..., None]] - mu_s) / sd_s            # B N H
-    mu_t, sd_t = mu[t, c][:, None], sd[t, c][:, None]
-    kt = (X[t[:, None] + kr, c[:, None]] - mu_t) / sd_t                 # B R
-    dot = (K @ kt[..., None])[..., 0] / R                               # B N
+def heads(K, V, kt, dot):
+    """B / C1 / C2 predictions from keys K (B N R), values V (B N H)."""
+    out = {}
     N = K.shape[1]
-    out = {('level', 0.0): torch.zeros(len(t), H, device=X.device)}
     for beta in BETAS:
         out['B', beta] = (torch.softmax(beta * dot, -1)[..., None] * V).sum(1)
     out['C1', 0.0] = (dot[..., None] * V).sum(1) / N
     KK = K.transpose(1, 2).double() @ K.double() / N                    # B R R
     KV = K.transpose(1, 2).double() @ V.double() / N                    # B R H
     m = KK.diagonal(dim1=1, dim2=2).mean(-1)[:, None, None]
-    eye = torch.eye(R, dtype=torch.float64, device=X.device)
+    eye = torch.eye(R, dtype=torch.float64, device=K.device)
     for lam in LAMS:
         W = torch.linalg.solve(KK + (lam * m + 1e-6) * eye, KV)       # B R H; +1e-6: a flat channel gives K = 0
         out['C2', lam] = (kt.double()[:, None] @ W)[:, 0].float()
+    return out
+
+
+def predict(X, stats, t, c, ages, periods):
+    """Returns mu_t, sd_t (B, 1) and {(family, readout, hyper): v^ (B, H)}."""
+    mu, sd = stats
+    dev = X.device
+    s = t[:, None] - ages[None]                                         # B N
+    cc = c[:, None]
+    kr, kh = torch.arange(-R, 0, device=dev), torch.arange(H, device=dev)
+    off = torch.where(periods[:, None] > 0, kh[None] % periods.clamp_min(1)[:, None], kh[None])     # N H
+    mu_s, sd_s = mu[s, cc][..., None], sd[s, cc][..., None]
+    K = (X[s[..., None] + kr, cc[..., None]] - mu_s) / sd_s            # B N R
+    cont = X[s[..., None] + off[None], cc[..., None]]                   # B N H
+    mu_t, sd_t = mu[t, c][:, None], sd[t, c][:, None]
+    kt = (X[t[:, None] + kr, c[:, None]] - mu_t) / sd_t                 # B R
+    vals = {'shape': (cont - mu_s) / sd_s, 'value': (cont - mu_t[..., None]) / sd_t[..., None]}
+    out = {('level', '-', 0.0): torch.zeros(len(t), H, device=dev)}
+    for p in TILE_P:
+        hit = ((ages == p) & (periods == p)).nonzero()
+        if len(hit):
+            out[f'naive{p}', 'value', 0.0] = vals['value'][:, int(hit[0])]
+    dot = (K @ kt[..., None])[..., 0] / R                               # B N
+    for ro in READOUTS:
+        if ro == 'both':
+            Kr, Vr, dr = torch.cat([K, K], 1), torch.cat([vals['shape'], vals['value']], 1), torch.cat([dot, dot], 1)
+        else:
+            Kr, Vr, dr = K, vals[ro], dot
+        for (fam, hyper), v in heads(Kr, Vr, kt, dr).items():
+            out[fam, ro, hyper] = v
     return mu_t, sd_t, out
 
 
 @torch.no_grad()
-def accumulate(X, stats_by_p, cases, ages, bs):
-    """{(P, method, hyper): (6, H) sums of g1g1, g1g2, g2g2, g1e, g2e, ee}, n cases."""
+def accumulate(X, stats_by_p, cases, ages, periods, bs):
+    """{(P, family, readout, hyper): (6, H) per-lead sums of g1g1, g1g2, g2g2, g1e, g2e, ee}, n cases."""
     t_all, c_all, e_all = cases
     dev = X.device
-    ag = torch.as_tensor(ages, device=dev)
+    ag, pe = torch.as_tensor(ages, device=dev), torch.as_tensor(periods, device=dev)
     acc = {}
     for i in range(0, len(t_all), bs):
         t, c = t_all[i:i + bs].to(dev), c_all[i:i + bs].to(dev)
@@ -101,7 +130,7 @@ def accumulate(X, stats_by_p, cases, ages, bs):
         y = X[t[:, None] + torch.arange(H, device=dev), c[:, None]].double()
         f = y - e
         for P, st in stats_by_p.items():
-            mu_t, sd_t, vh = predict(X, st, t, c, ag)
+            mu_t, sd_t, vh = predict(X, st, t, c, ag, pe)
             g1 = mu_t.double() - f
             for key, v in vh.items():
                 g2 = sd_t.double() * v.double()
@@ -112,32 +141,27 @@ def accumulate(X, stats_by_p, cases, ages, bs):
     return {k: v.cpu() for k, v in acc.items()}, len(t_all)
 
 
-def fit_eta(a):
-    """Unconstrained 2-parameter LS of e on (g1, g2) over all leads; eta = c / b (0 if b <= 0 or no g2)."""
-    s = a.sum(1)
-    if s[2] <= 0:
-        return 0.0
-    A = torch.tensor([[s[0], s[1]], [s[1], s[2]]], dtype=torch.float64)
-    A = A + 1e-9 * float(A.diagonal().sum()) * torch.eye(2, dtype=torch.float64)    # collinear g1, g2
-    b, c = torch.linalg.solve(A, torch.stack([s[3], s[4]])).tolist()
-    return c / b if b > 1e-12 else 0.0
+def fit_ac(a, per_lead):
+    """LS weights (a, c) of e on (g1, g2), per lead (H,) or one global pair broadcast; tiny ridge for g2 = 0."""
+    s = a if per_lead else a.sum(1, keepdim=True)
+    A = torch.stack([torch.stack([s[0], s[1]], -1), torch.stack([s[1], s[2]], -1)], -2)          # (H|1) 2 2
+    A = A + 1e-9 * (s[0] + s[2]).clamp_min(1e-12)[:, None, None] * torch.eye(2, dtype=torch.float64)
+    w = torch.linalg.solve(A, torch.stack([s[3], s[4]], -1))                                      # (H|1) 2
+    return w[:, 0].expand(a.shape[1]), w[:, 1].expand(a.shape[1])
 
 
-def dd_ed(a, eta):
-    """Per-lead S_dd, S_ed, S_ee of d = g1 + eta g2."""
-    return a[0] + 2 * eta * a[1] + eta ** 2 * a[2], a[3] + eta * a[4], a[5]
+def mse_ac(a, wa, wc, n):
+    sse = a[5] - 2 * (wa * a[3] + wc * a[4]) + wa * wa * a[0] + 2 * wa * wc * a[1] + wc * wc * a[2]
+    return float(sse.sum()) / (n * H)
 
 
-def fit_b(a, eta, per_lead):
-    dd, ed, _ = dd_ed(a, eta)
-    if per_lead:
-        return (ed / dd.clamp_min(1e-12)).clamp_min(0)
-    return torch.full_like(dd, max(0.0, float(ed.sum() / max(float(dd.sum()), 1e-12))))
-
-
-def mse(a, eta, b, n):
-    dd, ed, ee = dd_ed(a, eta)
-    return float((ee - 2 * b * ed + b * b * dd).sum()) / (n * H)
+def family_keys(keys, P, name):
+    base, _, ro = name.partition(':')
+    if base == 'Bmean':
+        out = [k for k in keys if k[:2] == (P, 'B') and k[3] == 0.0]
+    else:
+        out = [k for k in keys if k[:2] == (P, base)]
+    return [k for k in out if not ro or k[2] == ro]
 
 
 def take_cases(data, max_cases, seed):
@@ -146,12 +170,42 @@ def take_cases(data, max_cases, seed):
     return t, c, e
 
 
+def select(acc, n_cands):
+    (a_tr, n_tr), (a_va, n_va), (a_te, n_te) = acc['train'], acc['val'], acc['test']
+    base = float(next(iter(a_te.values()))[5].sum()) / (n_te * H)
+    names = list(FAMILIES) + [f'{m}:{ro}' for m in ('B', 'C1', 'C2', 'Bmean') for ro in READOUTS]
+    result = {}
+    for name in names:
+        per_p = {}
+        for P in PS:
+            keys = family_keys(a_tr, P, name)
+            if not keys:
+                continue
+            tr = {k: mse_ac(a_tr[k], *fit_ac(a_tr[k], False), n_tr) for k in keys}
+            best = min(tr, key=tr.get)
+            per_p[P] = dict(key=best, train_mse=tr[best])
+        if not per_p:
+            continue
+        row = dict(n_cands=n_cands, train_mse={P: x['train_mse'] for P, x in per_p.items()})
+        for tag, pl in (('global', False), ('lead', True)):
+            vm = {P: mse_ac(a_va[x['key']], *fit_ac(a_va[x['key']], pl), n_va) for P, x in per_p.items()}
+            P = min(vm, key=vm.get)                                     # P chosen on val under this weight rule
+            k = per_p[P]['key']
+            wa, wc = fit_ac(a_va[k], pl)
+            m = mse_ac(a_te[k], wa, wc, n_te)
+            row[tag] = dict(P=P, readout=k[2], hyper=k[3], val_mse=vm[P], a=float(wa.mean()), c=float(wc.mean()),
+                            test_mse=m, test_gain=100 * (base - m) / base)
+        result[name] = row
+    return result, base
+
+
 def run(code, seed, args):
     from patchmem.eval_itransformer_pure_icl import load_base
     exp, checkpoint, setting = load_base(code, seed)
     device = exp.device
     cell = CELLS[code]
     official = json.loads((Path(exp.args.results) / setting / 'base_metrics.json').read_text())['mse']
+    oldest = max(SPAN - H, max(TILE_P) * TILE_J)
     splits = {}
     for sp, n_cases, cs in (('train', args.select_cases, seed), ('val', args.val_cases, seed),
                             ('test', args.test_cases, seed + 1)):
@@ -160,66 +214,44 @@ def run(code, seed, args):
             test_base = float(data['E'][data['origins'] - L].double().square().mean())
             if abs(test_base - official) > 1e-4:
                 raise AssertionError(f'base cached={test_base} official={official}')
-        assert int(data['origins'][0]) - (SPAN - H) - max(R, max(PS)) >= 0      # oldest demo window in range
+        assert int(data['origins'][0]) - oldest - max(R, max(PS)) >= 0          # oldest candidate window in range
         splits[sp] = dict(X=data['X'].to(device), cases=take_cases(data, n_cases, cs))
         del data
         print(f'[data] {sp} cases {len(splits[sp]["cases"][0])}', flush=True)
     del exp
     torch.cuda.empty_cache()
     stats = {sp: {P: rolling(d['X'], P) for P in PS} for sp, d in splits.items()}
-    result = {}
-    base = None
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    result, bases, raw = {}, {}, {}
     for pool in args.pools.split(','):
-        ages = pool_ages(pool)
+        ages, periods = pool_cands(pool)
         acc = {}
         for sp, d in splits.items():
-            acc[sp] = accumulate(d['X'], stats[sp], d['cases'], ages, BS[pool])
-            print(f'[acc] {pool} {sp} n_demos {len(ages)}', flush=True)
-        (a_tr, n_tr), (a_va, n_va), (a_te, n_te) = acc['train'], acc['val'], acc['test']
-        base = float(next(iter(a_te.values()))[5].sum()) / (n_te * H)
-        for name in ('level', 'B', 'C1', 'C2', 'Bmean'):
-            per_p = {}
-            for P in PS:
-                cands = [m for m in methods() if (m[0] == name or (name == 'Bmean' and m == ('B', 0.0)))]
-                best = None
-                for m in cands:
-                    k = (P,) + m
-                    eta = fit_eta(a_tr[k])
-                    tr = mse(a_tr[k], eta, fit_b(a_tr[k], eta, False), n_tr)
-                    if best is None or tr < best[2]:
-                        best = (m[1], eta, tr)
-                per_p[P] = dict(hyper=best[0], eta=best[1], train_mse=best[2])
-            row = dict(pool=pool, n_demos=len(ages), per_p=per_p)
-            for tag, pl in (('global', False), ('lead', True)):
-                kp = {P: (P, 'B' if name == 'Bmean' else name, per_p[P]['hyper']) for P in PS}
-                vm = {P: mse(a_va[kp[P]], per_p[P]['eta'], fit_b(a_va[kp[P]], per_p[P]['eta'], pl), n_va) for P in PS}
-                P = min(vm, key=vm.get)                                 # P chosen on val under this b rule
-                x, k = per_p[P], kp[P]
-                row[f'P_{tag}'], row[f'val_mse_{tag}'] = P, vm[P]
-                row[f'hyper_{tag}'], row[f'eta_{tag}'] = x['hyper'], x['eta']
-                b = fit_b(a_va[k], x['eta'], pl)
-                m = mse(a_te[k], x['eta'], b, n_te)
-                row[f'b_{tag}'] = float(b.mean())
-                row[f'test_mse_{tag}'] = m
-                row[f'test_gain_{tag}'] = 100 * (base - m) / base
+            acc[sp] = accumulate(d['X'], stats[sp], d['cases'], ages, periods, BS[pool])
+            print(f'[acc] {pool} {sp} n_cands {len(ages)}', flush=True)
+        raw[pool] = acc
+        res, bases[pool] = select(acc, len(ages))
+        for name, row in res.items():
             result[f'{pool}:{name}'] = row
-            print(f'[test] {pool:6s} {name:5s} P={row["P_global"]} hyper={row["hyper_global"]} eta={row["eta_global"]:.3g} '
-                  f'b={row["b_global"]:.3f} '
-                  f'gain={row["test_gain_global"]:+.3f}% lead-b {row["test_gain_lead"]:+.3f}%', flush=True)
+            g, l = row['global'], row['lead']
+            print(f'[test] {pool:6s} {name:14s} P={g["P"]} ro={g["readout"]} hyper={g["hyper"]} a={g["a"]:.3f} '
+                  f'c={g["c"]:.3f} gain={g["test_gain"]:+.3f}% lead {l["test_gain"]:+.3f}%', flush=True)
+    stem = f'{code}_H{H}_L{L}_obsicl2_s{seed}'
+    torch.save(raw, out_dir / f'{stem}_stats.pt')
     out = dict(dataset=code, seed=seed, H=H, L=L, R=R, Ps=PS, sig_floor=SIG_FLOOR, betas=BETAS, lams=LAMS, span=SPAN,
-               checkpoint=str(checkpoint), select_cases=args.select_cases, val_cases=args.val_cases,
-               test_cases=args.test_cases, test_base_full=test_base, test_base=base, families=result)
-    output = Path(args.out_dir) / f'{code}_H{H}_L{L}_obsicl_s{seed}.json'
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(out, indent=2) + '\n')
-    print(f'[done] {output}', flush=True)
+               tile=(TILE_P, TILE_J), checkpoint=str(checkpoint), select_cases=args.select_cases,
+               val_cases=args.val_cases, test_cases=args.test_cases, test_base_full=test_base, test_base=bases,
+               families=result)
+    (out_dir / f'{stem}.json').write_text(json.dumps(out, indent=2) + '\n')
+    print(f'[done] {out_dir / stem}.json', flush=True)
 
 
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--data', default='T', choices=CELLS)
     p.add_argument('--seed', type=int, default=3047)
-    p.add_argument('--pools', default='phase,daily,hourly')
+    p.add_argument('--pools', default='tiled,phase,daily')
     p.add_argument('--forecast_bs', type=int, default=8)
     p.add_argument('--select_cases', type=int, default=200000)
     p.add_argument('--val_cases', type=int, default=200000)
