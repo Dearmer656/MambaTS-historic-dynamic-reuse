@@ -317,3 +317,31 @@ per-channel /sum|k_j|^2 makes the q shift ~|q|/|k|; channels with near-zero demo
 => Gain remains mostly the same-phase residual average. W2 adds a stable +0.1..0.3pp on E/M1/M2 best cells, hurts T, ~0 on W.
    Note: M2 best here (1.64, n<=16) is below phase_mean with 26 day demos (2.26) above.
 Codex review: no bugs.
+
+### PAT-314 step-size rules / joint ICL / longer horizon (base backbone unless noted)
+Step size (commit d5a58b9, `eval_itransformer_stepsize.py`, H192): cos W2 best on most cells; nlms much worse on TEFL;
+  const W2 only wins on base ETTh2 (2.19..3.15% vs mean .80..86). W2->W1 order without clip diverges (eta^2 ~ 1/|h_q|^2).
+Joint one step from random W1/W2 (commit e9a9434, g - g0): joint ~= W2-only; W1-only .03..35%. W1 step adds nothing.
+H336/720 (commit ae15826, same P and demo count as H192, pure ICL clip_w1 0.1), test gain vs base %, 3 seeds:
+  H336: E icl_w2 1.78..2.59 vs mean .66..88; M2 3.73..4.96 vs 3.08..4.36; W 1.17..1.37 vs .43..84; T pure W1W2 4.35..4.47 vs mean 3.10..3.26; M1 mean best (3 demos)
+  H720: E all ~.1..2; M2 icl 2.42..2.99 vs mean .83..1.47; W icl .45..61 vs mean <0; M1 ridge_icpt best
+  H720 T: phase_mean 1.51/1.65/1.58 | icl_w2 1.88/2.00/2.02 | shufK 1.20/1.31/1.31 | ridge 2.99/3.08/3.08 | pure W2-only 3.37/3.44/3.41 | pure W1+W2 2.05/2.17/2.14
+=> Phase mean degrades with H; similarity-weighted ICL > mean and > shuffled K grows with H (except M1).
+
+### PAT-315 error-path attention, stage 1 (commit 6c9124c, `eval_error_path.py`, jobs 10909-10911)
+Traffic H192, base backbone, 14 same-phase demos (ages 336..2520), trained on train split, early stop on val, full test (2.86M cases).
+Test gain vs base % (s3047/s2024/s2025, mean):
+  A  uniform          4.38/4.52/4.47  4.46
+  B  lag MLP          4.90/4.99/4.96  4.95
+  Bp B + q.k          5.37/5.50/5.42  5.43   <- best
+  End Bp + y endpoints 4.93/5.15/5.22 5.10
+  Cmean diag path     5.23/5.27/5.27  5.26
+  C  beta=2 (Householder P) 5.25/5.35/5.30 5.30
+  C  learn beta       5.26/5.29/5.37  5.31   (beta q50 .80; |Pk|/|k| .62 -> .48 with age)
+  Crev P^T            5.26/5.36/5.30  5.31
+  Cerr A_r from errors 5.22/5.30/5.28 5.27
+Decision rule (C > Bp, End, Cmean 3/3): FAILS. Every path variant < Bp 3/3 (-0.05..-0.22pp). Path > End 3/3 and ~= Cmean (+.02..+.10).
+Order diag (200k test cases, per-demo random factor order): model vs permuted differs by <= .03pp (C two), <= .01pp (learn).
+Entropy/log n q50 ~.96 (near uniform) for all score variants.
+=> Observed y path between demo and query adds no error-predictive info beyond lag + error similarity on Traffic H192;
+   order of Householder factors is irrelevant ("no path info", not just "no non-commutative benefit").
