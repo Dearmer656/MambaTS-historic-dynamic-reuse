@@ -546,3 +546,12 @@ Test MSE averaged over H in {96,192,336,720}; EL L720 H720 gains FC 6.36/5.73/6.
 | Electricity | 720 | 0.1625 | 0.1506 (-7.3%) | 0.163 -> 0.151 | 0.1572 (-3.3%) |
 Reproduction matches the paper. FreshCast > B on 3/3 seeds in 14/16 cells; Traffic L720 H336 FC wins 2/3 (s3047 FC 1.30 < B 1.65); Traffic L720 H192 B wins 2/3 (avg B 1.66% vs FC 1.46%).
 Untrained rule is weak (negative on Traffic L720 and H720). RKR weight: ~half on seasonal value readouts, ~half on shape analogs.
+
+## Case-wise ICL calibration on top of FreshCast (eval_fc_icl.py, commit 3df13b1) — NEGATIVE
+w_t = clip((sum_demo e.d + kappa w^ D0)/(sum_demo d.d + kappa D0), 0, 1), demos = last N fully observed origins
+(s <= t-H), forms scalar / 8 lead buckets, N in {24,168,672}, kappa in {0,1,4,16,64}, chosen on full val.
+Test MSE change vs FreshCast (same run, s2024/2025/3047): worse on 3/3 seeds in 15/16 cells, never better on 3/3;
+range -0.03 .. -2.8% (largest: EL L720 H720 -2.8%, T/EL L96 H336 -1..-2.5%). On val the best grid point is
+within +-1% of the global w^ (often worse), so local delayed calibration carries no usable signal.
+Grid lacked kappa = inf (= FreshCast) as a fallback; does not change the conclusion.
+Consistent with the TTA delay audit (2610.12232): feedback from labels >= H old gives <= 0.5% outside ETTm1.
