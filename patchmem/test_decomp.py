@@ -13,7 +13,7 @@ def rand_case(n=80, C=2, h=4, p=3, seed=0):
 def weights(phi, u, ages, h, grid, w0):
     S, G = dc.demo_sums(phi, u)
     k = torch.arange(len(phi))
-    return dc.gd_weights(k, S, G, dc.prefix(S), dc.prefix(G), w0, torch.tensor(ages), h, grid)
+    return dc.gd_weights(k, dc.prefix(S), dc.prefix(G), w0, torch.tensor(ages), h, grid)
 
 
 def test_gd_matches_direct():
@@ -71,92 +71,88 @@ def test_phase_features_lead_specific():
     assert not torch.allclose(P[0, :, 0, 6:], P[0, :, 1, 6:])
 
 
-def test_write_read_alignment():
-    """A = I, lam -> 0, gamma = 0: m at index k is the slot mean of rho[k - h] at the target slot of each lead."""
-    h, pw, B, T0 = 8, 6, 3, 50
-    net = dc.Carry(2, full=False, pw=pw)
+def ref_carry(rho, sig, T0, h, pw, nb, gamma):
+    """A = I, lam = 0 reference: each written slot holds the latest write; dict-based."""
+    n, B, _ = rho.shape
+    state = torch.zeros(B, nb, pw)
+    out = []
+    for k in range(n):
+        t = T0 + k
+        if k - h >= 0:
+            acc = {}
+            for kk in range(h):
+                key = (kk * nb // h, (t - h + kk) % pw)
+                acc.setdefault(key, []).append(rho[k - h][:, kk] / sig[k - h] ** gamma)
+            for (b_, p_), v in acc.items():
+                state[:, b_, p_] = torch.stack(v).mean(0)
+        out.append(torch.stack([state[:, hh * nb // h, (t + hh) % pw] for hh in range(h)], 1) * sig[k][:, None] ** gamma)
+    return torch.stack(out)
+
+
+def _run(net, rho, x, sig, T0, h):
+    c, out = None, []
     with torch.no_grad():
-        net.wl.weight.zero_()
-        net.wl.bias.fill_(-50.0)
-        net.gamma.fill_(0.0)
-    g = torch.Generator().manual_seed(1)
-    rho = torch.randn(40, B, h, generator=g)
-    x = torch.randn(40, B, 2, generator=g)
-    sig = torch.rand(40, B, generator=g) + 0.5
-    c = None
-    for k in range(40):
-        c, m = dc.carry_step(net, c, k, T0, lambda q: rho[q], lambda q: x[q], lambda q: sig[q], h)
-        if k < h:
-            assert torch.equal(m, torch.zeros_like(m))
-            continue
-        t, src = T0 + k, T0 + k - h
-        for hh in range(h):
-            leads = [kk for kk in range(h) if (src + kk) % pw == (t + hh) % pw]
-            want = rho[k - h][:, leads].mean(1)
-            assert torch.allclose(m[:, hh], want, atol=1e-5), (k, hh)
+        for k in range(len(rho)):
+            c, m = dc.carry_step(net, c, k, T0, lambda q: rho[q], lambda q: x[q], lambda q: sig[q], h)
+            out.append(m)
+    return torch.stack(out)
+
+
+def test_write_read_alignment():
+    """A = I, lam -> 0: m equals the dict reference (slot = (lead bucket, target hour), latest write, sigma gain)."""
+    for h, pw, nb, gamma in ((8, 6, 2, 0.0), (8, 6, 2, 1.0), (12, 5, 3, 1.0), (6, 4, 1, 0.5)):
+        B, T0, n = 3, 50, 40
+        net = dc.Carry(2, full=False, pw=pw, nb=nb)
+        with torch.no_grad():
+            net.wl.weight.zero_()
+            net.wl.bias.fill_(-50.0)
+            net.gamma.fill_(gamma)
+        g = torch.Generator().manual_seed(1)
+        rho = torch.randn(n, B, h, generator=g)
+        x = torch.randn(n, B, 2, generator=g)
+        sig = torch.rand(n, B, generator=g) + 0.5
+        assert torch.allclose(_run(net, rho, x, sig, T0, h), ref_carry(rho, sig, T0, h, pw, nb, gamma), atol=1e-5)
 
 
 def test_carry_causal():
     """full carry: m at index k does not depend on rho of indices > k - h."""
-    h, pw, B, T0, n = 5, 7, 2, 30, 30
+    h, pw, nb, B, T0, n = 5, 7, 2, 2, 30, 30
     torch.manual_seed(0)
-    net = dc.Carry(4, full=True, pw=pw)
+    net = dc.Carry(4, full=True, pw=pw, nb=nb)
     g = torch.Generator().manual_seed(2)
     rho = torch.randn(n, B, h, generator=g)
     x = torch.randn(n, B, 4, generator=g)
     sig = torch.rand(n, B, generator=g) + 0.5
-
-    def run(r):
-        c, out = None, []
-        with torch.no_grad():
-            for k in range(n):
-                c, m = dc.carry_step(net, c, k, T0, lambda q: r[q], lambda q: x[q], lambda q: sig[q], h)
-                out.append(m)
-        return torch.stack(out)
     k = 20
     r2 = rho.clone()
     r2[k - h + 1:] += 4.0
-    assert torch.equal(run(rho)[:k + 1], run(r2)[:k + 1])
-    assert not torch.equal(run(rho)[k + 1:], run(r2)[k + 1:])
+    a, b = _run(net, rho, x, sig, T0, h), _run(net, r2, x, sig, T0, h)
+    assert torch.equal(a[:k + 1], b[:k + 1])
+    assert not torch.equal(a[k + 1:], b[k + 1:])
 
 
 def test_carry_time_equivariant():
     """the Householder direction is relative to the current hour: shifting t by 1 and rolling state / writes by 1
-    rolls the new state by 1."""
-    pw, B = 7, 3
+    along the hour axis rolls the new state by 1 along the hour axis."""
+    pw, nb, B = 7, 3, 3
     torch.manual_seed(0)
-    net = dc.Carry(4, full=True, pw=pw)
+    net = dc.Carry(4, full=True, pw=pw, nb=nb)
     g = torch.Generator().manual_seed(3)
-    c, x, w = torch.randn(B, pw, generator=g), torch.randn(B, 4, generator=g), torch.randn(B, pw, generator=g)
-    wm = torch.rand(pw, generator=g) > 0.5
+    c, x, w = torch.randn(B, nb * pw, generator=g), torch.randn(B, 4, generator=g), torch.randn(B, nb * pw, generator=g)
+    wm = torch.rand(nb * pw, generator=g) > 0.5
+    r = lambda v: v.view(*v.shape[:-1], nb, pw).roll(1, -1).flatten(-2)
     with torch.no_grad():
         a, _, _ = net.step(c, x, 10, w, wm)
-        b, _, _ = net.step(c.roll(1, -1), x, 11, w.roll(1, -1), wm.roll(1, -1))
-    assert torch.allclose(a.roll(1, -1), b, atol=1e-6)
+        b, _, _ = net.step(r(c), x, 11, r(w), r(wm))
+    assert torch.allclose(r(a), b, atol=1e-6)
 
 
-def test_gamma_gain():
-    """gamma = 1, lam -> 0, A = I: m = rho[k - h] * sig_k / sig_{k-h} on single-lead slots."""
-    h, pw, B, T0 = 4, 6, 2, 0
-    net = dc.Carry(2, full=False, pw=pw)
-    with torch.no_grad():
-        net.wl.weight.zero_()
-        net.wl.bias.fill_(-50.0)
-    g = torch.Generator().manual_seed(4)
-    rho = torch.randn(12, B, h, generator=g)
-    x = torch.randn(12, B, 2, generator=g)
-    sig = torch.rand(12, B, generator=g) + 0.5
-    c = None
-    for k in range(12):
-        c, m = dc.carry_step(net, c, k, T0, lambda q: rho[q], lambda q: x[q], lambda q: sig[q], h)
-    k = 11
-    # lead hh of origin k targets slot (k + hh) % pw, written now by source lead kk = (hh + h) % pw if kk < h
-    hit = 0
-    for hh in range(h):
-        kk = (hh + h) % pw
-        if kk >= h:
-            continue
-        hit += 1
-        want = rho[k - h][:, kk] * sig[k] / sig[k - h]
-        assert torch.allclose(m[:, hh], want, atol=1e-5)
-    assert hit == 2
+def test_phi_clip_and_onehot():
+    """z features are clipped to +-Z_CLIP even for near-constant channels; one-hot hour / day blocks sum to 1."""
+    b, C, h = 2, 3, 30
+    d = torch.full((b, C, h), 1e6)
+    norm = (torch.zeros(5, C), torch.full((5, C), dc.SD_Z))
+    P = dc.phi(d, -d, d, d[..., 0], -d[..., 0], torch.tensor([7, 500]), norm)
+    assert P.shape[-1] == dc.NP
+    assert P[..., 1:6].abs().max() <= dc.Z_CLIP
+    assert torch.equal(P[..., 6:30].sum(-1), torch.ones(b, C, h)) and torch.equal(P[..., 30:].sum(-1), torch.ones(b, C, h))

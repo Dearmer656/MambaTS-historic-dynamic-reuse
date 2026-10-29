@@ -556,7 +556,7 @@ within +-1% of the global w^ (often worse), so local delayed calibration carries
 Grid lacked kappa = inf (= FreshCast) as a fallback; does not change the conclusion.
 Consistent with the TTA delay audit (2610.12232): feedback from labels >= H old gives <= 0.5% outside ETTm1.
 
-## Predictable-error decomposition on top of FreshCast (eval_decomp.py) — RUNNING
+## Predictable-error decomposition on top of FreshCast (eval_decomp.py) — v1 INVALID, v2 RUNNING
 y^ = f + w^ d + a_b m_state + b_b m_x (a_b, b_b: 8 lead buckets, val least squares; no ratio mixing).
 Term 1 (state-explainable): one w per channel shared by all leads, phi[t,h] = [1, d, rv-f, rs-f, level, log scale,
 sin/cos of the TARGET hour of day / week]; w0 = ridge on the FreshCast calibration origins; then one GD step on periodic
@@ -569,3 +569,10 @@ Arms S_2+P (full), S_2+P_I (A = I: lam-EMA phase template), S_2+TEFL (MLP on 7 l
 train-tail origins (truncated BPTT 168). Criteria: S_2 > FC, S_per, S_rec and S_2+P > S_2, S_2+P_I, S_2+TEFL, 3/3.
 Unit tests patchmem/test_decomp.py (GD == direct loops, causality of term 1 and term 2, write/read phase alignment,
 time equivariance of the Householder direction, sigma gain). Runs: T / EL x L {96, 720} x 3 seeds at H192.
+v1 (commit 40bd1a2) INVALID: level / scale z-scored by the 12-week train-tail channel std (EL channels with std 0,
+|z| up to 3.5e6 on val/test; Traffic q99 23.5) -> m_state blew up, all pooled coefficients ~0 on EL. Traffic v1 vs FC
+(%, 3 runs): S_2 +0.11/+0.22/+0.02, S_2+P +0.00/+0.12/+0.02, S_2+P_I -0.21/0.00/-0.09, S_2+TEFL +0.25/+0.36/+0.26.
+v2: z clipped to +-5, std floor 0.05, level / scale stats over all train windows; phase = one-hot target hour (24) +
+day (7) (NP 37); rho = u - a_b m_state; carried state indexed by (lead bucket, target hour of week), 8 x 168, one
+Householder over the whole state (cross-bucket mixing); fit2 singular fallback keeps the better single term.
+Runs 2 tasks per 3090 (3 per GPU OOMed in v1). v1 jsons renamed *_v1.json.

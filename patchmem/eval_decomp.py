@@ -4,25 +4,27 @@
 
 Term 1 (state-explainable) m_state[t,h] = w2(t)^T phi[t,h], one w per channel shared by all leads, from two one-step
 GD (= linear attention) updates on demos of the same channel, all with s + H <= t:
-  phi[t,h] = [1, d_h, rv_h - f_h, rs_h - f_h, level_t, log scale_t, sin/cos 2pi(t+h)/24, sin/cos 2pi(t+h)/168]
+  phi[t,h] = [1, d_h, rv_h - f_h, rs_h - f_h, level_t, log scale_t, onehot hour(t+h) (24), onehot day(t+h) (7)]
              (rv / rs: FreshCast value / shape readout means under its softmax; level, scale: LQ-window mu, sd vs
-             the channel's train mean / std; features 1-5 z-scored per channel on the train-tail origins)
+             the channel's train mean / std; features 1-5 z-scored per channel, clipped to +-Z_CLIP, std floored
+             at SD_Z: d, rv, rs with train-tail stats, level / scale with the stats over all train windows)
   w1 = w0 + eta1 sum_{per} sum_h phi (u - w0^T phi)     per: s = t - age, ages = 24 j and 168 j (8 each, >= H)
   w2 = w1 + eta2 sum_{rec} sum_h phi (u - w1^T phi)     rec: the N most recent origins s <= t - H
   eta_k = eta~_k / sum_demos sum_h |phi|^2 (eta~ < 2: no overshoot);  w0 = ridge on the FreshCast calibration
   origins (all channels pooled).  Overlapping demos (in both sets) take both steps.
-Term 2 (history-dependent increment), value rho = u - m_state (m_state at the demo's own time), no q/k:
-  per channel a carried state c_t in R^168 indexed by the TARGET hour-of-week:
+Term 2 (history-dependent increment), value rho = u - a_b m_state (S_2's val-fitted a_b; m_state at the demo's own
+time), no q/k: per channel a carried state c_t in R^(NB x 168) indexed by (lead bucket, TARGET hour-of-week):
   c' = A(x_t) c_{t-1} on all slots; the slots written by the newly matured rho_{t-H} (lead k -> slot
-  (t-H+k) mod 168, leads sharing a slot averaged) become lam(x_t) c' + (1 - lam) rho_{t-H} / sig_{t-H}^gamma, the
-  others keep c' (H >= 168 writes every slot each step);
-  read m_path[t,h] = sig_t^gamma c_t[(t+h) mod 168].
-  A(x) = I - beta(x) u u^T, u = roll(normalize(W_u x), t) (the direction is learned relative to the current hour),
+  (bucket(k), (t-H+k) mod 168), leads sharing a slot averaged) become lam(x_t) c' + (1 - lam) rho_{t-H} /
+  sig_{t-H}^gamma, the others keep c';  read m_path[t,h] = sig_t^gamma c_t[bucket(h), (t+h) mod 168].
+  A(x) = I - beta(x) u u^T on the whole NB*168 state, u = normalize(W_u x) rolled by t along the hour axis (the
+  direction is learned relative to the current hour, so mixing across lead buckets carries fresh long-lead errors),
   beta = 2 sigmoid, lam = sigmoid; x_t = [LQ window (y - mu_t) / sd_t, d mu_t / sd_t, d log sd_t].
   P: full; P_I: A = I (lam-EMA phase template of the residuals); TEFL: MLP(rho_{t-H-i}, i < 7) -> H.
   Trained on the train-tail origins (targets inside the train segment), truncated BPTT.
 Stream: origins T0 = n_tr - M_TR .. end, contiguous; train tail and the gaps before val / test are demos only.
-Selection: (eta~1, eta~2, N) per family and a_b, b_b (NB lead buckets, least squares) on all validation origins;
+Selection (val reused: S_2's a_b scales the term-2 target before a_b, b_b are refit; test is held out):
+(eta~1, eta~2, N) per family and a_b, b_b (NB lead buckets, least squares) on all validation origins;
 test once.  Families: S_0 (w0 only), S_per (eta2 = 0), S_rec (eta1 = 0), S_2 (both > 0); P / P_I / TEFL use S_2.
 """
 import argparse
@@ -46,7 +48,8 @@ PW = 168                                                             # carried-s
 J_PER = 8
 ETAS = (0.0, 0.25, 0.5, 1.0, 1.5)
 NS = (24, 168, 672)
-NP = 10
+NP = 6 + 24 + 7
+Z_CLIP, SD_Z = 5.0, 0.05
 EPS = 1e-12
 SIG_FLOOR = 0.05
 K_TEFL = 7
@@ -55,6 +58,8 @@ BURN = 336
 EPOCHS_P, LR_P = 20, 3e-3
 EPOCHS_T, LR_T, BS_T = 10, 1e-3, 4096
 CH2 = 128
+CH1 = 32                                                             # channels per term-1 chunk
+BO = 64
 
 
 def per_ages(h, j=J_PER):
@@ -76,13 +81,13 @@ def phi(d, rvf, rsf, lev, sc, t, norm):
     """phi (b C H NP) from d, rvf, rsf (b C H), lev, sc (b C), origin times t (b); norm = (mean, std) (5 C)."""
     b, C, h = d.shape
     mu, sd = norm
-    z = lambda x, i: (x - mu[i][:, None]) / sd[i][:, None]
-    tt = (t[:, None] + torch.arange(h, device=d.device)[None]).double()          # target times
-    ph = [f(2 * math.pi * tt / p) for p in (24, 168) for f in (torch.sin, torch.cos)]
-    ph = [x.float()[:, None].expand(b, C, h) for x in ph]
-    lv = ((lev - mu[3]) / sd[3])[..., None].expand(b, C, h)
-    sv = ((sc - mu[4]) / sd[4])[..., None].expand(b, C, h)
-    return torch.stack([torch.ones_like(d), z(d, 0), z(rvf, 1), z(rsf, 2), lv, sv] + ph, -1)
+    z = lambda x, i: ((x - mu[i][:, None]) / sd[i][:, None]).clamp(-Z_CLIP, Z_CLIP)
+    tt = t[:, None] + torch.arange(h, device=d.device)[None]                     # target times (b h)
+    oh = torch.cat([F.one_hot(tt % 24, 24), F.one_hot((tt // 24) % 7, 7)], -1).to(d.dtype)
+    lv = ((lev - mu[3]) / sd[3]).clamp(-Z_CLIP, Z_CLIP)[..., None].expand(b, C, h)
+    sv = ((sc - mu[4]) / sd[4]).clamp(-Z_CLIP, Z_CLIP)[..., None].expand(b, C, h)
+    base = torch.stack([torch.ones_like(d), z(d, 0), z(rvf, 1), z(rsf, 2), lv, sv], -1)
+    return torch.cat([base, oh[:, None].expand(b, C, h, oh.shape[-1])], -1)
 
 
 def demo_sums(P, u):
@@ -99,16 +104,16 @@ def mv(G, w):
     return (G @ w[..., None])[..., 0]
 
 
-def gd_weights(k, Sj, Gj, PS, PG, w0, ages, h, grid):
-    """w2 (b C NP) for each (eta1, eta2, N) in grid, for stream indices k (b); Sj, Gj per stream index, PS, PG
-    their prefix sums.  Periodic demos k - age (age >= h), recent demos max(0, k-h-N+1) .. k-h."""
-    C = Sj.shape[1]
+def gd_weights(k, PS, PG, w0, ages, h, grid):
+    """w2 (b C NP) for each (eta1, eta2, N) in grid, for stream indices k (b); PS, PG prefix sums (n+1 ...) of the
+    per-index demo sums S, G.  Periodic demos k - age (age >= h), recent demos max(0, k-h-N+1) .. k-h."""
+    C = PS.shape[1]
     w0 = w0.double().expand(len(k), C, -1)
     idx = k[:, None] - ages[None]
     ok = (idx >= 0).double()
     idc = idx.clamp_min(0)
-    Sp = (Sj[idc] * ok[..., None, None]).sum(1)
-    Gp = (Gj[idc] * ok[..., None, None, None]).sum(1)
+    Sp = ((PS[idc + 1] - PS[idc]) * ok[..., None, None]).sum(1)
+    Gp = ((PG[idc + 1] - PG[idc]) * ok[..., None, None, None]).sum(1)
     g1 = Sp - mv(Gp, w0)
     tr1 = Gp.diagonal(dim1=-2, dim2=-1).sum(-1).clamp_min(EPS)[..., None]
     hi = (k - h + 1).clamp_min(0)
@@ -129,12 +134,16 @@ def gd_weights(k, Sj, Gj, PS, PG, w0, ages, h, grid):
 
 
 # ---------------------------------------------------------------- term 2
+def lead_bucket(h, nb, dev):
+    return torch.arange(h, device=dev) * nb // h
+
+
 class Carry(nn.Module):
-    """Phase-indexed carried residual state; full=False drops the Householder transition (A = I)."""
-    def __init__(self, nx, full=True, pw=PW):
+    """(lead bucket x hour-of-week)-indexed carried residual state; full=False drops the Householder transition."""
+    def __init__(self, nx, full=True, pw=PW, nb=NB):
         super().__init__()
-        self.full, self.pw = full, pw
-        self.Wu = nn.Linear(nx, pw)
+        self.full, self.pw, self.nb = full, pw, nb
+        self.Wu = nn.Linear(nx, nb * pw)
         self.wb = nn.Linear(nx, 1)
         self.wl = nn.Linear(nx, 1)
         nn.init.constant_(self.wb.bias, -2.0)                                    # beta ~ 0.24 at init
@@ -145,44 +154,47 @@ class Carry(nn.Module):
         return self.gamma.clamp(0, 2)
 
     def step(self, c, x, t, w, wm):
-        """c (B pw) state, x (B nx), t absolute origin time (int), w (B pw) write values (already / sig^gamma),
-        wm (pw) bool written slots."""
+        """c (B nb*pw) state, x (B nx), t absolute origin time (int), w (B nb*pw) write values (already
+        / sig^gamma), wm (nb*pw) bool written slots."""
         if self.full:
-            u = torch.roll(F.normalize(self.Wu(x), dim=-1), t % self.pw, -1)   # u[p] = u_rel[(p - t) % pw]
+            u = self.Wu(x).view(-1, self.nb, self.pw).roll(t % self.pw, -1).flatten(1)   # u[b,p] = u_rel[b,(p-t)%pw]
+            u = F.normalize(u, dim=-1)
             beta = 2 * torch.sigmoid(self.wb(x))
             c = c - beta * u * (u * c).sum(-1, keepdim=True)
         lam = torch.sigmoid(self.wl(x))
         return torch.where(wm, lam * c + (1 - lam) * w, c), lam, (beta if self.full else None)
 
 
-def write_vals(rho, t_src, h, pw):
-    """rho (B h) of origin t_src -> (B pw) slot means and the written mask; lead k -> slot (t_src + k) % pw."""
-    sl = (t_src + torch.arange(h, device=rho.device)) % pw
-    cnt = torch.zeros(pw, device=rho.device).index_add_(0, sl, torch.ones(h, device=rho.device))
-    w = torch.zeros(rho.shape[0], pw, device=rho.device, dtype=rho.dtype).index_add_(1, sl, rho)
+def write_vals(rho, t_src, h, pw, nb):
+    """rho (B h) of origin t_src -> (B nb*pw) slot means and the written mask; lead k -> slot
+    bucket(k) * pw + (t_src + k) % pw."""
+    dev = rho.device
+    sl = lead_bucket(h, nb, dev) * pw + (t_src + torch.arange(h, device=dev)) % pw
+    cnt = torch.zeros(nb * pw, device=dev).index_add_(0, sl, torch.ones(h, device=dev))
+    w = torch.zeros(rho.shape[0], nb * pw, device=dev, dtype=rho.dtype).index_add_(1, sl, rho)
     return w / cnt.clamp_min(1), cnt > 0
 
 
-def read_slots(t, h, pw, dev):
-    return (t + torch.arange(h, device=dev)) % pw
+def read_slots(t, h, pw, nb, dev):
+    return lead_bucket(h, nb, dev) * pw + (t + torch.arange(h, device=dev)) % pw
 
 
 def carry_step(model, c, k, T0, rho_at, x_at, sig_at, h):
     """One stream index k (time T0 + k): write rho of index k - h (if >= 0), then read.  rho_at(k) (B h),
-    x_at(k) (B nx), sig_at(k) (B).  Returns the new state (B pw) and m (B h)."""
-    pw = model.pw
+    x_at(k) (B nx), sig_at(k) (B).  Returns the new state (B nb*pw) and m (B h)."""
+    pw, nb = model.pw, model.nb
     t = T0 + k
     x = x_at(k)
     B = x.shape[0]
     if c is None:
-        c = torch.zeros(B, pw, device=x.device)
+        c = torch.zeros(B, nb * pw, device=x.device)
     g = model.g()
     if k - h >= 0:
-        w, wm = write_vals(rho_at(k - h) / sig_at(k - h)[:, None] ** g, t - h, h, pw)
+        w, wm = write_vals(rho_at(k - h) / sig_at(k - h)[:, None] ** g, t - h, h, pw, nb)
     else:
-        w, wm = torch.zeros(B, pw, device=x.device), torch.zeros(pw, dtype=torch.bool, device=x.device)
+        w, wm = torch.zeros(B, nb * pw, device=x.device), torch.zeros(nb * pw, dtype=torch.bool, device=x.device)
     c, _, _ = model.step(c, x, t, w, wm)
-    return c, sig_at(k)[:, None] ** g * c[:, read_slots(t, h, pw, x.device)]
+    return c, sig_at(k)[:, None] ** g * c[:, read_slots(t, h, pw, nb, x.device)]
 
 
 class Tefl(nn.Module):
@@ -279,6 +291,9 @@ def run(code, seed, args):
     lev = ((mu_w[T0:T0 + n] - X[:n_tr].mean(0)) / X[:n_tr].std(0).clamp_min(1e-6))[:, chans].cpu()
     sc = torch.log(sd_w[T0:T0 + n].clamp_min(fc.SD_FLOOR) / X[:n_tr].std(0).clamp_min(1e-6))[:, chans].cpu()
     tr_m = split == 0
+    lv_tr = ((mu_w[fc.LQ:n_tr + 1] - X[:n_tr].mean(0)) / X[:n_tr].std(0).clamp_min(1e-6))[:, chans].cpu()
+    sc_tr = torch.log(sd_w[fc.LQ:n_tr + 1].clamp_min(fc.SD_FLOOR) / X[:n_tr].std(0).clamp_min(1e-6))[:, chans].cpu()
+    chunks1 = lambda: torch.arange(C).split(CH1)
 
     def chunk(c):
         """GPU views of channel chunk c: u, d, rvf, rsf (n c H), lev, sc (n c)."""
@@ -286,17 +301,19 @@ def run(code, seed, args):
         d = pv[..., None] * rv + (1 - pv[..., None]) * rs
         return E[:, c].to(dev) - w_hat * d, d, rv, rs, lev[:, c].to(dev), sc[:, c].to(dev)
 
-    def chunk_norm(d, rv, rs, lv, s):
+    def chunk_norm(c, d, rv, rs):
+        """(mean, std) (5 c): d, rv, rs over the train-tail origins and leads, level / scale over all train
+        windows; std floored at SD_Z (z is also clipped in phi)."""
         m = tr_m.to(dev)
         st = [x[m] for x in (d, rv, rs)]
-        mu = torch.stack([x.mean((0, 2)) for x in st] + [lv[m].mean(0), s[m].mean(0)])
-        sd = torch.stack([x.std((0, 2)) for x in st] + [lv[m].std(0), s[m].std(0)]).clamp_min(1e-6)
+        lv, sv = lv_tr[:, c].to(dev), sc_tr[:, c].to(dev)
+        mu = torch.stack([x.mean((0, 2)) for x in st] + [lv.mean(0), sv.mean(0)])
+        sd = torch.stack([x.std((0, 2)) for x in st] + [lv.std(0), sv.std(0)]).clamp_min(SD_Z)
         return mu, sd
 
     tdev = times.to(dev)
     ages = torch.tensor(per_ages(H), device=dev)
     grid = configs()
-    BO = 128
 
     def phis(c_parts, norm, ks):
         u, d, rv, rs, lv, s = c_parts
@@ -307,9 +324,9 @@ def run(code, seed, args):
     S0 = torch.zeros(NP, dtype=torch.float64, device=dev)
     G0 = torch.zeros(NP, NP, dtype=torch.float64, device=dev)
     norms = {}
-    for c in fc.chunks(C, dev):
-        parts = chunk(c.cpu())
-        norms[int(c[0])] = chunk_norm(*parts[1:])
+    for c in chunks1():
+        parts = chunk(c)
+        norms[int(c[0])] = chunk_norm(c, *parts[1:4])
         P_, u_ = phis(parts, norms[int(c[0])], cal_k)
         s_, g_ = demo_sums(P_, u_)
         S0 += s_.sum((0, 1))
@@ -333,20 +350,22 @@ def run(code, seed, args):
             dst[q] += x[s_ == q].sum(0)
 
     def term1_chunk(c, want=None):
-        parts = chunk(c.cpu())
+        parts = chunk(c)
         norm = norms[int(c[0])]
-        Sj = torch.zeros(n, len(c), NP, dtype=torch.float64, device=dev)
-        Gj = torch.zeros(n, len(c), NP, NP, dtype=torch.float64, device=dev)
-        for i in range(0, n, BO):
+        PS = torch.zeros(n + 1, len(c), NP, dtype=torch.float64, device=dev)
+        PG = torch.zeros(n + 1, len(c), NP, NP, dtype=torch.float64, device=dev)
+        for i in range(0, n, BO):                                                # prefix sums, batch by batch
             ks = torch.arange(i, min(n, i + BO), device=dev)
             P_, u_ = phis(parts, norm, ks)
-            Sj[ks], Gj[ks] = demo_sums(P_, u_)
-        PS, PG = prefix(Sj), prefix(Gj)
+            s_, g_ = demo_sums(P_, u_)
+            PS[i + 1:i + 1 + len(ks)] = PS[i] + s_.cumsum(0)
+            PG[i + 1:i + 1 + len(ks)] = PG[i] + g_.cumsum(0)
+            del s_, g_
         ms = torch.zeros(n, len(c), H, device=dev) if want is not None else None
         for i in range(0, n, BO):
             ks = torch.arange(i, min(n, i + BO), device=dev)
             P_, u_ = phis(parts, norm, ks)
-            W = gd_weights(ks, Sj, Gj, PS, PG, w0, ages, H, grid if want is None else [want])
+            W = gd_weights(ks, PS, PG, w0, ages, H, grid if want is None else [want])
             if want is not None:
                 ms[ks] = torch.einsum('bchp,bcp->bch', P_.double(), W[want]).float()
                 continue
@@ -358,7 +377,7 @@ def run(code, seed, args):
                 acc_split(sm['mm'][gi], pb(m.square()), ks)
         return parts, ms
 
-    for c in fc.chunks(C, dev):
+    for c in chunks1():
         term1_chunk(c)
     print('[term1] grid done', flush=True)
 
@@ -375,15 +394,14 @@ def run(code, seed, args):
         res[fam] = dict(cfg=grid[best], a=a.tolist(), val_mse=float(sse[1]) / nel[1], test_mse=float(sse[2]) / nel[2])
     best2 = res['S_2']['cfg']
 
-    # ---- store u (into RV) and m_state of S_2 (into RS)
-    for c in fc.chunks(C, dev):
+    # ---- store u (into RV) and a_b * m_state of S_2 (into RS); term 2 sees rho = u - a_b m_state
+    a_s2 = torch.tensor(res['S_2']['a'], dtype=torch.float32, device=dev)
+    for c in chunks1():
         parts, ms = term1_chunk(c, want=best2)
-        cc = c.cpu()
-        RV[:, cc], RS[:, cc] = parts[0].cpu(), ms.cpu()
+        RV[:, c], RS[:, c] = parts[0].cpu(), (ms * a_s2[bk]).cpu()
         del parts, ms
     U, MS = RV, RS
     del E, PV
-    a_s2 = torch.tensor(res['S_2']['a'], dtype=torch.float64, device=dev)
 
     # ---- term-2 inputs
     dmu = ((mu_w[T0:T0 + n] - mu_w[T0 - 1:T0 + n - 1]) / sd_w[T0:T0 + n].clamp_min(fc.SD_FLOOR))[:, chans]
@@ -452,8 +470,12 @@ def run(code, seed, args):
         A11, A12, A22, b1, b2 = o['ss'][1], o['sx'][1], o['xx'][1], o['us'][1], o['ux'][1]
         det = A11 * A22 - A12 ** 2
         okd = det > 1e-12 * (A11 * A22).clamp_min(EPS)
-        a = torch.where(okd, (A22 * b1 - A12 * b2) / det.clamp_min(EPS), b1 / A11.clamp_min(EPS))
-        b = torch.where(okd, (A11 * b2 - A12 * b1) / det.clamp_min(EPS), torch.zeros_like(b1))
+        # singular bucket: keep the single term with the larger fit gain (b1^2 / A11 vs b2^2 / A22)
+        s_only = b1 ** 2 / A11.clamp_min(EPS) >= b2 ** 2 / A22.clamp_min(EPS)
+        a = torch.where(okd, (A22 * b1 - A12 * b2) / det.clamp_min(EPS),
+                        torch.where(s_only, b1 / A11.clamp_min(EPS), torch.zeros_like(b1)))
+        b = torch.where(okd, (A11 * b2 - A12 * b1) / det.clamp_min(EPS),
+                        torch.where(s_only, torch.zeros_like(b1), b2 / A22.clamp_min(EPS)))
         sse = uu - 2 * a * o['us'] - 2 * b * o['ux'] + a ** 2 * o['ss'] + 2 * a * b * o['sx'] + b ** 2 * o['xx']
         return a, b, sse.sum(-1)
 
@@ -470,7 +492,7 @@ def run(code, seed, args):
     for name, full in (('P', True), ('P_I', False)):
         net, log = train_carry(full)
         a, b, sse = fit2(eval_sums(carry_pred(net)))
-        res[f'S_2+{name}'] = dict(a=a.tolist(), b=b.tolist(), val_mse=float(sse[1]) / nel[1],
+        res[f'S_2+{name}'] = dict(a=a.tolist(), a_state=(a * a_s2.double()).tolist(), b=b.tolist(), val_mse=float(sse[1]) / nel[1],
                                    test_mse=float(sse[2]) / nel[2], gamma=float(net.g()), train_loss=log)
         print(f'[{name}] test {res[f"S_2+{name}"]["test_mse"]:.5f}', flush=True)
 
@@ -508,7 +530,7 @@ def run(code, seed, args):
                 rho = torch.stack([(U[k - int(l)] - MS[k - int(l)]) for l in lag]).to(dev)   # K C H
                 yield k, tefl(rho.transpose(0, 1).flatten(1))
     a, b, sse = fit2(eval_sums(tefl_pred))
-    res['S_2+TEFL'] = dict(a=a.tolist(), b=b.tolist(), val_mse=float(sse[1]) / nel[1], test_mse=float(sse[2]) / nel[2],
+    res['S_2+TEFL'] = dict(a=a.tolist(), a_state=(a * a_s2.double()).tolist(), b=b.tolist(), val_mse=float(sse[1]) / nel[1], test_mse=float(sse[2]) / nel[2],
                           train_loss=tlog)
 
     # ---- report
