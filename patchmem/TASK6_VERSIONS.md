@@ -587,3 +587,15 @@ Every arm worse than FC on 12/12. The val-fitted linear state map (37 features i
 transfer val -> test (S_0 worst); v2 is worse than v1 on Traffic. Term 2: S_2+P > S_2 3/3 on T L96 only; P > P_I 3/3
 on T L720. User clarification afterwards: "state" was meant as the current INPUT x (does the backbone make a fixed
 error for a given input pattern), not statistics -> term 1 to be redesigned as input-keyed error retrieval.
+
+## Standalone decomposition (eval_decomp2.py) — RUNNING
+User: state = the backbone INPUT x (does the backbone make a fixed error for a given input), method standalone on
+the backbone (FreshCast only as a baseline, read from its json). y^ = f + a_b m_state + b_b m_x.
+S: key = the backbone's input window (length L, instance-normalised), same-channel demos s <= t-H, top-k cos, linear
+attention m = (1/k) sum cos e_s, k in {16, 64, 256} on val. X (term 2), (lead bucket x target hour of week) carried
+state: Pd = observation-diagonal writes (the newest observed target's errors at every lead) + Householder; Pd_I = A = I;
+Pf = v2 whole-matured-vector writes (freshness ablation); TEFL = MLP on the 7 latest diagonals. Each X alone (rho = e)
+and stacked (rho = e - a~ m_state, a~ from the train tail). Reported: S, X, S(+)X (joint val LS), S->X.
+Criteria (fixed): S > base 3/3; Pd > Pd_I, TEFL (alone) 3/3; S(+)Pd and S->Pd > S 3/3; Pd > Pf 3/3; vs FreshCast.
+Tests patchmem/test_decomp2.py (top-k == brute force, diagonal, diag writes vs a dict reference, diag causality,
+full mode == v2 step, input normalisation).
