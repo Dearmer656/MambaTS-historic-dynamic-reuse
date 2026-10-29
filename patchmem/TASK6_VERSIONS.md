@@ -616,3 +616,10 @@ only. Pd > Pf FAIL (holds on EL; T L96 2/3, T L720 Pf better). vs FreshCast: wor
 FC's gain). Takeaway: the input-window error template (S) is a real, stable gain over base and term 2 adds ~1% on top at
 L96, but the standalone method is not competitive with retrieving y continuations (FC).
 
+
+## Input-keyed error retrieval stacked on FreshCast (eval_fc_stack.py, commit 7a826dc) — RUNNING
+y^ = y^_FC + a_b m, y^_FC = f + w^ (r - f) reproduced in-stream (asserted == freshcast json test MSE).
+m = (1/k) sum_{top-k cos(x~_t, x~_s), s <= t-H} cos * v_s, key = backbone input window (L, instance-norm), same channel.
+Arms: S_fc v = e_FC = y - y^_FC (primary); S_e v = e = y - f. a_b (8 lead buckets) val LS, k in {4, 8, 16, 64} on val.
+Criterion (fixed): S_fc beats FreshCast on 3/3 seeds, mean gain >= 0.3%. T / EL x L {96, 720} x 3 seeds, H192,
+jobs 12465-12468 (one 3090 per (data, L), 2 tasks in parallel). Codex: only fix = test MSE for the chosen k only.
