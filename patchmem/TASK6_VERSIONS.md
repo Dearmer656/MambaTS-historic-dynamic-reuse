@@ -588,7 +588,7 @@ transfer val -> test (S_0 worst); v2 is worse than v1 on Traffic. Term 2: S_2+P 
 on T L720. User clarification afterwards: "state" was meant as the current INPUT x (does the backbone make a fixed
 error for a given input pattern), not statistics -> term 1 to be redesigned as input-keyed error retrieval.
 
-## Standalone decomposition (eval_decomp2.py) — RUNNING
+## Standalone decomposition (eval_decomp2.py) — NEGATIVE vs FreshCast
 User: state = the backbone INPUT x (does the backbone make a fixed error for a given input), method standalone on
 the backbone (FreshCast only as a baseline, read from its json). y^ = f + a_b m_state + b_b m_x.
 S: key = the backbone's input window (length L, instance-normalised), same-channel demos s <= t-H, top-k cos, linear
@@ -599,3 +599,20 @@ and stacked (rho = e - a~ m_state, a~ from the train tail). Reported: S, X, S(+)
 Criteria (fixed): S > base 3/3; Pd > Pd_I, TEFL (alone) 3/3; S(+)Pd and S->Pd > S 3/3; Pd > Pf 3/3; vs FreshCast.
 Tests patchmem/test_decomp2.py (top-k == brute force, diagonal, diag writes vs a dict reference, diag causality,
 full mode == v2 step, input normalisation).
+
+Result (H192, 12/12 runs, test MSE gain % vs base; ranges over seeds 3047/2024/2025; k = 16 chosen on val in 12/12,
+the grid's lower edge):
+
+| setting | S | Pd | Pd_I | Pf | TEFL | S(+)Pd | S(+)Pd_I | S->Pd | best arm vs FC |
+|---|---|---|---|---|---|---|---|---|---|
+| T L96 | +4.1~4.2 | +2.6~2.8 | +0.5~0.8 | +2.6~2.8 | +0.7 | +5.0~5.2 | +4.0~4.2 | +4.9~5.0 | -4.1 ~ -5.2 |
+| T L720 | +0.7~0.8 | +0.1 | -0.4~-0.6 | +0.2 | 0.0~0.1 | +0.7~0.8 | -0.1~+0.2 | +0.7~0.8 | -0.3 ~ -0.8 |
+| EL L96 | +4.2~4.3 | +2.3~3.3 | +2.7~3.8 | +0.9 | +0.6~0.8 | +5.3~5.7 | +5.3~5.7 | +5.3~5.6 | -9.2 ~ -11.0 |
+| EL L720 | +0.8~0.9 | +0.2 | +0.1 | 0.0 | +0.1 | +0.9 | +0.8 | +0.9 | -7.7 ~ -8.5 |
+
+Criteria: S > base 12/12 PASS. S(+)Pd > S 11/12 (T L720 s3047 +0.78 vs +0.79) FAIL; S->Pd > S 11/12 (same seed) FAIL.
+Pd > TEFL PASS. Pd > Pd_I FAIL on EL L96 (Pd_I better 3/3; stacked S(+)Pd ~ S(+)Pd_I): the transition helps on Traffic
+only. Pd > Pf FAIL (holds on EL; T L96 2/3, T L720 Pf better). vs FreshCast: worse 12/12 (best arm gets about half of
+FC's gain). Takeaway: the input-window error template (S) is a real, stable gain over base and term 2 adds ~1% on top at
+L96, but the standalone method is not competitive with retrieving y continuations (FC).
+
