@@ -555,3 +555,17 @@ range -0.03 .. -2.8% (largest: EL L720 H720 -2.8%, T/EL L96 H336 -1..-2.5%). On 
 within +-1% of the global w^ (often worse), so local delayed calibration carries no usable signal.
 Grid lacked kappa = inf (= FreshCast) as a fallback; does not change the conclusion.
 Consistent with the TTA delay audit (2610.12232): feedback from labels >= H old gives <= 0.5% outside ETTm1.
+
+## Predictable-error decomposition on top of FreshCast (eval_decomp.py) — RUNNING
+y^ = f + w^ d + a_b m_state + b_b m_x (a_b, b_b: 8 lead buckets, val least squares; no ratio mixing).
+Term 1 (state-explainable): one w per channel shared by all leads, phi[t,h] = [1, d, rv-f, rs-f, level, log scale,
+sin/cos of the TARGET hour of day / week]; w0 = ridge on the FreshCast calibration origins; then one GD step on periodic
+same-clock demos (ages 24j / 168j >= H) and one on the N most recent demos (s <= t-H), step eta~ / sum|phi|^2
+(= two linear-attention layers). Families S_0 / S_per / S_rec / S_2, (eta~1, eta~2, N) chosen on full val.
+Term 2 (history increment), value rho = u - m_state, no q/k: per channel a 168-slot state indexed by the target
+hour of week, c' = (I - beta u u^T) c (u learned relative to the current hour from the LQ window + d mu + d log sd),
+written slots <- lam c' + (1-lam) rho_{t-H} / sig^gamma, read sig_t^gamma c[(t+h) mod 168].
+Arms S_2+P (full), S_2+P_I (A = I: lam-EMA phase template), S_2+TEFL (MLP on 7 lagged rho). Trained on the 2016
+train-tail origins (truncated BPTT 168). Criteria: S_2 > FC, S_per, S_rec and S_2+P > S_2, S_2+P_I, S_2+TEFL, 3/3.
+Unit tests patchmem/test_decomp.py (GD == direct loops, causality of term 1 and term 2, write/read phase alignment,
+time equivariance of the Householder direction, sigma gain). Runs: T / EL x L {96, 720} x 3 seeds at H192.
