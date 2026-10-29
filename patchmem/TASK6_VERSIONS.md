@@ -556,7 +556,7 @@ within +-1% of the global w^ (often worse), so local delayed calibration carries
 Grid lacked kappa = inf (= FreshCast) as a fallback; does not change the conclusion.
 Consistent with the TTA delay audit (2610.12232): feedback from labels >= H old gives <= 0.5% outside ETTm1.
 
-## Predictable-error decomposition on top of FreshCast (eval_decomp.py) — v1 INVALID, v2 RUNNING
+## Predictable-error decomposition on top of FreshCast (eval_decomp.py) — v1 INVALID, v2 NEGATIVE
 y^ = f + w^ d + a_b m_state + b_b m_x (a_b, b_b: 8 lead buckets, val least squares; no ratio mixing).
 Term 1 (state-explainable): one w per channel shared by all leads, phi[t,h] = [1, d, rv-f, rs-f, level, log scale,
 sin/cos of the TARGET hour of day / week]; w0 = ridge on the FreshCast calibration origins; then one GD step on periodic
@@ -576,3 +576,14 @@ v2: z clipped to +-5, std floor 0.05, level / scale stats over all train windows
 day (7) (NP 37); rho = u - a_b m_state; carried state indexed by (lead bucket, target hour of week), 8 x 168, one
 Householder over the whole state (cross-bucket mixing); fit2 singular fallback keeps the better single term.
 Runs 2 tasks per 3090 (3 per GPU OOMed in v1). v1 jsons renamed *_v1.json.
+v2 result (commit 2784b6a), test MSE change vs FreshCast (%), seeds 2024/2025/3047:
+| data L | S_0 | S_2 | S_2+P | S_2+P_I | S_2+TEFL |
+|---|---|---|---|---|---|
+| T 96 | -0.61/-0.49/-0.48 | -0.40/-0.57/-0.41 | -0.26/-0.46/-0.25 | -0.17/-0.49/-0.26 | -0.18/-0.30/-0.13 |
+| T 720 | -0.71/-0.67/-0.51 | -0.66/-0.68/-0.32 | -0.66/-0.75/-0.36 | -1.07/-1.09/-0.77 | -0.55/-0.57/-0.21 |
+| EL 96 | -1.70/-1.94/-1.40 | -1.30/-1.56/-1.07 | -1.28/-1.53/-1.06 | -1.24/-1.53/-1.02 | -1.00/-1.33/-0.78 |
+| EL 720 | -0.97/-1.45/-1.27 | -0.19/-0.72/-0.44 | -0.20/-0.72/-0.44 | -0.24/-0.77/-0.48 | -0.03/-0.55/-0.24 |
+Every arm worse than FC on 12/12. The val-fitted linear state map (37 features incl. one-hot hour/day) does not
+transfer val -> test (S_0 worst); v2 is worse than v1 on Traffic. Term 2: S_2+P > S_2 3/3 on T L96 only; P > P_I 3/3
+on T L720. User clarification afterwards: "state" was meant as the current INPUT x (does the backbone make a fixed
+error for a given input pattern), not statistics -> term 1 to be redesigned as input-keyed error retrieval.
