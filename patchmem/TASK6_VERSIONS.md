@@ -520,3 +520,16 @@ Tests 4 pass; Codex: no bugs. Criterion unchanged: B (tiled) clear gain at L720;
   sha256 7e45845d...a497ad). iTransformer official ECL recipe: e_layers 3, d_model 512, d_ff 512, batch 16, lr 5e-4,
   patience 3, 10 epochs. CELLS EL = Traffic window (history 2880+L-96, period 168). `slurm/obs_train_pack.sh EL L H`:
   train 3 seeds then eval_obs_icl phase,tiled. L96/L720 x H96/192/336/720 (jobs 11798-11805).
+
+### v2 Traffic H sweep results (phase pool, test gain %, s2024/s2025/s3047)
+| H | L | level | B | C1 | C2 |
+|---|---|---|---|---|---|
+| 96 | 96 | 0.31/0.33/0.32 | 7.43/7.20/7.24 | 4.34/4.34/4.27 | 6.32/6.29/6.13 |
+| 192 | 96 | 0.11/0.19/0.19 | 7.70/7.56/7.91 | 3.87/3.85/3.97 | 3.71/3.62/4.25 |
+| 336 | 96 | 0.02/0.01/-0.03 | 7.68/7.76/7.73 | 3.68/3.75/3.69 | 3.15/2.48/2.61 |
+| 720 | 96 | -0.63/-0.67/-0.80 | 5.23/4.95/4.93 | 2.49/2.52/2.38 | 4.02/3.96/3.79 |
+| 96 | 720 | 1.14/1.14/0.99 | 1.39/0.98/0.86 | 1.72/1.60/1.46 | 0.39/0.00/-0.29 |
+| 192 | 720 | 0.61/0.71/0.65 | 1.68/1.70/1.65 | 1.15/1.32/1.20 | 0.50/0.47/0.64 |
+| 336 | 720 | 0.26/0.58/0.43 | 1.66/1.64/1.70 | 0.94/1.19/1.11 | -0.12/-0.15/-0.50 |
+| 720 | 720 | -0.41/-0.30/-0.43 | -0.39/-0.62/-0.18 | -0.39/-0.34/-0.23 | -2.39/-0.45/-0.18 |
+Tiled pool better than phase only at H96 L720. H720 L720: all arms negative incl. level (val-fit (a,c) does not transfer; phase pool only ages 720..2064).
