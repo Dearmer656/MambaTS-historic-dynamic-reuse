@@ -533,3 +533,16 @@ Tests 4 pass; Codex: no bugs. Criterion unchanged: B (tiled) clear gain at L720;
 | 336 | 720 | 0.26/0.58/0.43 | 1.66/1.64/1.70 | 0.94/1.19/1.11 | -0.12/-0.15/-0.50 |
 | 720 | 720 | -0.41/-0.30/-0.43 | -0.39/-0.62/-0.18 | -0.39/-0.34/-0.23 | -2.39/-0.45/-0.18 |
 Tiled pool better than phase only at H96 L720. H720 L720: all arms negative incl. level (val-fit (a,c) does not transfer; phase pool only ages 720..2064).
+
+## FreshCast reproduction (eval_freshcast.py, commit 49caf2b + median/den fixes)
+Same frozen iTransformer checkpoints, full test set (all origins x channels), 3 seeds; B = our obs-ICL phase-pool B
+with its obsicl2-selected config re-evaluated on the same full test.
+Test MSE averaged over H in {96,192,336,720} (EL L720: H96-336 only, H720 pending):
+| data | L | base | FreshCast (ours) | FreshCast (paper) | B |
+|---|---|---|---|---|---|
+| Traffic | 96 | 0.4217 | 0.3823 (-9.3%) | 0.424 -> 0.384 | 0.3926 (-6.9%) |
+| Traffic | 720 | 0.3790 | 0.3716 (-1.9%) | 0.387 -> 0.376 | 0.3753 (-1.0%) |
+| Electricity | 96 | 0.1754 | 0.1522 (-13.2%) | 0.175 -> 0.153 | 0.1592 (-9.3%) |
+| Electricity | 720 | 0.1526 | 0.1407 (-7.8%) | 0.163 -> 0.151 | 0.1473 (-3.5%) |
+Reproduction matches the paper. FreshCast > B in 14/15 cells (3/3 seeds); exception Traffic L720 H192 (B 1.66% vs FC 1.46% avg).
+Untrained rule is weak (negative on Traffic L720 and H720). RKR weight: ~half on seasonal value readouts, ~half on shape analogs.
