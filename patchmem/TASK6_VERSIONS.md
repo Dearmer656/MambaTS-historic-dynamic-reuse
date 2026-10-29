@@ -617,9 +617,20 @@ FC's gain). Takeaway: the input-window error template (S) is a real, stable gain
 L96, but the standalone method is not competitive with retrieving y continuations (FC).
 
 
-## Input-keyed error retrieval stacked on FreshCast (eval_fc_stack.py, commit 7a826dc) — RUNNING
+## Input-keyed error retrieval stacked on FreshCast (eval_fc_stack.py, commit 7a826dc) — PASS on EL L96 only
 y^ = y^_FC + a_b m, y^_FC = f + w^ (r - f) reproduced in-stream (asserted == freshcast json test MSE).
 m = (1/k) sum_{top-k cos(x~_t, x~_s), s <= t-H} cos * v_s, key = backbone input window (L, instance-norm), same channel.
 Arms: S_fc v = e_FC = y - y^_FC (primary); S_e v = e = y - f. a_b (8 lead buckets) val LS, k in {4, 8, 16, 64} on val.
 Criterion (fixed): S_fc beats FreshCast on 3/3 seeds, mean gain >= 0.3%. T / EL x L {96, 720} x 3 seeds, H192,
 jobs 12465-12468 (one 3090 per (data, L), 2 tasks in parallel). Codex: only fix = test MSE for the chosen k only.
+Result (12/12, FC reproduced in-stream == json in all runs), test MSE change vs FreshCast %, s2024/2025/3047 (k chosen):
+| setting | FC gain vs base | S_fc | S_e |
+|---|---|---|---|
+| T L96 | +9.0/+10.0/+9.3 | +0.19/+0.06/+0.15 (k16) | -0.19/-0.28/-0.18 (k16) |
+| T L720 | +1.5/+1.7/+1.2 | -0.04/-0.07/-0.04 (k64) | -0.14/-0.15/-0.10 (k64) |
+| EL L96 | +13.6/+14.2/+14.7 | +0.48/+0.43/+0.42 (k8) | +0.61/+0.57/+0.48 (k8) |
+| EL L720 | +8.1/+8.5/+8.6 | -0.19/-0.17/-0.26 (k64) | +0.32/+0.29/+0.22 (k16) |
+Criterion (S_fc 3/3, mean >= 0.3%): PASS EL L96 (mean +0.44); T L96 3/3 but mean +0.13 FAIL; L720 FAIL.
+S_e (secondary): EL L96 +0.55, EL L720 +0.28 3/3; Traffic negative. Traffic val gains are +0.6..+0.8% (S_fc) but
+test +0.06..+0.19%: the val-fitted a_b does not transfer on Traffic. Gains on top of FC are <= ~0.6% everywhere.
+
