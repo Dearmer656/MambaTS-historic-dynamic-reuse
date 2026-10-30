@@ -1,0 +1,10 @@
+{
+  "dataset": "electricity",
+  "model": "iTransformer",
+  "seed": 2025,
+  "L": 96,
+  "H": 192,
+  "elements": 312412608,
+  "mse": 0.16594517237657821,
+  "mae": 0.2571245182773494
+}

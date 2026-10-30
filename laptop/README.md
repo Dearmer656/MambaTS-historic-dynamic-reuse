@@ -26,6 +26,20 @@ Any data/seed: `bash laptop/run_errpath_shared.sh E|W SEED`. Settings are identi
 
 ErrPath-shared = O-ErrPath with the Householder path in the P-dim patch space, the same reflection for every variable (no cross-variable mixing; `R1_OBS_VSHARE=1`). See Linear PAT-307 / PAT-312.
 
+### Task 7 (current, assigned 2026-10-30): PAT-315 decomp2 Pd_err, Electricity (no training of the backbone)
+
+```bash
+git pull origin laptop && conda activate mambats
+bash laptop/run_decomp2err.sh     # 4 tasks (EL L720 / L96 x seeds 2025, 2024), one after the other; pushes after every task
+```
+
+iTransformer backbone (frozen checkpoints in `checkpoints/iTransformer_base_EL_*`), `patchmem/eval_decomp2.py`: term S (input-window
+error retrieval) + term X (PaTH-carried error state), arms Pd (transition from the input window), Pd_I (no transition) and Pd_err
+(transition from the observed errors + d mu + d log sd). The data (`laptop/data/electricity.csv.gz`) is unpacked and checksummed by the
+script. Needs ~16 GB RAM and < 12 GB GPU memory per task; about 1-2 h per task on a 4080. Seeds 3047 run on the cluster, which skips
+any task whose json the laptop has already pushed. Interrupted? Run the same command again (finished tasks are skipped).
+Task 6 below is stopped.
+
 ### Task 6 (current, updated 2026-10-25): TEFL compiled into ICL, short H
 
 
