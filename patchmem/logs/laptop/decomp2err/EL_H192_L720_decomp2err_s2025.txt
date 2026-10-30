@@ -1,0 +1,23 @@
+commit 6567501
+Use GPU: cuda:0
+test 5069
+[base] 0.15499 fc 0.14179525541357127
+[S] k 16 test 0.15360
+[alone Pd] done
+[alone Pd_I] done
+[alone Pd_err] done
+[stacked Pd] done
+[stacked Pd_I] done
+[stacked Pd_err] done
+[test] S          mse 0.15360 gain +0.899% vs fc -8.323% (val 0.12771)
+[test] Pd         mse 0.15473 gain +0.170% vs fc -9.119% (val 0.12775)
+[test] S(+)Pd     mse 0.15356 gain +0.926% vs fc -8.294% (val 0.12744)
+[test] Pd_I       mse 0.15479 gain +0.129% vs fc -9.164% (val 0.12784)
+[test] S(+)Pd_I   mse 0.15365 gain +0.868% vs fc -8.357% (val 0.12757)
+[test] Pd_err     mse 0.15460 gain +0.249% vs fc -9.034% (val 0.12748)
+[test] S(+)Pd_err mse 0.15357 gain +0.913% vs fc -8.308% (val 0.12724)
+[test] S->Pd      mse 0.15356 gain +0.924% vs fc -8.296% (val 0.12743)
+[test] S->Pd_I    mse 0.15365 gain +0.865% vs fc -8.360% (val 0.12757)
+[test] S->Pd_err  mse 0.15357 gain +0.913% vs fc -8.307% (val 0.12723)
+[test] base 0.15499 fc 0.14179525541357127
+[done] patchmem/logs/laptop/decomp2err/EL_H192_L720_decomp2err_s2025.json
