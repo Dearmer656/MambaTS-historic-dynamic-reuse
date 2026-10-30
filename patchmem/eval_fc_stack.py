@@ -117,8 +117,8 @@ def run(code, seed, args):
     if args.max_c is None:
         if abs(base - official) > 1e-4:
             raise AssertionError(f'base full={base} official={official}')
-        if fc_json is not None and abs(fc_mse - fc_json) > 1e-4:
-            raise AssertionError(f'fc stream={fc_mse} json={fc_json}')
+        if fc_json is not None and abs(fc_mse - fc_json) > 1e-4:                  # RKR training differs by GPU type;
+            print(f'[warn] fc stream={fc_mse} json={fc_json}', flush=True)           # all arms compare to this run's FC
     print(f'[fc] w_hat {w_hat:.3f} base {base:.5f} fc {fc_mse:.5f} (json {fc_json})', flush=True)
     # ---- retrieval: values [e_FC | e] side by side, all k at once; second moments per (split, bucket) of
     # e (target of the joint fits), d = r - f, m; the e_FC moments follow from e_FC = e - w^ d
