@@ -698,3 +698,22 @@ although every ReLU unit switches; |g| small (std ratio .06-.3 of eps); corr(g[h
 (pulls against the last horizon's error); input weight spread over the whole eps; gain on 99-100% of channels; amp ~ 0
 (not a forecast-amplitude rescale). Rank: ETTh2 ~1 (output profile ~constant over leads, cos -0.97), ETTm / Weather ~4,
 Traffic high (rank 4 = 53%), with 37% of A's energy on same-hour-of-day entries (chance 4%).
+
+## Value of the backbone's own errors vs TEFL (eval_err_value.py 1e6b658, eval_err_value2.py 6da9b21; V100 srun 13231/13232, 13237/13238)
+Post hoc on the frozen standalone iTransformer (L96 H192), linear predictor of e_t = E[t] (192 leads) from
+eps = E[t-H] (TEFL's input), u = one-step error history (96), D = newest observation diagonal (192), bias.
+Fit on train origins (targets inside train; Traffic last 6048), lam on val, test once; TEFL = official test MSE of the
+jointly trained TEFL_paper_L96_E192 (same test windows). Stage 1 pooled (all channels share W); stage 2 per channel
+W_c shrunk toward W_pool (lam2 on val). Test MSE improvement vs TEFL %, s3047/2024/2025:
+| data | TEFL vs base | pooled eps | pooled all | per-ch eps+D | per-ch all | per-ch all vs base |
+|---|---|---|---|---|---|---|
+| ETTh2 | +1.8..1.9 | +5.7/+6.2/+5.9 | +5.2/+6.2/+5.6 | +6.6/+7.1/+6.8 | +6.0/+7.0/+6.4 | +7.7/+8.7/+8.2 |
+| ETTm1 | +5.2..5.9 | -0.3/-0.3/+0.9 | +0.4/+0.7/+2.1 | +0.9/+0.5/+2.2 | +0.4/+0.3/+2.7 | +6.2/+6.2/+7.7 |
+| ETTm2 | +7.1..7.4 | -0.9/+0.7/-0.9 | -0.0/+2.5/+2.5 | +1.0/+4.0/+4.4 | +0.8/+4.2/+4.1 | +7.8/+11.0/+11.2 |
+| Weather | +6.2..7.3 | -1.1/-1.2/-1.6 | +1.6/-0.2/-0.4 | +6.8/+3.5/+3.3 | +6.8/+3.8/+3.8 | +13.2/+9.8/+10.8 |
+| Traffic | -1.6..-2.2 | +5.8/+5.9/+5.4 | +6.0/+6.1/+5.5 | +5.8/+5.9/+5.4 | +6.0/+6.0/+5.5 | +4.0/+4.0/+4.0 |
+Criterion (arm < TEFL on 3/3 seeds, per dataset): per-channel eps+D and per-channel all PASS on 5/5 datasets; pooled all
+fails ETTm2 (s3047 -0.04) and Weather (2/3). Fresh D adds to eps on ETTm1/ETTm2/Weather; per-channel heads matter on
+Weather / ETTm2 (lam2 0.1-1), not on ETTh2 / Traffic (lam2 10-100). Smallest margin ETTm1 (+0.3..+2.7).
+Codex: no leakage (feature targets <= t-1, fit targets inside train, lam on val); test moments are computed before
+selection but never enter it.
