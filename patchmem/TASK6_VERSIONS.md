@@ -646,3 +646,25 @@ compared to its own run's FC). Test MSE change vs FC %, s2024/2025/3047:
 | EL L720 | +0.10/-0.14/-0.21 | -0.19/-0.17/-0.26 | +0.22/-0.01/-0.11 | +0.32/+0.29/+0.22 | +0.36/+0.14/+0.03 | 0.53 / 0.02 |
 Criterion (J_fc 3/3, mean >= 0.3%): FAIL everywhere (EL L96 mean +0.31 but s3047 +0.20; T L96 mean +0.16).
 Global scalars help on Traffic vs per-bucket a_b (val -> test transfer), hurt on EL. FC_refit ~0: gains come from m.
+
+## Why B beats FreshCast on Traffic L720: 2x2 {candidates} x {weights} (eval_fc_vs_b.py, commit 74a1708)
+z = (l = mu_t - f, s_fc = r_FC - mu_t, s_B = sd_t v^_B); all weights global, fitted on ALL val origins, test once.
+FC = w (l + s_fc) clipped | FC_ac = a l + c s_fc | B_w = w (l + s_B) | B = a l + c s_B | FCB = a l + c1 s_fc + c2 s_B.
+Test gain % vs base, s2024/2025/3047 (24/24 runs on V100; FC_orig / B_orig reproduce the freshcast json within 0.2):
+| L720 | FC | FC_ac | B_w | B | FCB |
+|---|---|---|---|---|---|
+| T H96 | 2.56/2.52/2.23 | 2.81/2.78/2.39 | 0.58/0.59/0.38 | 1.24/1.22/0.88 | 2.12/2.05/1.74 |
+| T H192 | 1.55/1.74/1.21 | 1.69/1.85/1.36 | 1.35/1.37/1.26 | 1.68/1.69/1.61 | 1.76/1.84/1.40 |
+| T H336 | 2.40/2.45/1.61 | 2.43/2.51/1.67 | 1.63/1.37/1.47 | 1.70/1.65/1.66 | 2.44/2.51/1.66 |
+| T H720 | 1.70/2.21/2.12 | 1.64/2.11/2.00 | -0.25/-0.35/0.11 | -0.49/-0.52/-0.14 | 1.24/1.44/1.74 |
+| EL H96 | 7.08/6.84/6.93 | 7.02/6.77/6.83 | 2.64/2.40/3.38 | 2.98/2.69/3.56 | 7.07/6.76/6.94 |
+| EL H192 | 8.16/8.39/8.44 | 8.06/8.28/8.32 | 3.97/4.02/3.61 | 4.16/4.20/3.71 | 8.23/8.38/8.36 |
+| EL H336 | 7.25/8.36/7.70 | 7.07/8.25/7.55 | 2.72/3.72/2.69 | 2.85/3.94/2.95 | 7.15/8.28/7.61 |
+| EL H720 | 6.38/5.92/6.85 | 6.11/5.74/6.87 | 2.49/2.20/2.77 | 2.70/2.52/3.40 | 6.15/5.74/6.88 |
+Criteria: weighting effect (FC_ac > FC and B > B_w, 3/3): PASS T H96/H192/H336 (FC_ac - FC only +0.03..+0.26), FAIL T H720
+and all EL (FC_ac < FC). Candidate effect (B > FC_ac and B_w > FC, 3/3): FAIL in every cell (1 of 24 runs: T H192 s3047).
+FC_ac fits a ~= c (FC's tied weight is nearly optimal for its own candidates); B fits a 0.13-0.32, c 0.09-0.28.
+B beats FC on 47-57% of Traffic channels at H192, 11-27% elsewhere on Traffic, 2-10% on EL.
+FCB (nests FC_ac) is worse than FC_ac on test at T H96 / H720 (-0.5..-0.8): adding s_B does not transfer val -> test.
+Reading: B's win at T L720 H192 is not a better candidate set or weighting; FC dips at H192 (1.2-1.7 vs 2.2-2.5 at
+H96 / H336) and is seed-unstable (s3047), while B is flat (1.6-1.7 over H192 / H336). Nothing to extend.
