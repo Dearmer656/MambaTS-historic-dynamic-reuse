@@ -14,10 +14,10 @@ O=patchmem/logs/server/err_value
 PAR=${PAR:-2}
 for x in $TASKS; do
   d=${x%%:*}; s=${x##*:}
-  [ -f $O/${d}_errval_s${s}.json ] && continue
+  [ -f $O/${d}_errval${STAGE}_s${s}.json ] && continue
   X=""; [ $d = T ] && X="--m_tr 6048 --chunk 16"
   while [ $(jobs -r | wc -l) -ge $PAR ]; do sleep 20; done
-  python -m patchmem.eval_err_value --data $d --seed $s $X > $O/${d}_errval_s${s}.txt 2>&1 || echo "FAIL $d $s" &
+  python -m patchmem.eval_err_value${STAGE} --data $d --seed $s $X > $O/${d}_errval${STAGE}_s${s}.txt 2>&1 || echo "FAIL $d $s" &
 done
 wait
 echo done
