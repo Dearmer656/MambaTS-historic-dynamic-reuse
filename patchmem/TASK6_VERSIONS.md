@@ -668,3 +668,16 @@ B beats FC on 47-57% of Traffic channels at H192, 11-27% elsewhere on Traffic, 2
 FCB (nests FC_ac) is worse than FC_ac on test at T H96 / H720 (-0.5..-0.8): adding s_B does not transfer val -> test.
 Reading: B's win at T L720 H192 is not a better candidate set or weighting; FC dips at H192 (1.2-1.7 vs 2.2-2.5 at
 H96 / H336) and is seed-unstable (s3047), while B is flat (1.6-1.7 over H192 / H336). Nothing to extend.
+
+## decomp2 Pd_err: PaTH carry driven by error features (eval_decomp2.py, commits c6d5286 / 8b057ef, job 12873 + laptop task 7)
+Pd_err x = (per-bucket mean D[k]/sd_t, its change from k-1, dmu, dlogsd), train-tail standardized, clip +-5; Pd x = 96-step window.
+Test gain % vs base, s3047/2024/2025, H192 (EL L720 s2025 from laptop 2be3ef9, reproduces the cluster's shared arms exactly):
+| setting | FC | S | Pd | Pd_I | Pd_err | S(+)Pd | S(+)Pd_I | S(+)Pd_err | S->Pd_err |
+|---|---|---|---|---|---|---|---|---|---|
+| T L96 | 9.33/8.96/10.00 | 4.09/4.11/4.17 | 2.69/2.80/2.56 | 0.53/0.59/0.76 | 3.55/2.94/3.10 | 4.98/5.18/5.00 | 4.01/4.10/4.21 | 5.65/5.47/5.11 | 5.67/5.25/5.46 |
+| T L720 | 1.19/1.47/1.72 | 0.79/0.66/0.75 | 0.07/0.12/0.14 | -0.42/-0.62/-0.62 | 0.24/0.20/0.17 | 0.78/0.69/0.80 | 0.19/-0.10/-0.06 | 0.86/0.72/0.79 | 0.88/0.72/0.79 |
+| EL L96 | 14.70/13.62/14.23 | 4.25/4.20/4.29 | 2.63/3.26/2.31 | 2.70/3.76/2.95 | 3.19/3.30/3.31 | 5.36/5.67/5.29 | 5.26/5.70/5.39 | 5.63/5.63/5.73 | 5.40/5.44/5.62 |
+| EL L720 | 8.63/8.07/8.51 | 0.81/0.89/0.90 | 0.16/0.17/0.17 | 0.08/0.11/0.13 | 0.15/0.10/0.25 | 0.86/0.94/0.93 | 0.76/0.85/0.87 | 0.76/0.81/0.91 | 0.76/0.80/0.91 |
+Criterion (Pd_err > Pd and > Pd_I, 3/3): PASS T L96, T L720; FAIL EL L96 (Pd_I wins s2024), EL L720 (Pd wins s3047/2024).
+Stacked (S(+)Pd_err > S(+)Pd and > S(+)Pd_I, 3/3): PASS T L96 only (+0.67/+0.29/+0.11 over S(+)Pd); T L720 s2025 -0.01,
+EL L96 s2024 -0.04. Everything stays far below FC (best T L96 5.7 vs 9-10; EL L96 5.7 vs 14).
