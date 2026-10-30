@@ -59,7 +59,12 @@ Env:
   R1_EVAL_FROM           test-only runs (--is_training 0): load this checkpoint (strict=False, missing keys keep their init) instead of
                          the setting's own (offline arms on a trained A1 / T0-MS checkpoint)
   R1_AUDIT=0             skip the same-checkpoint inference audits after test (memory runs; default 1)
+  R1_AUDIT_FLAGS         splits audited (default 'val,test'; 'train,val,test' adds the training split, every R1_AUDIT_TRAIN_STRIDE-th
+                         window, default 8: is the in-context gain specific to the shifted test period?)
   R1_AUDIT_GRID          audit grid 'L:H,...' (default: the test grid); R1_AUDIT_PERM_REPS random key-value pairings (default 3)
+  R1_ICL_XAUDIT=a,b,..   R1TeflICL (PAT-313): extra audits iclconst | iclswap<d> | iclproj_{const,lin,daily,common} (needs one audit
+                         cell, R1_ICL_CASEDUMP=<prefix> for the Delta_t / error dumps, R1_ICL_PERIOD for the daily basis)
+  R1_ICL_WDUMP=<prefix>  R1TeflICL: save the normal pass's demo weights per audited split and (L, H) (r1_tefl_icl.py)
   R1_LOG_DIR             root for param snapshots / diagnostics (default patchmem/logs)
 The training loss is the forecast MSE over the sampled horizon (+ lambda_hist * L_hist). L_hist is in-window auxiliary supervision:
 the lookback's RevIN statistics already include x_(t+1), so it is NOT an online per-origin evaluation. L_corr (writer loss) is in the
@@ -313,6 +318,8 @@ class Exp_R1(Exp_Long_Term_Forecast):
                     pred = m(bx, H // P, trace=tr)['pred']
                 m.diag = False
                 err = pred - y
+                if getattr(self, 'errlog', None) is not None:                            # PAT-313 per-window errors (data scale)
+                    self.errlog.append(err.float().cpu())
                 acc['mse'] += err.square().sum().item(); acc['mae'] += err.abs().sum().item(); acc['n'] += err.numel()
                 var_se += err.square().sum((0, 1)).cpu()
                 ek = err.reshape(err.shape[0], H // P, P, -1)
@@ -568,18 +575,58 @@ class Exp_R1(Exp_Long_Term_Forecast):
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('perm', 'perm', 0)] + ([('recent2', 'recent', 0)] if m.hc == 0 else [])
             if isinstance(m, R1TeflICL):
                 modes += [('icloff', 'icloff', 0)] + [(f'iclperm{s}', 'iclperm', s) for s in range(reps)]
+                xa = [x for x in os.environ.get('R1_ICL_XAUDIT', '').split(',') if x]   # PAT-313 case audits (after normal + icloff)
+                modes += [(x, x, 0) for x in xa]
+                m.case_bank = any(x.startswith('iclswap') for x in xa)
+                m.case_period = int(os.environ.get('R1_ICL_PERIOD', '0'))
+                m.sel_phase = [int(x) for x in os.environ.get('R1_ICL_SELPHASE', '').split(',') if x]
         else:
             modes = [('normal', None, 0), ('zero', 'zero', 0), ('uniform', 'uniform', 0)] + [(f'perm{s}', 'perm', s) for s in range(reps)]
             if getattr(m.obs_net, 'path', False) or getattr(m.obs_net, 'vpath', False):                                       # O-PaTH: path removed at inference
                 modes.append(('noH', 'noH', 0))
             if getattr(m.obs_net, 'forget', False):
                 modes.append(('noF', 'noF', 0))
+        if isinstance(m, R1TeflICL) and m.variant == 'hybatt':                         # PAT-313: learned lag bias / temperature
+            print(f'[R1 hybatt] tau {m.log_tau.exp().item():.4f} eta ' + ' '.join(f'{v:.4f}' for v in m.eta.tolist()) + ' | b_lag by lag ' +
+                  ' '.join(f'{i}:{v:+.3f}' for i, v in enumerate(m.b_lag.tolist())), flush=True)
         order = self.eval_order()
-        for flag in ('val', 'test'):
+        for flag in os.environ.get('R1_AUDIT_FLAGS', 'val,test').split(','):
             out = {}
+            st = int(os.environ.get('R1_AUDIT_TRAIN_STRIDE', '8')) if flag == 'train' else 1
             for name, mode, seed in modes:
                 m.set_audit(mode, seed)
-                out[name] = self.eval_grid(flag, g)
+                case = isinstance(m, R1TeflICL) and bool(os.environ.get('R1_ICL_XAUDIT')) and (name in ('normal', 'icloff') or name.startswith(('iclsel', 'icl2l')))
+                if case:                                                                 # PAT-313: one (L, H) cell, split read in order
+                    assert len(g) == 1 and st == 1, 'R1_ICL_XAUDIT needs one audit cell and stride 1'
+                    m.case_collect, self.errlog = name == 'normal', []
+                    m.sel_wdump = [] if name in ('iclsel', 'iclsel1') else None
+                if name == 'normal' and os.environ.get('R1_ICL_WDUMP') and isinstance(m, R1TeflICL):   # one (L, H) per dump file
+                    out[name] = {}
+                    for cell in g:
+                        m.wlog = []
+                        out[name].update(self.eval_grid(flag, [cell], stride=st))
+                        torch.save(torch.cat(m.wlog), f"{os.environ['R1_ICL_WDUMP']}_{flag}_L{cell[0]}H{cell[1]}.pt")
+                    m.wlog = None
+                else:
+                    out[name] = self.eval_grid(flag, g, stride=st)
+                if isinstance(m, R1TeflICL) and name.startswith('iclsel') and m.sel_log:   # PAT-313 point 6: mean set weights
+                    wm = torch.stack(m.sel_log).mean(0).tolist()
+                    print(f'[R1Mem audit {flag} {name} set weights] ' + ' '.join(f'{k_} {v_:.3f}' for k_, v_ in zip(m.SEL_SETS, wm)), flush=True)
+                    m.sel_log = []
+                if case:
+                    pre = f"{os.environ['R1_ICL_CASEDUMP']}_{flag}_L{g[0][0]}H{g[0][1]}"
+                    if name == 'normal':
+                        torch.save(dict(icl=m.finalize_case(), err=torch.cat(self.errlog)), f'{pre}_normal.pt')
+                        m.case_collect = False
+                    elif name == 'icloff':
+                        torch.save(dict(err=torch.cat(self.errlog)), f'{pre}_icloff.pt')
+                    else:                                                                # iclsel*: errors (+ per-window set weights)
+                        dd = dict(err=torch.cat(self.errlog))
+                        if m.sel_wdump:
+                            dd['w'] = torch.cat(m.sel_wdump, 1)                          # (S, N, C)
+                        torch.save(dd, f'{pre}_{name}.pt')
+                        m.sel_wdump = None
+                    self.errlog = None
             m.set_audit(None)
             assert self.eval_order() == order, 'audit changed the scan order'
             for (L, H) in g:

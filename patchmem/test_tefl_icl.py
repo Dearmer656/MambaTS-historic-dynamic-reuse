@@ -3,7 +3,7 @@ backbone needs the CUDA scan)."""
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
-from patchmem.r1_tefl_icl import R1TeflICL, demos, demos_ced
+from patchmem.r1_tefl_icl import R1TeflICL, demos, demos_ced, permute_valid, lb_pairs
 
 
 def fake_E(b=2, T=20, K=3, C=2, P=4):
@@ -36,9 +36,19 @@ def test_demos_no_leak_and_query():
 def stub(variant, n=4, C=2, K=3, P=4, r=5, b=3):
     din = K * P
     s = SimpleNamespace(variant=variant, audit=None, hmax=K, ridge_rel=None, nshrink=0.0, icl_gen=torch.Generator().manual_seed(0),
+                        perm_gen=torch.Generator().manual_seed(1), wlog=None, win_ptr=0, case_collect=False, case_period=6, case_bank=True,
+                        _bank=[], _icl_log=[], bank=None, icl_mean=None, sel_phase=[3, 5], sel_log=[], K_last=K,
+                        SEL_SETS=R1TeflICL.SEL_SETS, sel_wdump=None, selw_cache={},
                         W1=nn.Linear(din, r, bias=False), W2=nn.Linear(r, din, bias=False),
                         Wq=nn.Linear(din, r, bias=False), Wk=nn.Linear(din, r, bias=False), eta=nn.Parameter(torch.ones(K)))
     s.phi = lambda e, role: R1TeflICL.phi(s, e, role)
+    s.case_transform = lambda a: R1TeflICL.case_transform(s, a)
+    s.case_basis = lambda kind, n, dev: R1TeflICL.case_basis(s, kind, n, dev)
+    s.finalize_case = lambda: R1TeflICL.finalize_case(s)
+    s.sel_masks = lambda *a: R1TeflICL.sel_masks(s, *a)
+    s.sel_fit = lambda *a: R1TeflICL.sel_fit(s, *a)
+    s.sel_correct = lambda *a, **kw: R1TeflICL.sel_correct(s, *a, **kw)
+    s.two_layer = lambda *a, **kw: R1TeflICL.two_layer(s, *a, **kw)
     g = torch.Generator().manual_seed(1)
     s.demo = dict(k=torch.randn(b, n, C, din, generator=g), v=torch.randn(b, n, C, din, generator=g), mask=torch.ones(b, n, dtype=torch.bool))
     delta, eps = torch.randn(b, C, K, P, generator=g), torch.randn(b, C, din, generator=g)
@@ -195,3 +205,240 @@ if __name__ == '__main__':
     test_k_follow_padding_invariant()
     test_demos_no_leak_and_query(); test_id_one_demo_equal_key_returns_value(); test_formula_bounded_and_mask()
     test_hyb_starts_from_w2_and_offs(); test_iclperm_keeps_values_set_and_grads_finite(); print('ok')
+
+
+def test_hybmean_query_free_and_formula():
+    s, d, e = stub('hybmean')
+    s.demo['mask'][0, 2:] = False
+    out = R1TeflICL.extra_delta(s, d, e, None)
+    k = torch.relu(s.W1(s.demo['k'])); r = s.demo['v'] - s.W2(k)
+    m = s.demo['mask'][:, :, None].float()
+    w = k.norm(dim=-1) * m                                                                          # |phi(k_j)| on valid demos
+    ref = (w[..., None] * r).sum(1) / (w.sum(1)[..., None] + 1e-6)
+    assert torch.allclose((out - d).reshape(e.shape), ref, atol=1e-4)
+    out2 = R1TeflICL.extra_delta(s, d, torch.randn_like(e) * 3, None)
+    assert torch.allclose(out, out2, atol=1e-4)                                                     # no query dependence
+
+
+def test_hybperm_breaks_pairing_keeps_set():
+    g = torch.Generator().manual_seed(5)
+    v = torch.arange(2 * 6).float().view(2, 6, 1, 1).expand(2, 6, 2, 3).clone()
+    mask = torch.ones(2, 6, dtype=torch.bool); mask[1, 4:] = False
+    pv = permute_valid(v, mask, g)
+    assert torch.equal(pv[0, :, 0, 0].sort().values, v[0, :, 0, 0])                                 # same multiset
+    assert torch.equal(pv[1, 4:], v[1, 4:]) and torch.equal(pv[1, :4, 0, 0].sort().values, v[1, :4, 0, 0])   # invalid rows fixed
+    assert not torch.equal(pv, v)
+    s, d, e = stub('hybperm', n=1)
+    s1, _, _ = stub('hyb', n=1)
+    s1.W1, s1.W2, s1.demo = s.W1, s.W2, s.demo
+    assert torch.allclose(R1TeflICL.extra_delta(s, d, e, None), R1TeflICL.extra_delta(s1, d, e, None))   # 1 demo: nothing to permute
+    s, d, e = stub('hybperm', n=6)
+    s1, _, _ = stub('hyb', n=6)
+    s1.W1, s1.W2, s1.demo = s.W1, s.W2, s.demo
+    assert not torch.allclose(R1TeflICL.extra_delta(s, d, e, None), R1TeflICL.extra_delta(s1, d, e, None))
+
+
+def test_wdump_records_weights_without_changing_output():
+    s, d, e = stub('hyb', n=5)
+    a = R1TeflICL.extra_delta(s, d, e, None)
+    s.wlog = []
+    b = R1TeflICL.extra_delta(s, d, e, None)
+    assert torch.equal(a, b) and len(s.wlog) == 1 and s.wlog[0].shape == (3, 5)
+    q, k = torch.relu(s.W1(e)), torch.relu(s.W1(s.demo['k']))
+    w = (k * q[:, None]).sum(-1) / (q.norm(dim=-1)[:, None] * k.norm(dim=-1).sum(1)[:, None] + 1e-6)
+    assert torch.allclose(s.wlog[0], w.mean(-1), atol=1e-5)
+    s.audit = 'iclperm'
+    R1TeflICL.extra_delta(s, d, e, None)
+    assert len(s.wlog) == 1                                                                         # audits are not recorded
+
+
+def _run(s, d, e, audit=None):
+    s.audit = audit
+    return R1TeflICL.extra_delta(s, d, e, None)
+
+
+def test_case_collect_const_and_swap():
+    """normal pass banks demos + logs Delta; iclconst = the mean Delta; iclswap0 = normal; iclswap1 uses the previous window's demos."""
+    s, d, e = stub('hyb', n=4, b=3)
+    s.case_collect = True; s.win_ptr = 0
+    out = _run(s, d, e)
+    icl = R1TeflICL.finalize_case(s)
+    s.case_collect = False
+    assert s.bank[0].shape == (3, 4, 2, 12) and icl.shape == (3, 2, 12)
+    assert torch.allclose((out - d).reshape(3, 2, 12), icl, atol=1e-5)
+    s.win_ptr = 0
+    const = _run(s, d, e, 'iclconst')
+    assert torch.allclose((const - d).reshape(3, 2, 12), icl.float().mean(0, keepdim=True).expand(3, 2, 12), atol=1e-5)
+    s.win_ptr = 0
+    assert torch.allclose(_run(s, d, e, 'iclswap0'), out, atol=1e-5)                                # fp32 bank: exact
+    s.win_ptr = 0
+    sw = _run(s, d, e, 'iclswap1')
+    D0 = dict(s.demo)
+    s.demo = dict(k=D0['k'][[2, 0, 1]], v=D0['v'][[2, 0, 1]], mask=D0['mask'][[2, 0, 1]])           # window i gets window i-1 (mod 3)
+    s.win_ptr = 0
+    ref = _run(s, d, e)
+    s.demo = D0
+    assert torch.allclose(sw, ref, atol=1e-5) and s.win_ptr == 3
+
+
+def test_case_projections():
+    s, _, _ = stub('hyb')
+    t = torch.arange(12.)
+    lin = (2 + 0.5 * t)[None, None].expand(3, 2, 12)
+    sinus = torch.sin(2 * torch.pi * t / 6)[None, None].expand(3, 2, 12)
+    s.audit = 'iclproj_const'
+    assert torch.allclose(R1TeflICL.case_transform(s, lin), lin.mean(-1, keepdim=True).expand_as(lin), atol=1e-4)
+    s.audit = 'iclproj_lin'
+    assert torch.allclose(R1TeflICL.case_transform(s, lin), lin, atol=1e-4)
+    assert R1TeflICL.case_transform(s, sinus).abs().max() < 0.6                                       # not in span(const, lin)
+    s.audit = 'iclproj_daily'
+    assert torch.allclose(R1TeflICL.case_transform(s, lin + sinus), lin + sinus, atol=1e-4)
+    x = torch.randn(3, 2, 12)
+    s.audit = 'iclproj_common'
+    assert torch.allclose(R1TeflICL.case_transform(s, x), x.mean(1, keepdim=True).expand_as(x))
+    s.audit = None
+    assert torch.equal(R1TeflICL.case_transform(s, x), x)
+
+
+def test_sel_masks_and_fit():
+    s, d, e = stub('hyb', n=10, b=2)                                                                 # K = 3, query origin j0 = n + K - 1 = 12
+    q = torch.relu(s.W1(e)); k = torch.relu(s.W1(s.demo['k'])); v = s.demo['v'] - s.W2(k)
+    Phi, R = k.permute(0, 2, 1, 3), v.permute(0, 2, 1, 3)
+    valid = torch.ones(2, 10, dtype=torch.bool)
+    sets, base = R1TeflICL.sel_masks(s, Phi, q, 12, valid)
+    assert bool(base.all())                                                                         # every demo has lag >= K at j0
+    lag = 12 - torch.arange(10)
+    assert torch.equal(sets['recent4'][0, 0], (lag >= 3) & (lag < 7))
+    assert torch.equal(sets['phase'][0, 0], (lag == 3) | (lag == 5))
+    assert int(sets['topk8'][0, 0].sum()) == 8
+    sp, bp = R1TeflICL.sel_masks(s, Phi, Phi[:, :, 6], 6, valid)                                    # pseudo-query at demo 6: j <= 3 usable
+    assert torch.equal(bp[0, 0], torch.arange(10) <= 3)
+    # ridge on a subset == explicit per-(b, c) dual ridge
+    M = sets['recent4']
+    out = R1TeflICL.sel_fit(s, Phi, R, q, M, base, False, 3, 4)
+    for bi in range(2):
+        for ci in range(2):
+            idx = M[bi, ci].nonzero().squeeze(-1)
+            F, Y = Phi[bi, ci, idx].double(), R[bi, ci, idx].double()
+            lam = Phi[bi, ci].square().sum(-1).mean().double()
+            ref = Y.T @ torch.linalg.solve(F @ F.T + lam * torch.eye(len(idx), dtype=torch.float64), F @ q[bi, ci].double())
+            assert torch.allclose(out[bi, ci].double(), ref, atol=1e-4)
+    # one GD step on all demos == hyb's own ICL term
+    add = R1TeflICL.sel_fit(s, Phi, R, q, base, base, True, 3, 4)
+    full = (R1TeflICL.extra_delta(s, d, e, None) - d).reshape(2, 2, 12)
+    assert torch.allclose(add, full, atol=1e-5)
+
+
+def test_iclsel_modes_run():
+    s, d, e = stub('hyb', n=10, b=2)
+    for mode in ('iclsel', 'iclsel1', 'iclselfix_phase'):
+        s.win_ptr = 0
+        out = _run(s, d, e, mode)
+        assert out.shape == d.shape and torch.isfinite(out).all() and s.win_ptr == 2, mode
+    assert len(s.sel_log) == 2 and torch.allclose(s.sel_log[0].sum(), torch.tensor(1.0), atol=1e-5)
+
+
+def test_iclsel_controls():
+    s, d, e = stub('hyb', n=10, b=2)
+    outs = {}
+    for mode in ('iclselavg1', 'iclselfix1_all', 'iclselfix1_recent4', 'iclselfix1_phase', 'iclselfix1_topk8', 'iclsel1'):
+        s.win_ptr = 0
+        if mode == 'iclsel1':
+            s.sel_wdump = []
+        outs[mode] = _run(s, d, e, mode) - d
+    avg = sum(outs[f'iclselfix1_{k}'] for k in R1TeflICL.SEL_SETS) / 4
+    assert torch.allclose(outs['iclselavg1'], avg, atol=1e-5)                                        # uniform mix of the fixed sets
+    full = (_run(s, d, e, None) - d)
+    assert torch.allclose(outs['iclselfix1_all'], full, atol=1e-5)                                   # one GD step on all = hyb
+    w = s.sel_wdump[0]
+    assert w.shape == (4, 2, 2) and torch.allclose(w.sum(0), torch.ones(2, 2), atol=1e-5)
+    mix = sum(w[i][..., None, None] * outs[f'iclselfix1_{k}'] for i, k in enumerate(R1TeflICL.SEL_SETS))
+    assert torch.allclose(outs['iclsel1'], mix, atol=1e-5)                                          # validated mix of the same fits
+
+
+def test_iclselw_given_weights(tmp_path, monkeypatch):
+    s, d, e = stub('hyb', n=10, b=2)
+    W = torch.softmax(torch.randn(4, 5, 2, generator=torch.Generator().manual_seed(3)), 0)       # (S, N = 5 windows, C)
+    torch.save(W, tmp_path / 'w_x.pt')
+    monkeypatch.setenv('R1_ICL_SELW', str(tmp_path / 'w'))
+    s.win_ptr = 3                                                                                   # windows 3, 4
+    out = _run(s, d, e, 'iclselw_x') - d
+    fx = []
+    for k in R1TeflICL.SEL_SETS:
+        s.win_ptr = 0
+        fx.append(_run(s, d, e, f'iclselfix1_{k}') - d)
+    ref = sum(W[i, 3:5][:, :, None, None] * fx[i] for i in range(4))
+    assert torch.allclose(out, ref, atol=1e-5)
+
+
+def test_hybatt_softmax_lag_prior(monkeypatch):
+    import math
+    s, d, e = stub('hybatt', n=10, b=2)                                                              # K = 3, lags 12 .. 3
+    s.K_last = 3
+    s.b_lag = nn.Parameter(torch.zeros(16)); s.log_tau = nn.Parameter(torch.tensor(math.log(1e6)))
+    out = R1TeflICL.extra_delta(s, d, e, None)
+    k = torch.relu(s.W1(s.demo['k'])); r = s.demo['v'] - s.W2(k)
+    ref = r.mean(1)                                                                                  # flat logits -> uniform mean
+    assert torch.allclose((out - d).reshape(2, 2, 12), ref, atol=1e-4)
+    with torch.no_grad():
+        s.b_lag[6] = 50.0                                                                            # only lag 6 = demo j = 12 - 6 = 6
+    out = R1TeflICL.extra_delta(s, d, e, None)
+    assert torch.allclose((out - d).reshape(2, 2, 12), r[:, 6], atol=1e-4)
+    out.sum().backward()
+    assert s.b_lag.grad is not None and torch.isfinite(s.b_lag.grad).all() and s.log_tau.grad is not None
+
+
+def test_two_layer_matches_autograd_step():
+    s, d, e = stub('hyb', n=6, b=2)
+    d0 = s.W2(torch.relu(s.W1(e))).reshape(d.shape).detach()                                        # TEFL delta, as the model passes it
+    s.win_ptr = 0
+    hyb = _run(s, d0, e, None)
+    s.win_ptr = 0
+    assert torch.allclose(_run(s, d0, e, 'icl2l_0'), hyb, atol=1e-5)                                # a1 = 0 == hyb
+    a1 = 0.7
+    out1 = _run(s, d0, e, 'icl2lw1_0.7').reshape(2, 2, 12)
+    for bi in range(2):
+        for ci in range(2):
+            K = s.demo['k'][bi, :, ci]; V = s.demo['v'][bi, :, ci]
+            W1 = s.W1.weight.detach().clone().requires_grad_(True)
+            loss = 0.5 * (V - torch.relu(K @ W1.T) @ s.W2.weight.detach().T).square().sum()
+            gW, = torch.autograd.grad(loss, W1)
+            W1n = W1.detach() - a1 * gW / K.square().sum()                                           # normalised GD step
+            ref = torch.relu(e[bi, ci] @ W1n.T) @ s.W2.weight.detach().T
+            assert torch.allclose(out1[bi, ci], ref, atol=1e-4), (bi, ci)
+
+
+def test_z2_normalisation():
+    s, d, e = stub('hyb', n=6, b=2)
+    d0 = s.W2(torch.relu(s.W1(e))).reshape(d.shape).detach()
+    s.win_ptr = 0
+    out = _run(s, d0, e, 'icl2lz_0_1').reshape(2, 2, 12)
+    k = torch.relu(s.W1(s.demo['k'])); q = torch.relu(s.W1(e)); r = s.demo['v'] - s.W2(k)
+    for bi in range(2):
+        for ci in range(2):
+            K, R = k[bi, :, ci], r[bi, :, ci]
+            W2n = s.W2.weight + (R.T @ K) / K.square().sum()                                            # eta = 1: NLMS step on W2
+            assert torch.allclose(out[bi, ci], W2n @ q[bi, ci], atol=1e-4)
+    s2, d2, e2 = stub('hybz', n=6, b=2)
+    s2.W1, s2.W2, s2.demo = s.W1, s.W2, s.demo
+    s.win_ptr = 0
+    assert torch.allclose(R1TeflICL.extra_delta(s2, d0, e, None), _run(s, d0, e, 'icl2lz_0_1'), atol=1e-5)   # hybz == icl2lz a1 = 0
+
+
+def test_lb_pairs_windows():
+    """R1_ICL_LB demos: window ends s = lb..L-K*P (step P), each fkv call sees x[s-lb:s] and its future x[s:s+K*P] of the right sample;
+    the last demo's future ends exactly at L (all values observed, nothing beyond the input)."""
+    b, L, c, P, K, lb = 2, 40, 3, 4, 2, 12
+    x = torch.arange(b * L * c, dtype=torch.float).reshape(b, L, c)
+    def fkv(w, y, si):
+        assert w.shape[1:] == (lb, c) and y.shape[1:] == (K * P, c)
+        assert torch.equal(y[:, 0] - w[:, -1], torch.full_like(y[:, 0], c))            # future starts right after the window
+        assert torch.equal(((w[:, 0, 0] // c) // L).long(), si)                           # sample index
+        return w[:, -1, :, None].expand(-1, c, K * P), y[:, -1, :, None].expand(-1, c, K * P)   # key: last input, value: last target
+    D = lb_pairs(x, lb, K, P, fkv, chunk=3)
+    ends = list(range(lb, L - K * P + 1, P))
+    assert D['k'].shape == (b, len(ends), c, K * P) and bool(D['mask'].all())
+    for m, s_ in enumerate(ends):
+        assert torch.equal(D['k'][:, m, :, 0], x[:, s_ - 1]) and torch.equal(D['v'][:, m, :, 0], x[:, s_ + K * P - 1])
+    assert torch.equal(D['v'][:, -1, :, 0], x[:, L - 1])
+    assert lb_pairs(x[:, :lb + K * P - 1], lb, K, P, fkv) is None

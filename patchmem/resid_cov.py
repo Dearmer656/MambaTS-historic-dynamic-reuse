@@ -45,6 +45,13 @@ CFG = {
               a0='--model MambaTS --e_layers 2 --dropout 0.3 --batch_size 8 --learning_rate 0.001',
               a0id='weather_{L}_336', a0ck='long_term_forecast_weather_{L}_336_MambaTS_custom_ftM_sl{L}_ll48_pl336_dm32_nh16_el2_dl2_df512_fc1_ebtimeF_dtTrue_ExpA0s3047_0',
               a0log='A0_W_L{L}_H336_s3047.txt', r1log='W_A1_s3047.txt'),
+    'T': dict(common='--task_name long_term_forecast --is_training 0 --root_path ./dataset/traffic32 --data_path traffic32.csv --target 856 '
+                     '--enc_in 32 --dec_in 32 --c_out 32 --data custom --features M --label_len 48 --pred_len 336 --d_layers 2 --factor 1 '
+                     '--itr 1 --n_heads 16 --d_model 32 --d_ff 512 --patch_len 48 --stride 48 --VPT_mode 1 --ATSP_solver SA',
+              r1='--model_id traffic32_r1 --model MambaTS --seq_len 1440 --e_layers 3 --dropout 0.2 --batch_size 8 --learning_rate 0.0005',
+              r1des='R1Th0s3047', r1ck='long_term_forecast_traffic32_r1_MambaTS_custom_ftM_sl1440_ll48_pl336_dm32_nh16_el3_dl2_df512_fc1_ebtimeF_dtTrue_R1Th0s3047_0',
+              r1log='T_A1_s3047.txt',
+              a0='--model MambaTS --e_layers 3 --dropout 0.2 --batch_size 8 --learning_rate 0.0005'),          # a0_job.sbatch T (2026-10-25)
 }
 
 

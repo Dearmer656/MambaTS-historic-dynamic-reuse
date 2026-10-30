@@ -25,6 +25,27 @@ key='ced' ('id' / 'ridge' only; the 2x2 vs EFC-CET: row vs anti-diagonal feature
   origin o is EFC's causal error diagonal inside the lookback, D_o[l] = E[:, o-l, lead l] (l = 1..K: the K earlier origins' errors on
   the same patch o), value v_o = E[:, o] (leads 1..K, targets o+1..o+K), o = K..T-1-K (n = T-2K, as 'row'); query D_{T-1} (errors of
   origins T-1-l on the last observed patch T-1). The default key='row' is k_j = E[:, j] above.
+Training-time controls of 'hyb' (2026-10-26, fixed before results; the inference audits showed iclperm ~ +1% on Traffic / ~0 on ETTh2):
+  variant 'hybmean': as 'hyb' with the query similarity removed: weights |phi(k_j)| / sum_j |phi(k_j)| instead of
+                 <phi(k_j), phi(q)> / (|phi(q)| sum_j |phi(k_j)|), i.e. cos(q, k_j) -> 1 (a recent-residual mean; same scale, no selection).
+  variant 'hybperm': as 'hyb' with the demo residuals v_j - W2 phi(k_j) permuted among the sample's valid demos at every forward
+                 (training and evaluation; pairing broken, residual set kept). Its iclperm audit is not informative (already unpaired).
+PAT-313 case analysis (2026-10-26, fixed before results; inference audits on a trained hyb, R1_ICL_XAUDIT in exp_r1.py): the normal
+  pass banks every window's demos (fp32, CPU) and logs Delta_t (the ICL term); then iclconst (Delta_t -> its pass mean), iclswap<d> (demos of
+  window (i - d) mod N, query and TEFL part kept), iclproj_{const,lin,daily,common} (Delta_t projected; daily period R1_ICL_PERIOD).
+  Windows are indexed by win_ptr (eval order, reset by set_audit), so the audited split must be read in order (stride 1).
+  Point 6 (select then adapt): iclsel / iclsel1 / iclselfix_{all,recent4,phase,topk8} (sel_correct; phase lags R1_ICL_SELPHASE);
+  controls iclselavg / iclselavg1 (uniform 1/4 mix) and iclselfix1_<set> (one GD step on one set); per-window weights -> sel_wdump;
+  iclselw_<tag>: one-step set fits mixed with given per-window weights from <R1_ICL_SELW>_<tag>.pt (S, N, C) (causal Hedge, offline).
+Two-layer test-time update (PAT-313, 2026-10-26; audits icl2l_<a1> / icl2lw1_<a1>, two_layer()): one GD step on W1 and on W2 per window;
+  icl2lz_<a1>_<a2>: layer 2 normalised by Z2 = sum_j |h'_j|^2 (NLMS, as Z1 = sum_j |k_j|^2 for layer 1), step a2 * eta.
+Variant 'hybz': hyb trained with the NLMS normalisation Z2 = sum_j |phi(k_j)|^2 instead of |phi(q)| sum_j |phi(k_j)|.
+Variant 'hybatt' (PAT-313, 2026-10-26): hyb with the GD-step weights replaced by a softmax over demos,
+  a_j = softmax_j(cos(phi(k_j), phi(q)) / tau + b_lag[t - j]), b_lag learned and initialised to log(R1_ICL_KAPPA) on the phase-aligned lags
+  R1_ICL_LAGPRIOR (else 0), tau learned (init R1_ICL_TAU); Delta = eta * sum_j a_j r_j (eta init 0: starts at TEFL).
+Weight dump (2026-10-26, diagnostic): with R1_ICL_WDUMP=<prefix>, Exp_R1.audit records the GD-step demo weights
+  <phi(k_j), phi(q)> / (|phi(q)| sum_j |phi(k_j)|) (mean over variables) of the normal pass per split -> <prefix>_<split>_L<L>H<H>.pt
+  (demo j = in-window origin patch j; query origin T-1-K; lag in patches = T-1-K-j).
 Shrinkage (2026-10-25, fixed before results):
   ridge_rel = s: ridge lam = s * mean_j |k_j|^2 over the valid demos (per sample / variable) instead of the absolute RIDGE_LAM;
                  s in {1, 10, 100, 1000} traces closed-form ridge (small s) -> scaled one-step GD (large s); unset = old lam 1.
@@ -36,10 +57,29 @@ Errors are detached (stop-gradient, as T0-MS). If the query origin is invalid (p
 too, so the ICL term is 0. Inference audits (on top of R1Tefl's zero / perm; 'perm' swaps only the query for a distant window's,
 the demos stay the window's own): 'icloff' (ICL term removed; 'hyb' -> its TEFL part), 'iclperm' (values permuted
 across the window's demos: pairing broken, the demo set and its mean kept)."""
+import math
+import os
 import torch
 import torch.nn as nn
 RIDGE_LAM = 1.0                                                                          # EFC-CET's lambda (normalised errors)
 from patchmem.r1_msres import R1TeflMS, multistep_residuals
+from patchmem.r1_model import R1
+
+
+HYB = ('hyb', 'hybridge', 'hybmean', 'hybperm', 'hybatt', 'hybz')                                       # variants with TEFL's trained W2 term
+
+
+def permute_valid(v, mask, gen):
+    """v (b, n, ...), mask (b, n): per sample, a random permutation of the rows among the valid demos (invalid rows stay in place)."""
+    b, n = mask.shape
+    r = torch.rand(b, n, generator=gen).to(v.device)
+    ar = (torch.arange(n, device=v.device, dtype=r.dtype)[None] / n).expand(b, n)
+    src = torch.argsort(torch.where(mask, r, 10 + ar), dim=1)                            # valid rows in random order, then invalid in place
+    dst = torch.argsort(torch.where(mask, ar, 10 + ar), dim=1)                           # valid rows in place order, then invalid in place
+    out = v.clone()
+    bi = torch.arange(b, device=v.device)[:, None]
+    out[bi, dst] = v[bi, src]
+    return out
 
 
 def demos(E, avail, K):
@@ -72,10 +112,35 @@ def demos_ced(E, avail, K):
     return eps, dict(k=flat(diag(o)).detach(), v=flat(E[:, o]).detach(), mask=mask)
 
 
+def lb_pairs(x, lb, K, P, fkv, chunk=256):
+    """PAT-313 decoupled lookback (R1_ICL_LB = lb): the forecast (and TEFL's query) uses only the last lb steps of x (b, L, C), exactly as
+    at L = lb; the demonstrations are TEFL's own (input, target) pairs taken from earlier lb-step windows inside x. For every window end
+    s = lb, lb+P, ..., L-K*P (time order), window w_s = x[s-lb:s] and its observed future y_s = x[s:s+K*P]:
+      fkv(w_s (B, lb, C), y_s (B, K*P, C), sample index (B,)) -> key (B, C, K*P) = TEFL's eps of w_s (the in-window origin one horizon
+      before s), value (B, C, K*P) = error of the backbone forecast issued at s on y_s, both in w_s's RevIN units.
+    Returns dict(k, v (b, n, C, K*P), mask (b, n)) or None (n < 1). The last demo (s = L-K*P) ends one horizon before the query's target."""
+    b, L, c = x.shape
+    s = torch.arange(lb, L - K * P + 1, P, device=x.device)
+    n = len(s)
+    if n < 1:
+        return None
+    flat = (torch.arange(b, device=x.device)[:, None] * L + s[None]).reshape(-1)         # (b*n,) sample-major window ends
+    win, fut = torch.arange(-lb, 0, device=x.device), torch.arange(K * P, device=x.device)
+    xf = x.reshape(b * L, c)
+    ks, vs = [], []
+    with torch.no_grad():                                                                # windows built per chunk (memory)
+        for i in range(0, b * n, chunk):
+            f = flat[i:i + chunk]
+            k_, v_ = fkv(xf[f[:, None] + win[None]], xf[f[:, None] + fut[None]], f // L)
+            ks.append(k_); vs.append(v_)
+    k, v = torch.cat(ks).reshape(b, n, c, K * P), torch.cat(vs).reshape(b, n, c, K * P)
+    return dict(k=k.detach(), v=v.detach(), mask=torch.ones(b, n, dtype=torch.bool, device=x.device))
+
+
 class R1TeflICL(R1TeflMS):
     def __init__(self, cfg, variant='tied', eta0=0.0, eta_learn=True, k_follow=False, key='row', ridge_rel=None, nshrink=0.0, **kw):
         super().__init__(cfg, **kw)
-        assert variant in ('id', 'tied', 'qk', 'hyb', 'ridge', 'hybridge'), variant
+        assert variant in ('id', 'tied', 'qk', 'hyb', 'ridge', 'hybridge', 'hybmean', 'hybperm', 'hybatt', 'hybz'), variant
         assert variant != 'hybridge' or ridge_rel is not None, 'hybridge needs ridge_rel'
         self.ridge_rel, self.nshrink = ridge_rel, nshrink
         assert key == 'row' or (key == 'ced' and variant in ('id', 'ridge')), (key, variant)   # ced changes eps: no TEFL map on it
@@ -89,9 +154,31 @@ class R1TeflICL(R1TeflMS):
         if variant in ('id', 'qk', 'ridge'):
             self.W1.weight.requires_grad_(False)
         self.eta = nn.Parameter(torch.full((self.hmax,), float(eta0)), requires_grad=eta_learn)
+        if variant == 'hybatt':                                                          # PAT-313: softmax over demos + lag bias, prior init
+            lmax = int(os.environ.get('R1_LMAX', '1440')) // cfg.patch_len + 1
+            prior = [int(x) for x in os.environ.get('R1_ICL_LAGPRIOR', '').split(',') if x]
+            b0 = torch.zeros(lmax)
+            b0[[l_ for l_ in prior if l_ < lmax]] = math.log(float(os.environ.get('R1_ICL_KAPPA', '4')))
+            self.b_lag = nn.Parameter(b0)                                                # bias per lag (patches) = t - j
+            self.log_tau = nn.Parameter(torch.tensor(math.log(float(os.environ.get('R1_ICL_TAU', '0.25')))))
+            print(f'R1TeflICL hybatt: lmax {lmax} prior lags {prior} kappa {os.environ.get("R1_ICL_KAPPA", "4")} '
+                  f'tau0 {self.log_tau.exp().item():.3f} | b_lag init ' + ' '.join(f'{i}:{v:.2f}' for i, v in enumerate(b0.tolist()) if v), flush=True)
         self.demo, self.icl_gen = None, torch.Generator().manual_seed(0)
+        self.perm_gen = torch.Generator().manual_seed(1)                                 # 'hybperm' training-time permutation
+        self.wlog = None                                                                  # list, set by Exp_R1.audit under R1_ICL_WDUMP
+        self.win_ptr, self.case_collect, self.case_period = 0, False, 0                    # PAT-313 case analysis (Exp_R1.audit, R1_ICL_XAUDIT)
+        self.case_bank = True                                                             # bank demos only when an iclswap mode needs them
+        self._bank, self._icl_log, self.bank, self.icl_mean = [], [], None, None
+        self.sel_phase, self.sel_log, self.K_last = [], [], self.hmax                   # PAT-313 point 6 (iclsel*)
+        self.sel_wdump = None
+        self.selw_cache = {}                                                             # iclselw_<tag>: R1_ICL_SELW_<tag>.pt
+        self._lbD = None                                                                 # R1_ICL_LB: demos of this forward (lb_pairs)
 
     def set_audit(self, mode=None, seed=0):
+        self.win_ptr = 0                                                                  # PAT-313: window index within an eval pass
+        if mode is not None and mode.startswith(('iclconst', 'iclswap', 'iclproj_', 'iclsel', 'icl2l')):
+            self.audit = mode
+            return
         if mode in ('icloff', 'iclperm'):
             self.audit = mode
             self.icl_gen = torch.Generator().manual_seed(seed)
@@ -100,6 +187,19 @@ class R1TeflICL(R1TeflMS):
 
     def forward(self, x, n_out, *a, **kw):
         self.n_out = n_out
+        lb = int(os.environ.get('R1_ICL_LB', '0'))
+        if lb and x.shape[1] > lb:                                                       # PAT-313 decoupled lookback (eval only)
+            assert kw.get('lens') is None and not self.training and not a, 'R1_ICL_LB: eval, full windows, keyword arguments'
+            K = min(n_out, self.hmax) if self.k_follow else self.hmax
+            if kw.get('perm') is None:                                                   # one scan order for demo windows and forecast
+                kw['perm'] = self.scan_order(x.shape[0], x.device)
+            pm = kw['perm']
+            self._lbD = lb_pairs(x, lb, K, self.P, lambda w, y, si: self.tefl_pair(w, y, pm[si], K),
+                                 int(os.environ.get('R1_ICL_LBCHUNK', '256')))
+            try:
+                return super().forward(x[:, -lb:], n_out, *a, **kw)
+            finally:
+                self._lbD = None
         return super().forward(x, n_out, *a, **kw)
 
     def error(self, x, xn, xo, yh, perm, means, stdev, lens=None):
@@ -111,13 +211,30 @@ class R1TeflICL(R1TeflMS):
         _, _, _, t0, tm = self.revin(x, lens)
         tok = self.embed(self.to_scan(xo, perm)).reshape(b, T * c, -1)
         E, avail = multistep_residuals(self, tok, xo, perm, tm, t0, K)                 # (b, T-1, K, C, P), (b, T-1, K)
+        self.K_last = K
         eps, self.demo = (demos_ced if self.key == 'ced' else demos)(E, avail, K)
+        if self._lbD is not None:                                                        # R1_ICL_LB: query as at L = lb, demos from lb_pairs
+            assert self.key == 'row' and self._lbD['k'].shape[-1] == K * P, 'R1_ICL_LB: row key'
+            self.demo = dict(self._lbD)
         if K < self.hmax:                                                                # zero-pad leads K+1..Hmax: W1 input size fixed
             pad = lambda e: torch.cat([e, e.new_zeros(*e.shape[:-1], (self.hmax - K) * P)], -1)
             eps = pad(eps)
             if self.demo is not None:
                 self.demo.update(k=pad(self.demo['k']), v=pad(self.demo['v']))
         return eps
+
+    def tefl_pair(self, w, y, perm, K):
+        """R1_ICL_LB demo of window w (B, lb, C) with observed future y (B, K*P, C): key = TEFL's eps of w (the K lead errors of the
+        in-window origin T-1-K, as error()), value = (y - backbone forecast issued at the end of w) in w's RevIN units. (B, C, K*P) each."""
+        B, L, c = w.shape
+        P, T = self.P, w.shape[1] // self.P
+        means, stdev, xn, _, _ = self.revin(w)
+        xo = xn.permute(0, 2, 1).reshape(B, c, T, P).permute(0, 2, 1, 3)
+        tok = self.embed(self.to_scan(xo, perm)).reshape(B, T * c, -1)
+        E, _ = multistep_residuals(self, tok, xo, perm, None, None, K)
+        key = E[:, T - 1 - K].permute(0, 2, 1, 3).reshape(B, c, K * P)
+        pred = R1.forward(self, w, K, perm=perm)['pred']                                 # (B, K*P, C) de-normalised
+        return key, ((y - pred) / stdev).transpose(1, 2)
 
     def phi(self, e, role):
         if self.variant in ('id', 'ridge'):
@@ -128,19 +245,47 @@ class R1TeflICL(R1TeflMS):
 
     def extra_delta(self, delta, eps, stdev):
         D = self.demo
-        if self.variant not in ('hyb', 'hybridge'):                                      # W2 term off (also after loading a T0-MS W2)
+        if self.variant not in HYB:                                                      # W2 term off (also after loading a T0-MS W2)
             delta = torch.zeros_like(delta)
         if D is None or self.audit == 'icloff':
+            assert D is not None or not (self.case_collect or (self.audit or '').startswith(('iclconst', 'iclswap', 'iclproj_'))), \
+                'PAT-313 case audits need demos in every window (win_ptr alignment)'
             return delta
         b, c, hmax, P = delta.shape
+        ds = int(os.environ.get('R1_ICL_DSTRIDE', '1'))                                 # PAT-313: keep every ds-th demo (latest kept)
+        if ds > 1:
+            assert not (self.audit or '').startswith(('iclsel', 'iclswap')), 'R1_ICL_DSTRIDE: lag/bank bookkeeping assumes all demos'
+            j = torch.arange(D['k'].shape[1] - 1, -1, -ds, device=D['k'].device).flip(0)
+            D = dict(k=D['k'][:, j], v=D['v'][:, j], mask=D['mask'][:, j])
+        if self.case_collect and self.case_bank and self.audit is None:                  # normal pass: bank demos (CPU fp32) for iclswap
+            self._bank.append((D['k'].float().cpu(), D['v'].float().cpu(), D['mask'].cpu()))
+        if self.audit is not None and self.audit.startswith('icl2l'):                    # PAT-313: one GD step on W1 AND W2 per window
+            parts = self.audit.split('_')
+            if parts[0] == 'icl2lz':                                                     # icl2lz_<a1>_<a2>: layer 2 normalised by Z2
+                out = self.two_layer(eps, D, a1=float(parts[1]), z2=True, a2=float(parts[2]))
+            else:
+                out = self.two_layer(eps, D, a1=float(parts[1]), layer2=parts[0] != 'icl2lw1')
+            self.win_ptr += b
+            return out.reshape(b, c, hmax, P)
+        if self.audit is not None and self.audit.startswith('iclswap'):                  # demos of window (i - d) mod N, query / TEFL kept
+            dd = int(self.audit[len('iclswap'):])
+            N = self.bank[0].shape[0]
+            idx = (torch.arange(self.win_ptr, self.win_ptr + b) - dd) % N
+            D = dict(k=self.bank[0][idx].to(D['k']), v=self.bank[1][idx].to(D['v']), mask=self.bank[2][idx].to(D['mask'].device))
         q = self.phi(eps, 'q')                                                           # (b, C, r) (zero padding: same dot / norm for 'id')
         k = self.phi(D['k'], 'k')                                                        # (b, n, C, r)
         v = D['v']                                                                       # (b, n, C, K*P)
-        if self.variant in ('hyb', 'hybridge'):
+        if self.variant in HYB:
             v = v - self.W2(k)                                                           # residual of the TEFL map on the demos
+        if self.variant == 'hybperm':
+            v = permute_valid(v, D['mask'], self.perm_gen)
         if self.audit == 'iclperm':                                                      # eval windows are unpadded: every demo valid
             assert bool(D['mask'].all()), 'iclperm assumes no masked demos'
             v = v[:, torch.randperm(v.shape[1], generator=self.icl_gen).to(v.device)]
+        if self.audit is not None and self.audit.startswith('iclsel'):                   # PAT-313 point 6: select then adapt
+            add = self.sel_correct(q, k, v, D['mask'], b, c, hmax, P)
+            self.win_ptr += b
+            return delta + add.reshape(b, c, hmax, P)
         m = D['mask'][:, :, None].to(q.dtype)                                            # (b, n, 1)
         if self.variant in ('ridge', 'hybridge'):                                        # closed-form ridge on the same demos, per variable
             kk = (k * m[..., None]).permute(0, 2, 1, 3)                                  # (b, C, n, d), masked demos -> 0 rows
@@ -153,10 +298,183 @@ class R1TeflICL(R1TeflMS):
             G = kk @ kk.transpose(-1, -2) + lam[..., None, None] * torch.eye(kk.shape[2], device=kk.device, dtype=kk.dtype)
             icl = ((q[:, :, None] @ kk.transpose(-1, -2)) @ torch.linalg.solve(G, vv)).squeeze(2)   # q K^T (K K^T + lam I)^-1 V
             return delta + icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]
-        s = (k * q[:, None]).sum(-1) * m                                                 # (b, n, C)
-        den = q.norm(dim=-1) * (k.norm(dim=-1) * m).sum(1) + 1e-6                       # (b, C)
+        if self.variant == 'hybatt':                                                     # weights softmax_j(cos / tau + b_lag[lag]) (sum 1)
+            n = k.shape[1]
+            cos = (k * q[:, None]).sum(-1) / (k.norm(dim=-1) * q.norm(dim=-1)[:, None]).clamp_min(1e-6)   # (b, n, C)
+            lag = (n + self.K_last - 1 - torch.arange(n, device=k.device)).clamp(max=self.b_lag.shape[0] - 1)
+            logit = cos / self.log_tau.exp() + self.b_lag[lag][None, :, None]
+            logit = logit.masked_fill(m <= 0, float('-inf'))
+            a = torch.softmax(logit, dim=1).nan_to_num(0.0) * m                          # all-masked windows -> 0
+            if self.wlog is not None and self.audit is None:
+                self.wlog.append(a.mean(-1).detach().float().cpu())
+            icl = (a[..., None] * v).sum(1)                                              # (b, C, K*P)
+            add = (icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]).reshape(b, c, hmax * P)
+            if self.case_collect and self.audit is None:
+                self._icl_log.append(add.detach().float().cpu())
+            add = self.case_transform(add)
+            self.win_ptr += b
+            return delta + add.reshape(b, c, hmax, P)
+        if self.variant == 'hybmean':                                                    # cos(q, k_j) -> 1: no query dependence at all
+            s = k.norm(dim=-1) * m
+            den = (k.norm(dim=-1) * m).sum(1) + 1e-6
+        else:
+            s = (k * q[:, None]).sum(-1) * m                                             # (b, n, C)
+            if self.variant == 'hybz':                                                   # NLMS step on W2: Z2 = sum_j |phi(k_j)|^2
+                den = (k.square().sum(-1) * m).sum(1) + 1e-6
+            else:
+                den = q.norm(dim=-1) * (k.norm(dim=-1) * m).sum(1) + 1e-6               # (b, C)
+        if self.wlog is not None and self.audit is None:                                 # R1_ICL_WDUMP: demo weights of the normal pass
+            self.wlog.append((s / den[:, None, :]).mean(-1).detach().float().cpu())       # (b, n) mean over variables
         icl = (s[..., None] * v).sum(1) / den[..., None]                                 # (b, C, K*P)
         if self.nshrink:                                                                 # eta * n / (n + c), n = valid demos
             nv = m[..., 0].sum(1)[:, None, None]                                         # (b, 1, 1)
             icl = icl * nv / (nv + self.nshrink)
-        return delta + icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]
+        add = (icl.reshape(b, c, hmax, P) * self.eta[None, None, :, None]).reshape(b, c, hmax * P)   # Delta_t, the ICL term
+        if self.case_collect and self.audit is None:
+            self._icl_log.append(add.detach().float().cpu())
+        add = self.case_transform(add)
+        self.win_ptr += b
+        return delta + add.reshape(b, c, hmax, P)
+
+    def two_layer(self, eps, D, a1, layer2=True, z2=False, a2=1.0):
+        """PAT-313: per-window test-time update of BOTH TEFL layers on the window's demos (k_j = E_j, v_j = E_{j+K}).
+        Layer 1: one normalised GD step on W1 of 0.5 sum_j |v_j - W2 relu(W1 k_j)|^2:
+            W1' = W1 + a1 * sum_j g_j k_j^T / sum_j |k_j|^2,  g_j = (W2^T r_j) * 1(W1 k_j > 0),  r_j = v_j - W2 relu(W1 k_j)
+            (an attention over demos with input-space scores <k_j, x> and values g_j); h'(x) = relu(W1' x).
+        Layer 2 (layer2=True): hyb's normalised GD step on W2 with the updated features h' (eta learned):
+            out = W2 h'(q) + eta * sum_j r'_j <h'_j, h'_q> / (|h'_q| sum_j |h'_j|),  r'_j = v_j - W2 h'(k_j).
+        layer2=False: out = W2 h'(q) (TEFL readout on the updated features). a1 = 0 and layer2 = True reproduces hyb.
+        Returns the full delta (b, C, K*P)."""
+        assert bool(D['mask'].all()), 'icl2l assumes unpadded eval windows (every demo valid)'
+        Kr, V = D['k'].permute(0, 2, 1, 3), D['v'].permute(0, 2, 1, 3)                  # (b, C, n, din), (b, C, n, d)
+        W1, W2 = self.W1.weight, self.W2.weight                                          # (r, din), (d, r)
+        pre_k = Kr @ W1.T                                                                # (b, C, n, r)
+        r_ = V - torch.relu(pre_k) @ W2.T
+        g = (r_ @ W2) * (pre_k > 0).to(Kr.dtype)                                         # dL/d(pre) (negated): (b, C, n, r)
+        norm = Kr.square().sum((-1, -2)).clamp_min(1e-12)[..., None, None]               # sum_j |k_j|^2, (b, C, 1, 1)
+        pre_k2 = pre_k + a1 * (Kr @ Kr.transpose(-1, -2)) @ g / norm                     # W1' k_i
+        pre_q2 = eps @ W1.T + a1 * ((eps[:, :, None, :] @ Kr.transpose(-1, -2)) @ g).squeeze(2) / norm[..., 0]   # W1' q
+        hk, hq = torch.relu(pre_k2), torch.relu(pre_q2)
+        out = hq @ W2.T                                                                  # (b, C, d)
+        if layer2:
+            b, c, d = out.shape
+            r2 = V - hk @ W2.T
+            s_ = (hk * hq[:, :, None]).sum(-1)                                           # (b, C, n)
+            if z2:                                                                       # NLMS: Z2 = sum_j |h'_j|^2 (as Z1 for layer 1)
+                den = hk.square().sum((-1, -2)) + 1e-6
+            else:                                                                        # hyb's normalisation |h'_q| sum_j |h'_j|
+                den = hq.norm(dim=-1) * hk.norm(dim=-1).sum(-1) + 1e-6
+            icl = (s_[..., None] * r2).sum(-2) / den[..., None]
+            out = out + a2 * (icl.reshape(b, c, self.hmax, -1) * self.eta[None, None, :, None]).reshape(b, c, d)
+        return out
+
+    SEL_SETS = ('all', 'recent4', 'phase', 'topk8')
+
+    def sel_masks(self, Phi, x, qpos, valid):
+        """Demo sets (b, C, n) bool for a query at origin qpos with features x (b, C, r): lag = qpos - j, usable iff lag >= K."""
+        b, C, n, _ = Phi.shape
+        j = torch.arange(n, device=Phi.device)
+        lag = qpos - j
+        base = ((lag >= self.K_last)[None, None] & valid[:, None, :]).expand(b, C, n)
+        ph = torch.zeros(n, dtype=torch.bool, device=Phi.device)
+        for l_ in self.sel_phase:
+            ph |= lag == l_
+        sets = dict(all=base, recent4=base & (lag < self.K_last + 4)[None, None], phase=base & ph[None, None])
+        sim = (Phi @ x[..., None]).squeeze(-1).masked_fill(~base, float('-inf'))
+        kk = int(min(8, base[0, 0].sum()))
+        tk = torch.zeros_like(base)
+        tk.scatter_(-1, sim.topk(kk, -1).indices, True)
+        sets['topk8'] = tk & base
+        return {k_: torch.where(m_.any(-1, keepdim=True), m_, base) for k_, m_ in sets.items()}, base   # empty row -> all usable
+
+    def sel_fit(self, Phi, R, x, M, base, onestep, hmax, P):
+        """Delta for features x from the demos in M: converged ridge in dual form (lam = mean |phi|^2 over the usable demos) or hyb's
+        normalised one GD step restricted to M (times eta). Phi (b, C, n, r), R (b, C, n, d), x (b, C, r) -> (b, C, d)."""
+        Mf = M.to(Phi.dtype)
+        Pm = Phi * Mf[..., None]
+        if not onestep:
+            Pm = Pm.double()
+        if onestep:
+            s_ = (Pm @ x[..., None]).squeeze(-1)
+            den = x.norm(dim=-1) * (Phi.norm(dim=-1) * Mf).sum(-1) + 1e-6
+            out = (s_[..., None] * R).sum(-2) / den[..., None]
+            b, C, d = out.shape
+            return (out.reshape(b, C, hmax, P) * self.eta[None, None, :, None]).reshape(b, C, d)
+        bf = base.to(Phi.dtype)
+        lam = ((Phi.square().sum(-1) * bf).sum(-1) / bf.sum(-1).clamp_min(1)).clamp_min(1e-6)        # (b, C)
+        n = Phi.shape[2]
+        G = Pm @ Pm.transpose(-1, -2) + lam.double()[..., None, None] * torch.eye(n, device=Phi.device, dtype=torch.float64)
+        alpha = torch.linalg.solve(G, Pm @ x[..., None].double())                                       # (b, C, n, 1), float64
+        return ((R * Mf[..., None]).transpose(-1, -2).double() @ alpha).squeeze(-1).to(Phi.dtype)
+
+    def sel_correct(self, q, k, v, mask, b, c, hmax, P, m_val=4):
+        """PAT-313 point 6. Stage 1: pick where to look per window and variable by validating each demo set on the m_val newest demos
+        (pseudo-queries, each using only demos at lag >= K from it); stage 2: fit TEFL's map correction on the chosen demos
+        (iclsel: ridge, softmax(-err / min err) over sets; iclsel1: one GD step; iclselfix_<set>: that set alone, ridge)."""
+        assert bool(mask.all()), 'iclsel assumes unpadded eval windows (every demo valid), as iclperm'
+        Phi, R = k.permute(0, 2, 1, 3), v.permute(0, 2, 1, 3)                          # (b, C, n, r), (b, C, n, d)
+        n = Phi.shape[2]
+        a = self.audit
+        onestep = a in ('iclsel1', 'iclselavg1') or a.startswith(('iclselfix1_', 'iclselw_'))
+        qpos = n + self.K_last - 1                                                       # the real query origin j0
+        sets, base = self.sel_masks(Phi, q, qpos, mask)
+        if a.startswith(('iclselfix_', 'iclselfix1_')):                                  # one fixed set (ridge | one GD step)
+            name = a.split('_', 1)[1]
+            return self.sel_fit(Phi, R, q, sets[name], base, onestep, hmax, P)
+        outs = torch.stack([self.sel_fit(Phi, R, q, sets[name], base, onestep, hmax, P) for name in self.SEL_SETS])
+        if a in ('iclselavg', 'iclselavg1'):                                             # control: fixed uniform combination
+            return outs.mean(0)
+        if a.startswith('iclselw_'):                                                     # given per-window weights (S, N, C), e.g. causal Hedge
+            if a not in self.selw_cache:
+                self.selw_cache[a] = torch.load(f"{os.environ['R1_ICL_SELW']}_{a[len('iclselw_'):]}.pt").float()
+            W = self.selw_cache[a]
+            idx = torch.arange(self.win_ptr, self.win_ptr + q.shape[0])
+            assert int(idx[-1]) < W.shape[1], 'iclselw: fewer weights than windows'
+            return (W[:, idx].to(outs)[..., None] * outs).sum(0)
+        err = torch.zeros(len(self.SEL_SETS), b, c, device=Phi.device, dtype=torch.float64)
+        for p in range(max(0, n - m_val), n):
+            xp = Phi[:, :, p]
+            sp, bp = self.sel_masks(Phi, xp, p, mask)
+            for i, name in enumerate(self.SEL_SETS):
+                err[i] += (R[:, :, p] - self.sel_fit(Phi, R, xp, sp[name], bp, onestep, hmax, P)).double().square().sum(-1)
+        w = torch.softmax(-err / err.min(0).values.clamp_min(1e-12), dim=0).to(Phi.dtype)   # (S, b, C)
+        self.sel_log.append(w.mean((1, 2)).detach().cpu())
+        if self.sel_wdump is not None:                                                    # per-window weights (S, b, C)
+            self.sel_wdump.append(w.detach().float().cpu())
+        return (w[..., None] * outs).sum(0)
+
+    def case_basis(self, kind, n, device):
+        """Orthonormal (n, m) basis over the n lead steps: const | lin (const + linear) | daily (lin + sin/cos of the period, 2 harmonics)."""
+        t = torch.arange(n, dtype=torch.float64)
+        cols = [torch.ones(n)]
+        if kind in ('lin', 'daily'):
+            cols.append(t - t.mean())
+        if kind == 'daily':
+            assert self.case_period > 0, 'R1_ICL_PERIOD needed for the daily basis'
+            for h in (1, 2):
+                w = 2 * torch.pi * h * t / self.case_period
+                cols += [torch.sin(w), torch.cos(w)]
+        Q, _ = torch.linalg.qr(torch.stack([c_.double() for c_ in cols], 1))
+        return Q.float().to(device)
+
+    def case_transform(self, add):
+        """PAT-313 audits on Delta_t (b, C, n): iclconst = the test-mean Delta; iclproj_{const,lin,daily} = projection on that basis per
+        (window, variable); iclproj_common = the mean over variables. Anything else: unchanged."""
+        a = self.audit
+        if a == 'iclconst':
+            return self.icl_mean.to(add)[None].expand_as(add)
+        if a is not None and a.startswith('iclproj_'):
+            kind = a[len('iclproj_'):]
+            if kind == 'common':
+                return add.mean(1, keepdim=True).expand_as(add)
+            B = self.case_basis(kind, add.shape[-1], add.device).to(add.dtype)
+            return (add @ B) @ B.T
+        return add
+
+    def finalize_case(self):
+        """After the normal pass: stack the demo bank (N, n, C, d) and the Delta_t log; icl_mean = mean Delta over the pass's windows."""
+        self.bank = tuple(torch.cat(z) for z in zip(*self._bank)) if self._bank else None
+        icl = torch.cat(self._icl_log)
+        self.icl_mean = icl.float().mean(0)
+        self._bank, self._icl_log = [], []
+        return icl

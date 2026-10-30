@@ -74,6 +74,50 @@ def test_row_feature_indexing_no_lookahead_and_transport():
     assert (E[late, :H] - c[late]).square().mean() < 0.9 * E[late, :H].square().mean() and bool(act[late].all())
 
 
+def _brute_win(E, H, nv, feat, L, calibrate=True):
+    """Direct recomputation of the lookback-limited stream from the explicit origin set at each t."""
+    N, _, C = E.shape
+    D, valid = (ec.ced if feat == 'ced' else ec.row_feat)(E, H)
+    rD = D.permute(0, 2, 1).double(); rE = E[:, :H].permute(0, 2, 1).double()
+    eye = ec.LAM * torch.eye(H, dtype=torch.float64)
+    out = torch.zeros(N, H, C); act = torch.zeros(N, dtype=torch.bool)
+    for t in range(N):
+        M = [i for i in range(max(0, t - L + H), t - H + 1) if bool(valid[i])]
+        if len(M) < nv + 1 or not bool(valid[t]):
+            continue
+        fit = lambda idx: torch.linalg.solve(eye + sum(rD[i].T @ rD[i] for i in idx), sum(rD[i].T @ rE[i] for i in idx))
+        al = 1.0
+        if calibrate:
+            Wv = fit(M[:-nv]); V = M[-nv:]
+            Q = torch.stack([rD[i] @ Wv for i in V]); Y = torch.stack([rE[i] for i in V])
+            al = float(((Q * Y).sum() / (Q.square().sum() + 1e-8)).clamp(0, 1))
+        out[t] = (al * (rD[t] @ fit(M))).float().T; act[t] = True
+    return out, act
+
+
+def test_win_matches_brute_force_and_window():
+    g = torch.Generator().manual_seed(2)
+    N, H, C, L = 70, 3, 2, 16
+    E = torch.randn(N, 7, C, generator=g)
+    for feat in ('ced', 'row'):
+        for cal in (True, False):
+            c, a = ec.stream(E, H, 0, 2, cal, feat, win=L)
+            cb, ab = _brute_win(E, H, 2, feat, L, cal)
+            assert torch.equal(a, ab) and torch.allclose(c, cb, atol=1e-5), (feat, cal, (c - cb).abs().max())
+        t = 50                                                                            # targets outside [t-L, t) must not matter
+        E2 = E.clone()
+        for i in range(N):
+            for h in range(1, 8):
+                if i + h - 1 >= t or i + h - 1 < t - L:
+                    E2[i, h - 1] += 5.0
+        for cal in (True, False):
+            c, a = ec.stream(E, H, 0, 2, cal, feat, win=L)
+            c2, _ = ec.stream(E2, H, 0, 2, cal, feat, win=L)
+            assert torch.allclose(c[t], c2[t], atol=1e-5) and bool(a[t]), (feat, cal)
+        assert not torch.equal(ec.stream(E, H, 0, 2, False, feat)[0][t], ec.stream(E2, H, 0, 2, False, feat)[0][t])   # full stream does see it
+
+
 if __name__ == '__main__':
     test_row_feature_indexing_no_lookahead_and_transport()
+    test_win_matches_brute_force_and_window()
     test_ced_indexing(); test_no_lookahead(); test_recovers_transport(); print('ok')
