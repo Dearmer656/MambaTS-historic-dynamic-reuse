@@ -113,6 +113,10 @@ def carry_step2(model, c, k, T0, mode, src_at, x_at, sig_at, h):
 # ---------------------------------------------------------------- run
 def run(code, seed, args):
     from patchmem.eval_itransformer_pure_icl import load_base
+    done = Path(args.out_dir) / f'{code}_H{H}_L{L}_{args.tag}_s{seed}.json'
+    if args.max_c is None and done.exists():                                     # finished elsewhere (laptop)
+        print(f'[skip] {done} exists', flush=True)
+        return
     exp, checkpoint, setting = load_base(code, seed)
     dev = exp.device
     official = json.loads((Path(exp.args.results) / setting / 'base_metrics.json').read_text())['mse']
