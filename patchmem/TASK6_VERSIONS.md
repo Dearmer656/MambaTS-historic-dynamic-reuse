@@ -681,3 +681,20 @@ Test gain % vs base, s3047/2024/2025, H192 (EL L720 s2025 from laptop 2be3ef9, r
 Criterion (Pd_err > Pd and > Pd_I, 3/3): PASS T L96, T L720; FAIL EL L96 (Pd_I wins s2024), EL L720 (Pd wins s3047/2024).
 Stacked (S(+)Pd_err > S(+)Pd and > S(+)Pd_I, 3/3): PASS T L96 only (+0.67/+0.29/+0.11 over S(+)Pd); T L720 s2025 -0.01,
 EL L96 s2024 -0.04. Everything stays far below FC (best T L96 5.7 vs 9-10; EL L96 5.7 vs 14).
+
+## What the iTransformer-TEFL map learns (diag_tefl_map.py, commit ef02e9f, V100 jobs 13199 / 13200)
+g = W2 relu(W1 eps), eps = f-only error vector issued one horizon ago; TEFL_paper_L96_E192, H192, s3047/2024/2025.
+Retained share of the TEFL test gain when g is replaced by a val-fitted mimic (alpha_h per lead), base / TEFL MSE
+match tefl_metrics.json:
+| data | TEFL gain % | diag | mean | phase | last | week | amp | lin | lin r1 | lin r2 | lin r4 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ETTh2 | 4.8-5.0 | .49-.51 | .84-.87 | .58-.59 | .48-.50 | .39-.40 | .02 | .99-1.00 | .73-.97 | .97-.98 | .98-.99 |
+| ETTm1 | 9.3-9.8 | .32-.33 | .17-.18 | .09-.11 | .44-.47 | - | .03 | .93-.94 | .27-.33 | .71-.75 | .88-.89 |
+| ETTm2 | 6.4-6.6 | .37-.39 | .48-.51 | .27-.28 | .41-.43 | - | .02-.03 | .90-.91 | .47-.52 | .76-.81 | .83-.85 |
+| Weather | 7.3-7.5 | .17-.18 | .34 | .29-.30 | .36 | - | .13-.14 | .94 | .45-.46 | .66-.70 | .93-.94 |
+| Traffic | 4.8-4.9 | .13 | .02 | .06-.07 | .02 | .36-.37 | .01-.02 | .90-.91 | .25 | .36-.37 | .53-.54 |
+Criterion (a simple mimic >= 80% on 3/3): PASS only ETTh2 (mean = level shift). Common: g ~ linear in eps (R^2 .80-.95)
+although every ReLU unit switches; |g| small (std ratio .06-.3 of eps); corr(g[h], eps[h]) -0.5..-0.8 at far leads
+(pulls against the last horizon's error); input weight spread over the whole eps; gain on 99-100% of channels; amp ~ 0
+(not a forecast-amplitude rescale). Rank: ETTh2 ~1 (output profile ~constant over leads, cos -0.97), ETTm / Weather ~4,
+Traffic high (rank 4 = 53%), with 37% of A's energy on same-hour-of-day entries (chance 4%).
