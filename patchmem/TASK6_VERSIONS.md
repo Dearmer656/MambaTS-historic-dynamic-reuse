@@ -634,3 +634,15 @@ Criterion (S_fc 3/3, mean >= 0.3%): PASS EL L96 (mean +0.44); T L96 3/3 but mean
 S_e (secondary): EL L96 +0.55, EL L720 +0.28 3/3; Traffic negative. Traffic val gains are +0.6..+0.8% (S_fc) but
 test +0.06..+0.19%: the val-fitted a_b does not transfer on Traffic. Gains on top of FC are <= ~0.6% everywhere.
 
+
+### fc_stack v2 (commit 3df190c + json-check warning): joint global (w1, w2) in [0,1]^2 on all val origins
+y^ = f + w1 (r - f) + w2 m. 12/12 (V100 reruns: FC from RKR retraining differs from the 3090 json by ~0.1%, every arm is
+compared to its own run's FC). Test MSE change vs FC %, s2024/2025/3047:
+| setting | FC_refit | S_fc | J_fc | S_e | J_e | J_fc w1 / w2 |
+|---|---|---|---|---|---|---|
+| T L96 | -0.02/0.00/-0.16 | +0.12/+0.06/+0.05 | +0.26/+0.17/+0.05 | -0.18/-0.28/-0.29 | +0.24/+0.02/-0.05 | 0.65 / 0.3 |
+| T L720 | +0.06/+0.02/+0.19 | -0.04/-0.07/-0.05 | +0.02/-0.04/+0.15 | -0.14/-0.15/-0.12 | +0.09/+0.04/+0.28 | 0.48 / 0.35 |
+| EL L96 | +0.01/-0.01/-0.17 | +0.48/+0.43/+0.42 | +0.41/+0.31/+0.20 | +0.61/+0.56/+0.48 | +0.48/+0.44/+0.31 | 0.66 / 0.10 |
+| EL L720 | +0.10/-0.14/-0.21 | -0.19/-0.17/-0.26 | +0.22/-0.01/-0.11 | +0.32/+0.29/+0.22 | +0.36/+0.14/+0.03 | 0.53 / 0.02 |
+Criterion (J_fc 3/3, mean >= 0.3%): FAIL everywhere (EL L96 mean +0.31 but s3047 +0.20; T L96 mean +0.16).
+Global scalars help on Traffic vs per-bucket a_b (val -> test transfer), hurt on EL. FC_refit ~0: gains come from m.
