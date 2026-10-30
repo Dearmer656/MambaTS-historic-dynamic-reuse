@@ -12,6 +12,8 @@ written slots <- lam c' + (1 - lam) w, read m_x[t,h] = sig_t^gamma c[bucket(h), 
   diag  at origin t the newest observed target tau = t-1 has errors of origins tau-l at every lead l (the observation
         diagonal): slot (bucket(l), tau mod 168) <- mean_{l in bucket} rho[tau-l, l] / sig_t^gamma        (fresh)
   full  the newly matured whole vector rho[t-H] (lead k -> slot (bucket(k), (t-H+k) mod 168)) / sig_{t-H}^gamma (v2)
+Pd_err: as Pd, but u, beta, lam are computed from the errors themselves (newest observed diagonal D[k] / sig_t per
+lead bucket, its change from k - 1) plus d mu, d log sd, instead of the LQ input window (2 NB + 2 inputs).
 Arms Pd (diag + Householder), Pd_I (diag, A = I: lam-EMA weekly template), Pf (full + Householder), TEFL (MLP on the 7
 most recent diagonals).  Each X is trained twice on the train-tail origins (truncated BPTT): alone (rho = e) and
 stacked (rho = e - a~_b m_state, a~_b fitted on the train-tail origins so that no validation label enters training;
@@ -40,6 +42,7 @@ EPS = 1e-12
 CHR = 32                                                             # channels per retrieval chunk
 BQ = 64                                                              # query origins per retrieval batch
 K_TEFL = 7
+Z_ERR = 5.0                                                          # clip of the standardised Pd_err inputs
 
 
 # ---------------------------------------------------------------- term 1
@@ -208,10 +211,25 @@ def run(code, seed, args):
         w = (X[t + kq96][:, c].T - mu_w[t, c][:, None]) / sd_w[t, c].clamp_min(fc.SD_FLOOR)[:, None]
         return torch.cat([w, dmu[k, c][:, None], dls[k, c][:, None]], 1)
 
-    def train_carry(R, D, full, mode):
-        """R (n C H) target residuals, D (n C H) diagonals (mode diag) -- trained on the train-tail indices."""
+    def err_feats(D):
+        """Pd_err transition input (n C 2 NB + 2) on dev: the newest observed diagonal D[k] / sig_t averaged per
+        lead bucket, its change from k - 1, d mu, d log sd; each standardised by its train-tail std, clipped."""
+        cnt = torch.zeros(NB, device=dev).index_add_(0, bk, torch.ones(H, device=dev))
+        bm = torch.zeros(n, C, NB, device=dev)
+        for i in range(0, n, 256):
+            d_ = D[i:i + 256].to(dev) / sig[i:i + 256][..., None]
+            bm[i:i + 256] = torch.zeros(*d_.shape[:2], NB, device=dev).index_add_(2, bk, d_) / cnt
+        dbm = torch.cat([torch.zeros_like(bm[:1]), bm[1:] - bm[:-1]])
+        xe = torch.cat([bm, dbm, dmu[..., None], dls[..., None]], -1)
+        sd_ = xe[trd].flatten(0, -2).std(0).clamp_min(1e-6)
+        return (xe / sd_).clamp(-Z_ERR, Z_ERR)
+
+    def train_carry(R, D, full, mode, xe=None):
+        """R (n C H) target residuals, D (n C H) diagonals (mode diag) -- trained on the train-tail indices.
+        xe: Pd_err transition inputs (else x_at)."""
+        xf = x_at if xe is None else (lambda k, c: xe[k, c])
         torch.manual_seed(seed)
-        net = dc.Carry(nx, full).to(dev)
+        net = dc.Carry(nx if xe is None else xe.shape[-1], full).to(dev)
         opt = torch.optim.Adam(net.parameters(), lr=dc.LR_P)
         g = torch.Generator().manual_seed(seed)
         log = []
@@ -223,7 +241,7 @@ def run(code, seed, args):
                 s_ = (D if mode == 'diag' else R)[:k_tr_end, c].to(dev)
                 state, loss, nl = None, 0.0, 0
                 for k in range(k_tr_end):
-                    state, m = carry_step2(net, state, k, T0, mode, lambda q: s_[q], lambda q: x_at(q, cg),
+                    state, m = carry_step2(net, state, k, T0, mode, lambda q: s_[q], lambda q: xf(q, cg),
                                            lambda q: sig[q, cg], H)
                     if k >= dc.BURN + H:
                         loss = loss + (m - r_[k]).square().mean()
@@ -240,13 +258,14 @@ def run(code, seed, args):
         net.eval()
         return net, log
 
-    def carry_pred(net, R, D, mode):
+    def carry_pred(net, R, D, mode, xe=None):
+        xf = x_at if xe is None else (lambda k, c: xe[k, c])
         state = None
         src = D if mode == 'diag' else R
         with torch.no_grad():
             for k in range(n):
                 state, m = carry_step2(net, state, k, T0, mode, lambda q: src[q].to(dev),
-                                       lambda q: x_at(q, torch.arange(C, device=dev)), lambda q: sig[q], H)
+                                       lambda q: xf(q, torch.arange(C, device=dev)), lambda q: sig[q], H)
                 yield k, m
 
     def train_tefl(R, D):
@@ -310,7 +329,9 @@ def run(code, seed, args):
         sse = ee - 2 * a * o['es'] - 2 * b * o['ex'] + a ** 2 * o['ss'] + 2 * a * b * o['sx'] + b ** 2 * o['xx']
         return a, b, sse.sum(-1)
 
-    arms = (('Pd', True, 'diag'), ('Pd_I', False, 'diag'), ('Pf', True, 'full'), ('TEFL', None, 'diag'))
+    arm_defs = {'Pd': (True, 'diag'), 'Pd_I': (False, 'diag'), 'Pf': (True, 'full'), 'TEFL': (None, 'diag'),
+                'Pd_err': (True, 'diag')}
+    arms = [(a, *arm_defs[a]) for a in args.arms.split(',')]
     for tag in ('alone', 'stacked'):
         R = E if tag == 'alone' else E - MS.float() * a_tr[bk.cpu()]
         D = diagonal(R)
@@ -319,8 +340,10 @@ def run(code, seed, args):
                 net, log = train_tefl(R, D)
                 o = eval_sums(tefl_pred(net, D))
             else:
-                net, log = train_carry(R, D, full, mode)
-                o = eval_sums(carry_pred(net, R, D, mode))
+                xe = err_feats(D) if name == 'Pd_err' else None
+                net, log = train_carry(R, D, full, mode, xe)
+                o = eval_sums(carry_pred(net, R, D, mode, xe))
+                del xe
             if tag == 'alone':
                 b, sse = fit_alone(o)
                 res[name] = dict(b=b.tolist(), val_mse=float(sse[1]) / nel[1], test_mse=float(sse[2]) / nel[2],
@@ -344,7 +367,7 @@ def run(code, seed, args):
     print(f'[test] base {base:.5f} fc {fc_mse}', flush=True)
     out = dict(dataset=code, seed=seed, H=H, L=L, checkpoint=str(checkpoint), base=base, official=official,
                fc_test_mse=fc_mse, settings=dict(M_TR=M_TR, NB=NB, KS=KS, max_c=args.max_c), **res)
-    p = Path(args.out_dir) / f'{code}_H{H}_L{L}_decomp2_s{seed}{"_smoke" if args.max_c else ""}.json'
+    p = Path(args.out_dir) / f'{code}_H{H}_L{L}_{args.tag}_s{seed}{"_smoke" if args.max_c else ""}.json'
     p.write_text(json.dumps(out, indent=2) + '\n')
     print(f'[done] {p}', flush=True)
 
@@ -355,6 +378,8 @@ def main():
     p.add_argument('--seed', type=int, default=3047)
     p.add_argument('--forecast_bs', type=int, default=32)
     p.add_argument('--max_c', type=int, default=None)
+    p.add_argument('--arms', default='Pd,Pd_I,Pf,TEFL')
+    p.add_argument('--tag', default='decomp2')
     p.add_argument('--out_dir', default='patchmem/logs/server/error_path')
     a = p.parse_args()
     run(a.data, a.seed, a)
