@@ -4,9 +4,12 @@
   e_FC = y - y^_FC (FreshCast's own error), a_b per lead bucket (NB) by val least squares.
 Retrieval as eval_decomp2 S: key = the backbone's input window of the channel (length L, instance-normalised), demos =
 same channel, stream origins s <= t - H, top-k by cos(x~_t, x~_s), m[t] = (1 / k) sum_{s in topk} cos(x~_t, x~_s) v_s.
-Arms: S_fc  v = e_FC (FreshCast's error; primary)
-      S_e   v = e    (the backbone's error, as in eval_decomp2)
-k in KS chosen per arm on val.  Criterion (fixed): S_fc beats FreshCast on 3/3 seeds, mean gain >= 0.3%.
+Values: _fc  v = e_FC (FreshCast's error), _e  v = e (the backbone's error, as in eval_decomp2).
+v1 arms S_fc / S_e: FreshCast's w^ fixed, y^ = y^_FC + a_b m, a_b per lead bucket (NB) by val LS.
+v2 arms J_fc / J_e (primary J_fc): y^ = f + w1 (r - f) + w2 m, global scalars (w1, w2) in [0, 1]^2 by box-constrained
+least squares on ALL val origins (FreshCast: w = clip(sum e d / sum d^2, 0, 1) on 100 val origins).  Control FC_refit:
+FreshCast's w refitted on all val origins.  k in KS chosen per arm on val.
+Criterion (fixed): J_fc beats FreshCast on 3/3 seeds, mean gain >= 0.3%; also reported vs FC_refit.
 Stream: origins T0 = n_tr - M_TR .. end, contiguous; train tail and the gaps before val / test are demos only.
 """
 import argparse
@@ -28,6 +31,23 @@ NB = dc.NB
 KS = (4, 8, 16, 64)
 EPS = 1e-12
 ARMS = ('S_fc', 'S_e')
+
+
+def box_ls(a11, a12, a22, b1, b2):
+    """argmin over [0, 1]^2 of w^T A w - 2 b^T w (A PSD 2x2): interior solution if feasible, else best edge point."""
+    q = lambda w1, w2: a11 * w1 ** 2 + 2 * a12 * w1 * w2 + a22 * w2 ** 2 - 2 * b1 * w1 - 2 * b2 * w2
+    cl = lambda x: min(max(x, 0.0), 1.0)
+    cands = []
+    det = a11 * a22 - a12 ** 2
+    if det > 0:
+        w1, w2 = (a22 * b1 - a12 * b2) / det, (a11 * b2 - a12 * b1) / det
+        if 0 <= w1 <= 1 and 0 <= w2 <= 1:
+            return w1, w2
+    for w1 in (0.0, 1.0):
+        cands.append((w1, cl((b2 - a12 * w1) / a22) if a22 > 0 else 0.0))
+    for w2 in (0.0, 1.0):
+        cands.append((cl((b1 - a12 * w2) / a11) if a11 > 0 else 0.0, w2))
+    return min(cands, key=lambda w: q(*w))
 
 
 def run(code, seed, args):
@@ -100,13 +120,8 @@ def run(code, seed, args):
         if fc_json is not None and abs(fc_mse - fc_json) > 1e-4:
             raise AssertionError(f'fc stream={fc_mse} json={fc_json}')
     print(f'[fc] w_hat {w_hat:.3f} base {base:.5f} fc {fc_mse:.5f} (json {fc_json})', flush=True)
-    E.sub_(w_hat * D)                                                             # E <- e_FC (in place, saves RAM)
-    # D <- e = e_FC + w d: recover the backbone error without a second (n C H) buffer
-    D.mul_(w_hat).add_(E)
-    Efc, Eb = E, D
-    del E, D
-
-    # ---- retrieval: values [e_FC | e] side by side, all k at once; sums per (split, bucket)
+    # ---- retrieval: values [e_FC | e] side by side, all k at once; second moments per (split, bucket) of
+    # e (target of the joint fits), d = r - f, m; the e_FC moments follow from e_FC = e - w^ d
     spl = split.to(dev)
 
     def bsum(x):                                                                 # (b C H) -> (b NB) float64
@@ -118,54 +133,80 @@ def run(code, seed, args):
             dst[q] += x[s_ == q].sum(0)
 
     z = lambda: torch.zeros(3, NB, dtype=torch.float64, device=dev)
-    em = {(a, k): z() for a in ARMS for k in KS}
-    mm = {(a, k): z() for a in ARMS for k in KS}
-    ee = z()
+    mo = {key: z() for key in ('ee', 'ed', 'dd')}
+    mk = {(a, k): {key: z() for key in ('em', 'dm', 'mm')} for a in ARMS for k in KS}
     td = times.to(dev)
     with torch.no_grad():
         for c in torch.arange(C).split(d2.CHR):
             cg = c.to(dev)
             Kn = d2.norm_windows(X, td, cg, L)
             Kn = (Kn / Kn.norm(dim=-1, keepdim=True).clamp_min(1e-6)).half()
-            V = torch.cat([Efc[:, c], Eb[:, c]], -1).to(dev)                        # n c 2H
+            Ec, Dc = E[:, c].to(dev), D[:, c].to(dev)
+            V = torch.cat([Ec - w_hat * Dc, Ec], -1)                                  # n c 2H
             for i in range(0, n, d2.BQ):
                 kq = torch.arange(i, min(n, i + d2.BQ), device=dev)
                 ms = d2.topk_read(Kn, V, kq, H, KS)
-                e_ = V[kq, :, :H]                                                    # target: e_FC
-                acc(ee, bsum(e_.square()), kq)
+                e_, d_ = Ec[kq], Dc[kq]
+                for key, v in (('ee', e_ * e_), ('ed', e_ * d_), ('dd', d_ * d_)):
+                    acc(mo[key], bsum(v), kq)
                 for k in KS:
                     for ai, a in enumerate(ARMS):
                         m = ms[k][..., ai * H:(ai + 1) * H]
-                        acc(em[(a, k)], bsum(e_ * m), kq)
-                        acc(mm[(a, k)], bsum(m.square()), kq)
-            del Kn, V
-    fc_check = float(ee[2].sum()) / nel[2]
+                        for key, v in (('em', e_ * m), ('dm', d_ * m), ('mm', m * m)):
+                            acc(mk[(a, k)][key], bsum(v), kq)
+            del Kn, V, Ec, Dc
+    ee, ed, dd = mo['ee'], mo['ed'], mo['dd']
+    ef2 = ee - 2 * w_hat * ed + w_hat ** 2 * dd                                    # sum e_FC^2
+    fc_check = float(ef2[2].sum()) / nel[2]
     assert abs(fc_check - fc_mse) <= 1e-5 * fc_mse, (fc_check, fc_mse)
-
-    def fit1(a, k):
-        e1, m1 = em[(a, k)], mm[(a, k)]
-        coef = torch.where(m1[1] > 0, e1[1] / m1[1].clamp_min(EPS), torch.zeros_like(m1[1]))
-        return coef, (ee - 2 * coef * e1 + coef ** 2 * m1).sum(-1)
-
     g_ = lambda x: 100 * (base - x) / base
+    vs = lambda x: 100 * (fc_mse - x) / fc_mse
     res = {}
+
+    # (1) per-bucket a_b on the FC residual, FC's w^ fixed (previous version)
+    def fit1(a, k):
+        o = mk[(a, k)]
+        efm = o['em'] - w_hat * o['dm']                                           # sum e_FC m
+        coef = torch.where(o['mm'][1] > 0, efm[1] / torch.where(o['mm'][1] > 0, o['mm'][1], torch.ones_like(o['mm'][1])), torch.zeros_like(o['mm'][1]))
+        return coef, (ef2 - 2 * coef * efm + coef ** 2 * o['mm']).sum(-1)
     for a in ARMS:
         grid = {k: fit1(a, k) for k in KS}
         kb = min(KS, key=lambda k: float(grid[k][1][1]))
         coef, sse = grid[kb]
         tm = float(sse[2]) / nel[2]
-        res[a] = dict(k=kb, a=coef.tolist(), val_mse=float(sse[1]) / nel[1], test_mse=tm, gain=g_(tm),
-                      vs_fc=100 * (fc_mse - tm) / fc_mse,
+        res[a] = dict(k=kb, a=coef.tolist(), val_mse=float(sse[1]) / nel[1], test_mse=tm,
                       val_grid={str(k): float(v[1][1]) / nel[1] for k, v in grid.items()})
-        print(f'[test] {a:5s} k {kb} mse {tm:.5f} gain {g_(tm):+.3f}% vs fc {res[a]["vs_fc"]:+.3f}% '
-              f'(val {res[a]["val_mse"]:.5f}, fc val {float(ee[1].sum()) / nel[1]:.5f})', flush=True)
+
+    # (2) FC's w refitted on all val origins (control) and joint global (w1, w2) in [0, 1]^2 on all val origins
+    s_ = lambda x: x.sum(-1)                                                       # (3 NB) -> (3)
+    w_re = min(max(float(s_(ed)[1] / s_(dd)[1].clamp_min(EPS)), 0.0), 1.0)
+    sse = s_(ee) - 2 * w_re * s_(ed) + w_re ** 2 * s_(dd)
+    res['FC_refit'] = dict(w=w_re, val_mse=float(sse[1]) / nel[1], test_mse=float(sse[2]) / nel[2])
+
+    def fit2(a, k):
+        o = {key: s_(v) for key, v in mk[(a, k)].items()}
+        w1, w2 = box_ls(float(s_(dd)[1]), float(o['dm'][1]), float(o['mm'][1]), float(s_(ed)[1]), float(o['em'][1]))
+        sse = (s_(ee) - 2 * w1 * s_(ed) - 2 * w2 * o['em'] + w1 ** 2 * s_(dd) + 2 * w1 * w2 * o['dm']
+               + w2 ** 2 * o['mm'])
+        return (w1, w2), sse
+    for a in ARMS:
+        grid = {k: fit2(a, k) for k in KS}
+        kb = min(KS, key=lambda k: float(grid[k][1][1]))
+        (w1, w2), sse = grid[kb]
+        res[f'J_{a[2:]}'] = dict(k=kb, w1=w1, w2=w2, val_mse=float(sse[1]) / nel[1], test_mse=float(sse[2]) / nel[2],
+                                 val_grid={str(k): float(v[1][1]) / nel[1] for k, v in grid.items()})
+    fc_val = float(ef2[1].sum()) / nel[1]
+    for name, v in res.items():
+        v['gain'], v['vs_fc'] = g_(v['test_mse']), vs(v['test_mse'])
+        print(f'[test] {name:8s} mse {v["test_mse"]:.5f} gain {v["gain"]:+.3f}% vs fc {v["vs_fc"]:+.3f}% '
+              f'(val {v["val_mse"]:.5f}, fc val {fc_val:.5f}) '
+              + ' '.join(f'{x}={v[x]}' for x in ('k', 'w', 'w1', 'w2') if x in v), flush=True)
     print(f'[test] base {base:.5f} fc {fc_mse:.5f} ({g_(fc_mse):+.3f}%)', flush=True)
     out = dict(dataset=code, seed=seed, H=H, L=L, checkpoint=str(checkpoint), base=base, official=official,
-               fc=dict(w=w_hat, test_mse=fc_mse, json_test_mse=fc_json, val_mse=float(ee[1].sum()) / nel[1],
-                       gain=g_(fc_mse)),
+               fc=dict(w=w_hat, test_mse=fc_mse, json_test_mse=fc_json, val_mse=fc_val, gain=g_(fc_mse)),
                rkr_loss=rkr_log, settings=dict(M_TR=M_TR, NB=NB, KS=KS, max_c=args.max_c, smoke=args.smoke), **res)
     suf = '_smoke' if (args.max_c or args.smoke) else ''
-    p = Path(args.out_dir) / f'{code}_H{H}_L{L}_fcstack_s{seed}{suf}.json'
+    p = Path(args.out_dir) / f'{code}_H{H}_L{L}_fcstack2_s{seed}{suf}.json'
     p.write_text(json.dumps(out, indent=2) + '\n')
     print(f'[done] {p}', flush=True)
 
