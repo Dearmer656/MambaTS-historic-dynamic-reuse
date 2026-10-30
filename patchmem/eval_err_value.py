@@ -129,6 +129,7 @@ def run(code, seed, args):
     tefl = json.loads(Path(hits[0]).read_text())
     X, M, n_tr, n_va = load_series(exp, code)
     m_tr = args.m_tr if args.m_tr else n_tr
+    assert m_tr >= 2 * H + 1, 'need eps / D history before the first fit origin'
     o0 = max(L, n_tr - m_tr)
     E = stream_errors(exp, X, M, o0, args.bs)
     t_tr = torch.arange(o0 + H, n_tr - H + 1)
