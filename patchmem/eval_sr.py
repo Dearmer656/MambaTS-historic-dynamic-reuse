@@ -158,6 +158,7 @@ def run(code, seed, args):
     from patchmem.eval_itransformer_pure_icl import load_base
     assert H == 192
     od = Path(args.out_dir)
+    od.mkdir(parents=True, exist_ok=True)
     done = od / f'{code}_H{H}_s{seed}{"_smoke" if args.max_c or args.epochs != EPOCHS else ""}.json'
     if done.exists():
         print(f'[skip] {done}', flush=True)
@@ -387,15 +388,33 @@ def run(code, seed, args):
         net.eval()
         return net, log
 
-    def eval_carry(net):
+    def eval_carry(net, dump=None):
         o = {key: z3() for key in ('ex', 'xx', 'sx_S_e', 'sx_S_r')}
         call = torch.arange(C, device=dev)
         wd = wdiag[net.nb].to(dev)
         state = None
+        u_prev = None
         with torch.no_grad():
             for k in range(n):
+                if dump is not None and int(split[k]) == 2 and state is not None:
+                    x = x_at(k, call)
+                    zf = state.flatten(1)
+                    zn = zf.norm(dim=-1).clamp_min(EPS)
+                    if net.kind == 'P':                                    # PaTH: beta, |beta u u^T z| / |z|, u drift
+                        u = F.normalize(net.Wu(x), dim=-1)
+                        beta = 2 * torch.sigmoid(net.wb(x))[:, 0]
+                        dump['beta'].append(beta.cpu())
+                        dump['hh_rel'].append((beta * (u * zf).sum(-1).abs() / zn).cpu())
+                        if u_prev is not None:
+                            dump['u_cos'].append((u * u_prev).sum(-1).cpu())
+                        u_prev = u
+                    elif net.kind == 'D':
+                        dump['gate'].append(torch.sigmoid(net.wd(x))[:, 0].cpu())
                 state, m = step(net, state, k, call, wd)
                 z = int(split[k])
+                if dump is not None and z == 2:
+                    dump['m_rms'].append(m.square().mean(-1).sqrt().cpu())
+                    dump['rho_rms'].append(E[k].square().mean(-1).sqrt())
                 if z < 0:
                     continue
                 e_, x_ = E[k].to(dev).double(), m.double()
@@ -427,7 +446,15 @@ def run(code, seed, args):
     for name in arms:
         nb, kind = CARRY_ARMS[name]
         net, log = train_carry(nb, kind)
-        o = eval_carry(net)
+        dump = None
+        if args.dump:
+            dump = {key: [] for key in ('beta', 'hh_rel', 'u_cos', 'gate', 'm_rms', 'rho_rms')}
+            init = ShockSSM(nx, nb, kind, q, D_MODES)                         # same deterministic theta / rho init
+        o = eval_carry(net, dump)
+        if args.dump:
+            dump = {key: torch.stack(v) for key, v in dump.items() if v}   # (test steps, C)
+            torch.save(dict(state=net.state_dict(), theta0=init.theta.detach().clone(), rho0=init.rho_p.detach().clone(),
+                            q=q, PW=PW, train_loss=log, **dump), od / f'{code}_H{H}_s{seed}_{name}_dump.pt')
         b, sse = fit_alone(o)
         res[name] = dict(b=b.tolist(), val_mse=float(sse[1]) / nel[1], test_mse=float(sse[2]) / nel[2],
                          train_loss=log, gamma=float(net.g()))
@@ -464,6 +491,7 @@ def main():
     p.add_argument('--weeks', type=int, default=None, help='train-tail weeks (default: the whole train segment)')
     p.add_argument('--arms', default='s1_R,s1_D,s1_P')
     p.add_argument('--out_dir', default='patchmem/logs/server/err_sr')
+    p.add_argument('--dump', action='store_true', help='save the trained carry + test-stream T_t statistics')
     a = p.parse_args()
     run(a.data, a.seed, a)
 
