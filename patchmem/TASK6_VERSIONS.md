@@ -717,3 +717,12 @@ fails ETTm2 (s3047 -0.04) and Weather (2/3). Fresh D adds to eps on ETTm1/ETTm2/
 Weather / ETTm2 (lam2 0.1-1), not on ETTh2 / Traffic (lam2 10-100). Smallest margin ETTm1 (+0.3..+2.7).
 Codex: no leakage (feature targets <= t-1, fit targets inside train, lam on val); test moments are computed before
 selection but never enter it.
+
+## Direction A: delayed / partial feedback, horizon sweep (code 3eb4635; jobs 13507 H96 bases, 13543 / 13544 sweep)
+Question: at origin t the error information is a triangle (a forecast issued at t-k has k observed leads); TEFL reads
+only the fully matured eps = E[t-H]. If the fresh part (u, D) is the structural value, its gain must grow with H.
+Delta(H) = gain(all) - gain(eps), pooled arms (same ridge / val-lam protocol as above), H in {96, 192, 336, 720},
+datasets E M1 M2 W T EL, seeds 3047/2024/2025; T / EL keep 5665 train origins at every H (m_tr = 5664 + 2H).
+Pre-registered criterion: A holds iff on >= 4/6 datasets Delta(720) > Delta(96) on 3/3 seeds AND 3-seed mean
+Delta(720) >= 1.0 pp there. Secondary: per-channel Delta (E M1 M2 W). Outputs patchmem/logs/server/err_value/hsweep.
+H192 rerun reproduces the stage-1 numbers (E s3047 eps +7.38%, all +6.94%). Codex: no bugs (comment off-by-one fixed).
