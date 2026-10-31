@@ -758,3 +758,18 @@ property of the target time, and one forecast's lead correlation is ~Toeplitz in
 (Traffic / EL; 96 steps on ETTm1) -> a shock series indexed by target time, with daily recurrence.  Predictable part:
 Traffic / EL = pure 24-periodic stripes (lead buckets destroy it, R8 .2-.4); Weather = smooth near-constant offset;
 ETT = smooth + periodic, PR 2-5.  Figures patchmem/logs/server/err_lead/figures/err_lead_corr_H{192,720}_s3047.png.
+
+## Two-granularity error model (eval_sr.py, commit 1422489; check diag_shock_ridge.py) — design, runs 13953-13956
+From the lead structure: E[o, h] = s_{o+h} + r[o, h], s_tau = mean of the observation diagonal of tau (one new value per
+step and channel; energy share of s 0.81 on ETTh2).  Shock layer (target-fixed, carried over time): base_sh = closed-form
+ridge from the shock history s_(t-1-j), j < 96, to E[t] (design (a), user choice); on rho = E - base_sh a learned carry
+of 64 damped-rotation modes (RoPE view of the daily stripes), arms differing only in the state-driven transition part:
+s1_R none, s1_D scalar decay g(x), s1_P PaTH I - b(x) u u^T (b in (0, 2), generalised Householder as in PaTH).
+Residual layer (origin-fixed, state -> error): input-window top-k retrieval, value S_e = rho[o] or S_r = r[o].
+Criteria (fixed, dataset counts iff 3/3 seeds, claim holds iff >= 4/6): C1 s1_P > s1_R and s1_D; C1b s1_P > base_sh;
+C2 shock history 'sh' > full diagonal 'D' (diag_shock_ridge); C3 S_r(+)s1_P > S_e(+)s1_P; C4 S_r(+)s1_P vs TEFL and
+ridge 'all' (>= 4 of the datasets with the baseline).
+Pre-run checks (s3047, not part of the criteria): learned carries without a closed-form base stayed at -0.3..+0.9 % on
+ETTh2 (phase table and SSM); linear ridge on the shock history: ETTh2 sh +7.95 / D +5.92 / Dm +0.24 / eps +7.48 /
+sh+eps +8.56; ETTm1 +2.87 / +1.52 / -0.11 / +5.56 / +6.94; Weather +5.62 / +4.86 / +0.73 / +5.80 / +7.44.
+Codex: no causality / split / indexing issue; Traffic memory -> T alone per job (64G).
