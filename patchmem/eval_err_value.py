@@ -10,6 +10,12 @@ Linear predictor of e_t = E[t] (H outputs), shared across channels, bias include
 val MSE; fitted on train origins (targets inside train), "refit" = same lam refitted on train + val.
 Everything is computed from second moments per split.  Reported: test MSE, gain vs base, vs TEFL (official
 tefl_metrics.json of TEFL_paper_L96_E192, same test windows).  Criterion (fixed): arm < TEFL on 3/3 seeds per dataset.
+
+Horizon sweep (direction A, delayed / partial feedback): H from env ITR_H (default 192, also read by load_base);
+TEFL comparison only where the TEFL checkpoint exists (H = 192).  Fresh-information gain
+  Delta(H) = gain(all) - gain(eps)   [percentage points of base test MSE, pooled arms, lam chosen on val].
+Criterion (fixed before the H96/336/720 runs): A holds iff on >= 4 of 6 datasets (E M1 M2 W T EL)
+Delta(720) > Delta(96) on 3/3 seeds AND the 3-seed mean Delta(720) >= 1.0 pp on those datasets.
 """
 import argparse
 import glob
@@ -18,6 +24,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import os
 import torch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,7 +32,8 @@ sys.path.insert(0, str(ROOT))
 np.Inf = np.inf
 from data_provider.data_factory import data_provider
 
-L, H, LU = 96, 192, 96
+L, LU = 96, 96
+H = int(os.environ.get('ITR_H', '192'))
 LAMS = (1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0)
 TEFL_NAME = {'E': 'ETTh2', 'M1': 'ETTm1', 'M2': 'ETTm2', 'W': 'weather', 'T': 'traffic'}
 BLOCKS = {'eps': (0, H), 'u': (H, H + LU), 'D': (H + LU, 2 * H + LU)}
@@ -118,15 +126,28 @@ def mse(m, c, W):
     return float((m['yy'].sum() - 2 * (W * m['xy'][c]).sum() + (W * (m['xx'][c][:, c] @ W)).sum()) / (m['n'] * H))
 
 
+def load_tefl(code, seed):
+    """Official TEFL metrics (TEFL_paper_L96_E192), only for H = 192 and the 5 TEFL datasets; else None."""
+    if H != 192 or code not in TEFL_NAME:
+        return None
+    hits = glob.glob(f'results/long_term_forecast_{TEFL_NAME[code]}_96_192_TEFL_iTransformer_*'
+                     f'TEFL_paper_L96_E192_s{seed}_0/tefl_metrics.json')
+    assert len(hits) == 1, hits
+    return json.loads(Path(hits[0]).read_text())
+
+
+def out_name(code, seed, stage):
+    """H192 keeps the original names so existing results are reused."""
+    tag = '' if H == 192 else f'_H{H}'
+    return f'{code}_errval{stage}{tag}_s{seed}.json'
+
+
 def run(code, seed, args):
     from patchmem.eval_itransformer_pure_icl import load_base
     exp, checkpoint, setting = load_base(code, seed)
     dev = exp.device
     official = json.loads((Path(exp.args.results) / setting / 'base_metrics.json').read_text())['mse']
-    hits = glob.glob(f'results/long_term_forecast_{TEFL_NAME[code]}_96_192_TEFL_iTransformer_*'
-                     f'TEFL_paper_L96_E192_s{seed}_0/tefl_metrics.json')
-    assert len(hits) == 1, hits
-    tefl = json.loads(Path(hits[0]).read_text())
+    tefl = load_tefl(code, seed)
     X, M, n_tr, n_va = load_series(exp, code)
     m_tr = args.m_tr if args.m_tr else n_tr
     assert m_tr >= 2 * H + 1, 'need eps / D history before the first fit origin'
@@ -151,24 +172,26 @@ def run(code, seed, args):
                  test_mse=mse(mo['test'], c, W), refit_test_mse=mse(mo['test'], c, Wr))
         for k in ('test_mse', 'refit_test_mse'):
             r[k.replace('mse', 'gain')] = 100 * (base - r[k]) / base
-            r[k.replace('mse', 'vs_tefl')] = 100 * (tefl['mse'] - r[k]) / tefl['mse']
+            r[k.replace('mse', 'vs_tefl')] = 100 * (tefl['mse'] - r[k]) / tefl['mse'] if tefl else None
         res[arm] = r
-        print(f'[test] {arm:6s} lam {lam:g} mse {r["test_mse"]:.5f} gain {r["test_gain"]:+.2f}% vs TEFL '
-              f'{r["test_vs_tefl"]:+.2f}% | refit {r["refit_test_mse"]:.5f} vs TEFL {r["refit_test_vs_tefl"]:+.2f}%',
-              flush=True)
-    out = dict(dataset=code, seed=seed, checkpoint=str(checkpoint), base=base, official=official,
-               tefl_mse=tefl['mse'], tefl_gain_vs_base=100 * (base - tefl['mse']) / base, n_train_origins=len(t_tr),
-               n_val=len(t_va), n_test=len(t_te), lams=LAMS, arms=res)
+        print(f'[test] {arm:6s} lam {lam:g} mse {r["test_mse"]:.5f} gain {r["test_gain"]:+.2f}% | refit '
+              f'{r["refit_test_mse"]:.5f} gain {r["refit_test_gain"]:+.2f}%', flush=True)
+    out = dict(dataset=code, seed=seed, H=H, checkpoint=str(checkpoint), base=base, official=official,
+               tefl_mse=tefl['mse'] if tefl else None,
+               tefl_gain_vs_base=100 * (base - tefl['mse']) / base if tefl else None, n_train_origins=len(t_tr),
+               n_val=len(t_va), n_test=len(t_te), m_tr=m_tr, lams=LAMS, arms=res,
+               delta_fresh=res['all']['test_gain'] - res['eps']['test_gain'])
     od = Path(args.out_dir)
     od.mkdir(parents=True, exist_ok=True)
-    p = od / f'{code}_errval_s{seed}.json'
+    p = od / out_name(code, seed, '')
     p.write_text(json.dumps(out, indent=2) + '\n')
-    print(f'[done] {p} base {base:.5f} TEFL {tefl["mse"]:.5f}', flush=True)
+    print(f'[done] {p} base {base:.5f} TEFL {tefl["mse"] if tefl else "-"} Delta {out["delta_fresh"]:+.2f}pp',
+          flush=True)
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--data', required=True, choices=TEFL_NAME)
+    p.add_argument('--data', required=True, choices=('E', 'M1', 'M2', 'W', 'T', 'EL'))
     p.add_argument('--seed', type=int, default=3047)
     p.add_argument('--m_tr', type=int, default=None, help='train origins kept before n_tr (default: all)')
     p.add_argument('--bs', type=int, default=64)

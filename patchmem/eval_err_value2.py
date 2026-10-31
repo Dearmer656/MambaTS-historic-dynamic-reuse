@@ -5,9 +5,10 @@ Pooled W_pool = ridge on all channels (lam1 chosen on val, as stage 1).  Per cha
   W_c = argmin |Y_c - X_c W|^2 + lam2 s_c |W - W_pool|^2 = (A_c + lam2 s_c I)^-1 (b_c + lam2 s_c W_pool)
 s_c = mean diag(A_c); lam2 in LAM2 chosen on val (lam2 -> inf = pooled).  Feature sets: eps+D, all.
 Criterion (fixed): per-channel arm test MSE < TEFL on 3/3 seeds per dataset.
+Horizon sweep: H from env ITR_H (see eval_err_value); secondary per-channel Delta(H) = pc_gain(all) - pc_gain(eps),
+run on the small-C datasets only (E M1 M2 W; T/EL per-channel moments C x NF^2 do not fit at H720).
 """
 import argparse
-import glob
 import json
 import sys
 from pathlib import Path
@@ -20,7 +21,7 @@ import patchmem.eval_err_value as ev
 from patchmem.eval_err_value import H, NF
 
 LAM2 = (0.01, 0.1, 1.0, 10.0, 100.0)
-SETS = ('eps+D', 'all')
+SETS = ('eps', 'eps+D', 'all')
 
 
 def moments_pc(E, ts, o0, dev, chunk, C):
@@ -59,10 +60,7 @@ def run(code, seed, args):
     exp, checkpoint, setting = load_base(code, seed)
     dev = exp.device
     official = json.loads((Path(exp.args.results) / setting / 'base_metrics.json').read_text())['mse']
-    hits = glob.glob(f'results/long_term_forecast_{ev.TEFL_NAME[code]}_96_192_TEFL_iTransformer_*'
-                     f'TEFL_paper_L96_E192_s{seed}_0/tefl_metrics.json')
-    assert len(hits) == 1, hits
-    tefl = json.loads(Path(hits[0]).read_text())
+    tefl = ev.load_tefl(code, seed)
     X, M, n_tr, n_va = ev.load_series(exp, code)
     m_tr = args.m_tr if args.m_tr else n_tr
     assert m_tr >= 2 * H + 1
@@ -92,22 +90,23 @@ def run(code, seed, args):
                  pooled_test_mse=po, pc_test_mse=pc)
         for k in ('pooled', 'pc'):
             r[f'{k}_gain'] = 100 * (base - r[f'{k}_test_mse']) / base
-            r[f'{k}_vs_tefl'] = 100 * (tefl['mse'] - r[f'{k}_test_mse']) / tefl['mse']
+            r[f'{k}_vs_tefl'] = 100 * (tefl['mse'] - r[f'{k}_test_mse']) / tefl['mse'] if tefl else None
         res[arm] = r
-        print(f'[test] {arm:6s} pooled {po:.5f} ({r["pooled_vs_tefl"]:+.2f}% vs TEFL) | per-channel lam2 {lam2:g} '
-              f'{pc:.5f} gain {r["pc_gain"]:+.2f}% vs TEFL {r["pc_vs_tefl"]:+.2f}%', flush=True)
-    out = dict(dataset=code, seed=seed, checkpoint=str(checkpoint), base=base, official=official, tefl_mse=tefl['mse'],
-               lam2_grid=LAM2, arms=res)
+        print(f'[test] {arm:6s} pooled {po:.5f} gain {r["pooled_gain"]:+.2f}% | per-channel lam2 {lam2:g} '
+              f'{pc:.5f} gain {r["pc_gain"]:+.2f}%', flush=True)
+    out = dict(dataset=code, seed=seed, H=H, checkpoint=str(checkpoint), base=base, official=official,
+               tefl_mse=tefl['mse'] if tefl else None, lam2_grid=LAM2, arms=res,
+               delta_fresh_pc=res['all']['pc_gain'] - res['eps']['pc_gain'])
     od = Path(args.out_dir)
     od.mkdir(parents=True, exist_ok=True)
-    p = od / f'{code}_errval2_s{seed}.json'
+    p = od / ev.out_name(code, seed, '2')
     p.write_text(json.dumps(out, indent=2) + '\n')
-    print(f'[done] {p} base {base:.5f} TEFL {tefl["mse"]:.5f}', flush=True)
+    print(f'[done] {p} base {base:.5f} pc Delta {out["delta_fresh_pc"]:+.2f}pp', flush=True)
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('--data', required=True, choices=ev.TEFL_NAME)
+    p.add_argument('--data', required=True, choices=('E', 'M1', 'M2', 'W'))
     p.add_argument('--seed', type=int, default=3047)
     p.add_argument('--m_tr', type=int, default=None)
     p.add_argument('--bs', type=int, default=64)
