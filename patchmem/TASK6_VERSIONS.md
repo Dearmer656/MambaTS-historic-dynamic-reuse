@@ -738,3 +738,23 @@ Result (72 + 48 runs, jobs 13543 / 13544 / 13548), Delta(H) pp, s3047/2024/2025:
 Criterion: Delta(720) > Delta(96) 3/3 on 0/6 datasets -> A FAILS (and is EFC's own motivation anyway). The fresh-error
 gain shrinks with H (largest at H96); at H720 the 'all' arm (1537 features) can lose to eps alone (val-chosen lam
 overfits: ETTh2 s2025 -5.3, ETTm1 s2025 -3.6).
+
+## Lead structure of the forecast error (diag_err_lead.py f48ed84, plot_err_lead.py; jobs 13560 / 13561)
+Frozen standalone iTransformer L96, train + val origins only (test never streamed), pooled H x H covariance of
+orig e_o = E[o, :], diag d_t = E[t-1-l, l] (all forecasts of y[t-1]), pred = ridge 'all' prediction (lam 0.1, fit on
+train, on val), resid = e - pred.  R_nb = variance kept by nb equal lead buckets (R1 = common shift), PR = eff. dim.
+3 seeds agree to +-0.01.  s3047 (H192 / H720):
+| data | orig R1 | orig top3 | orig PR | diag R1 | pred R8 | pred PR |
+|---|---|---|---|---|---|---|
+| ETTh2 | .45/.47 | .69/.67 | 3.6/3.4 | .81/.75 | .63/.79 | 3.5/2.2 |
+| ETTm1 | .34/.38 | .58/.55 | 5.7/5.2 | .81/.75 | .74/.69 | 5.0/2.2 |
+| ETTm2 | .51/.50 | .73/.72 | 2.9/3.1 | .76/.70 | .79/.76 | 2.5/2.0 |
+| Weather | .30/.29 | .53/.44 | 7.6/8.8 | .86/.80 | .94/.81 | 2.1/1.7 |
+| Traffic | .06/.06 | .14/.13 | 65/101 | .89/.86 | .22/.21 | 12.5/15 |
+| EL | .21/.23 | .34/.35 | 15/14 | .81/.77 | .37/.35 | 9.9/10 |
+Rules: shared in H (orig R1 >= .8) FAIL 6/6; low-dim (top3 >= .9) FAIL 6/6; 8 lead buckets keep the predictable part
+(pred R8 >= .9) PASS only Weather H192.  The same-target errors ARE shared (diag R1 .70-.89): the error is mainly a
+property of the target time, and one forecast's lead correlation is ~Toeplitz in the lead gap with stripes at 24 h
+(Traffic / EL; 96 steps on ETTm1) -> a shock series indexed by target time, with daily recurrence.  Predictable part:
+Traffic / EL = pure 24-periodic stripes (lead buckets destroy it, R8 .2-.4); Weather = smooth near-constant offset;
+ETT = smooth + periodic, PR 2-5.  Figures patchmem/logs/server/err_lead/figures/err_lead_corr_H{192,720}_s3047.png.
