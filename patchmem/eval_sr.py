@@ -8,33 +8,33 @@ i.e. the autocorrelation of a target-indexed shock series.  So
                                   r = the origin / lead-specific remainder.
 At origin t every s_tau with tau <= t-1 is observed (one new value per step and channel); r[o] is observed for o <= t-H.
 
-Shock layer (target-fixed, carried): per channel a state z of d = 64 damped-rotation modes (rho_k e^(i theta_k);
-theta initialised at the weekly harmonics 2 pi k / (168 q), q = steps per hour, which include the daily ones; memory
-initialised log-spaced 4 h .. 2 weeks).  At origin t the newest shock enters: z <- Lam T_t z + B w_t, w_t = the newest
-observation diagonal's mean (per lead bucket; nb = 1: s_(t-1)) / sig_t^gamma; read m_x[t, h] = sig_t^gamma
-C_bucket(h) . Lam^(h+1) z (extrapolation with the fixed Lam).  The RoPE view of the daily stripes is Lam (rotation +
-decay); the arms differ only in the state-driven part T_t of the transition:
-  s1_I  theta = 0, T = I                        (no rotation: a bank of exponential smoothers)
-  s1_R  T = I                                   (fixed damped rotation, RoPE-like)
+Shock layer (target-fixed, carried over time), two parts:
+  base_sh  fixed linear transfer, closed form: ridge from the shock history s_(t-1-j), j < 96, (+ bias) to E[t, :]
+           (pooled channels, fit on train origins, lam on val).  Everything below is fitted to rho = E - base_sh.
+  carry    per channel a state z of d = 64 damped-rotation modes (rho_k e^(i theta_k); theta initialised at the
+           weekly harmonics 2 pi k / (168 q), q = steps per hour; memory initialised log-spaced 4 h .. 2 weeks).
+           At origin t the newest shock enters: z <- Lam T_t z + B s_(t-1) / sig_t^gamma; read m_x[t, h] =
+           sig_t^gamma C . Lam^(h+1) z (extrapolation with the fixed Lam).  Arms differ only in the state-driven T_t:
+  s1_R  T = I                                   (no state: fixed damped rotation, RoPE-like)
   s1_D  T = g(x) I, g = sigmoid                 (state-driven scalar decay, no direction mixing)
   s1_P  T = I - b(x) u(x) u(x)^T on R^(2d)      (PaTH: state-driven Householder)
-  s8_P  as s1_P with nb = 8 lead buckets in and out (the old decomp2 granularity)
+  (s1_I theta = 0 and s8_P nb = 8 lead buckets remain available, not run by default)
 x_t = [the channel's last 96 inputs (y - mu_t) / sd_t, d mu_t / sd_t, d log sd_t] (the backbone input state, as Pd).
-Trained on all train origins (targets inside train), target E[t, h], truncated BPTT (one day), 10 epochs, Adam.
+Trained on all train origins (targets inside train), target rho[t, h], truncated BPTT (one day), 10 epochs, Adam.
 
 Residual layer (origin-fixed, state -> error): top-k by cos of the instance-normalised input window (same channel,
-demos o <= t-H), m = (1/k) sum cos v_o, k in KS chosen on val per arm:
-  S_e  v = E[o]   (the old single-granularity value)      S_r  v = r[o] = E[o, h] - s_{o+h}
-Combination y^ = f + a_b m_S + b_b m_x, (a_b, b_b) per lead bucket (NB = 8) by least squares on all val origins; arms
-alone fit only their own coefficient.  Test once.
+demos o <= t-H), m = (1/k) sum cos v_o, k in KS chosen on val per arm, target rho:
+  S_e  v = rho[o]   (the whole remaining error vector)    S_r  v = r[o] = E[o, h] - s_{o+h}
+Combination y^ = f + base_sh + a_b m_S + b_b m_x, (a_b, b_b) per lead bucket (NB = 8) by least squares on all val
+origins; arms alone fit only their own coefficient.  Test once.
 
 Criteria (fixed before the runs; a dataset counts iff 3/3 seeds; datasets E M1 M2 W T EL; a claim holds iff >= 4/6):
-  C0 rotation        s1_R beats s1_I (alone, test MSE)
-  C1 PaTH carry      s1_P beats s1_R and s1_D (alone, test MSE)
-  C2 granularity     S_r (+) s1_P beats S_e (+) s8_P (the old design)
+  C1 PaTH carry      s1_P beats s1_R and s1_D (each = base_sh + carry, test MSE)
+  C1b carry adds     s1_P beats base_sh
+  C2 granularity     (diag_shock_ridge.py) the shock history 'sh' beats the full newest diagonal 'D'
   C3 residual value  S_r (+) s1_P beats S_e (+) s1_P
   C4 vs baselines    S_r (+) s1_P beats TEFL (official, H192, 5 datasets) and the ridge 'all' arm (eval_err_value,
-                     ~EFC-CET) -- reported per dataset, holds iff >= 4 of the datasets that have the baseline
+                     ~EFC-CET) -- per dataset, holds iff >= 4 of the datasets that have the baseline
 Also reported: the energy shares of s and r in E over train + val origins.
 """
 import argparse
@@ -65,6 +65,7 @@ CHR, BQ = 32, 64                                                         # retri
 CARRY_ARMS = {'s1_I': (1, 'I'), 's1_R': (1, 'R'), 's1_D': (1, 'D'), 's1_P': (1, 'P'), 's8_P': (8, 'P')}
 D_MODES = 64
 S_ARMS = ('S_e', 'S_r')
+LS = 96                                                                  # shock-history lags of the base
 
 
 def lead_bucket(h, nb, dev):
@@ -203,8 +204,6 @@ def run(code, seed, args):
     del ssum, bsum
     sidx = torch.arange(n)[:, None] + kh                                           # n H: tau - T0 of E[k, :, h]
 
-    def resid(k, c):                                                               # r[k] (len(k) len(c) H) on dev
-        return E[k][:, c].to(dev) - shock[sidx[k]][..., c].permute(0, 2, 1).to(dev)
 
     # energy shares of s and r (train + val origins)
     sh = {'E': 0.0, 's': 0.0, 'r': 0.0}
@@ -221,6 +220,48 @@ def run(code, seed, args):
         sh['r'] += float((e_ - s_).square().sum())
     shares = dict(s=sh['s'] / sh['E'], r=sh['r'] / sh['E'])
     print(f'[shares] s {shares["s"]:.3f} r {shares["r"]:.3f}', flush=True)
+
+    # ---- shock layer, base: closed-form ridge from the shock history s_(t-1-j), j < LS, to E[t] (pooled channels)
+    jl = torch.arange(LS)
+    cb = torch.arange(LS + 1, device=dev)
+
+    def shfeat(k, c):                                                              # (len k, len c, LS + 1) on dev
+        idx = k[:, None] - 1 - jl                                                  # tau - T0, observed (<= t - 1)
+        f = (shock[idx.clamp_min(0)][..., c] * (idx >= 0)[..., None]).permute(0, 2, 1)
+        return torch.cat([f, torch.ones_like(f[..., :1])], -1).to(dev)
+
+    def bmom(ks):
+        m = dict(xx=torch.zeros(LS + 1, LS + 1, dtype=torch.float64, device=dev),
+                 xy=torch.zeros(LS + 1, H, dtype=torch.float64, device=dev),
+                 yy=torch.zeros(H, dtype=torch.float64, device=dev), n=0)
+        for i in range(0, len(ks), 64):
+            k = ks[i:i + 64]
+            Fk = shfeat(k, torch.arange(C)).double().reshape(-1, LS + 1)
+            Y = E[k].to(dev).double().reshape(-1, H)
+            m['xx'] += Fk.T @ Fk
+            m['xy'] += Fk.T @ Y
+            m['yy'] += Y.square().sum(0)
+            m['n'] += len(Y)
+        return m
+
+    bm = {z: bmom(torch.nonzero(split == z).flatten()) for z in (0, 1, 2)}
+    bval = {lam: ev.mse(bm[1], cb, ev.solve(bm[0], cb, lam)) for lam in ev.LAMS}
+    blam = min(bval, key=bval.get)
+    Wb = ev.solve(bm[0], cb, blam).float()                                          # LS+1 H
+    res = {'base_sh': dict(lam=blam, val_mse=bval[blam], test_mse=ev.mse(bm[2], cb, ev.solve(bm[0], cb, blam)),
+                           val_grid={str(k): v for k, v in bval.items()})}
+    print(f'[base_sh] lam {blam:g} test {res["base_sh"]["test_mse"]:.5f}', flush=True)
+    del bm
+
+    def basep(k, c):                                                               # (len k, len c, H) on dev
+        return shfeat(k, c) @ Wb
+
+    for i in range(0, n, 256):                                                     # E <- rho = E - base
+        k = torch.arange(i, min(n, i + 256))
+        E[k] -= basep(k, torch.arange(C)).cpu()
+
+    def resid(k, c):                                                               # r = E - s (len k, len c, H), dev
+        return E[k][:, c].to(dev) + basep(k, c) - shock[sidx[k]][..., c].permute(0, 2, 1).to(dev)
 
     def bsumf(x):                                                                  # (b C H) -> (b NB) float64
         return torch.zeros(x.shape[0], NB, dtype=torch.float64, device=dev).index_add_(1, bk, x.double().sum(1))
@@ -267,7 +308,6 @@ def run(code, seed, args):
         a = torch.where(mm[1] > 0, em[1] / mm[1].clamp_min(EPS), torch.zeros_like(mm[1]))
         return a, (ee - 2 * a * em + a ** 2 * mm).sum(-1)
 
-    res = {}
     sums = retrieval(KS)
     kbest = {}
     for a in S_ARMS:
@@ -422,7 +462,7 @@ def main():
     p.add_argument('--max_c', type=int, default=None)
     p.add_argument('--epochs', type=int, default=EPOCHS)
     p.add_argument('--weeks', type=int, default=None, help='train-tail weeks (default: the whole train segment)')
-    p.add_argument('--arms', default=','.join(CARRY_ARMS))
+    p.add_argument('--arms', default='s1_R,s1_D,s1_P')
     p.add_argument('--out_dir', default='patchmem/logs/server/err_sr')
     a = p.parse_args()
     run(a.data, a.seed, a)
