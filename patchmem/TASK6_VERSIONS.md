@@ -726,3 +726,15 @@ datasets E M1 M2 W T EL, seeds 3047/2024/2025; T / EL keep 5665 train origins at
 Pre-registered criterion: A holds iff on >= 4/6 datasets Delta(720) > Delta(96) on 3/3 seeds AND 3-seed mean
 Delta(720) >= 1.0 pp there. Secondary: per-channel Delta (E M1 M2 W). Outputs patchmem/logs/server/err_value/hsweep.
 H192 rerun reproduces the stage-1 numbers (E s3047 eps +7.38%, all +6.94%). Codex: no bugs (comment off-by-one fixed).
+Result (72 + 48 runs, jobs 13543 / 13544 / 13548), Delta(H) pp, s3047/2024/2025:
+| data | H96 | H192 | H336 | H720 |
+|---|---|---|---|---|
+| ETTh2 | -0.19/+0.54/+1.02 | -0.44/-0.10/-0.23 | -2.03/-1.83/-2.01 | +1.17/+1.86/-5.29 |
+| ETTm1 | +1.38/+2.46/+2.79 | +0.65/+0.90/+1.08 | +1.09/+1.40/+0.68 | -0.18/-0.26/-3.56 |
+| ETTm2 | +2.18/+1.97/+2.92 | +0.81/+1.67/+3.12 | +0.11/+1.35/-0.23 | +0.17/-0.44/+0.33 |
+| Weather | +0.76/+1.31/+1.33 | +2.48/+0.94/+1.08 | +1.30/+0.91/+1.21 | +0.17/+0.73/+0.42 |
+| Traffic | +0.40/+0.41/+0.43 | +0.20/+0.16/+0.11 | +0.21/+0.17/+0.20 | +0.24/+0.38/+0.29 |
+| EL | +0.69/+0.72/+0.72 | +0.21/+0.06/+0.17 | -0.02/+0.18/+0.70 | -0.24/-0.42/-0.23 |
+Criterion: Delta(720) > Delta(96) 3/3 on 0/6 datasets -> A FAILS (and is EFC's own motivation anyway). The fresh-error
+gain shrinks with H (largest at H96); at H720 the 'all' arm (1537 features) can lose to eps alone (val-chosen lam
+overfits: ETTh2 s2025 -5.3, ETTm1 s2025 -3.6).
