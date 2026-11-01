@@ -798,3 +798,13 @@ bias -2.04 / -1.69), Householder moves 1.6-1.8 % of |z| per step, cos(u_t, u_t-1
 state driven); D gate median 0.997 with rare resets (W q10 0.04); carry readout rms = 0.6-4 % of rho rms.
 Conclusion: after the linear shock base nothing carry-able is left; the state-driven transfer has no role on these
 benchmarks (earlier carries without the base did not learn either).  PAT-315 carry line stopped; direction pending user.
+
+## Is the carry's failure the data or its training? fixed-rotary shock ridge (diag_rot_ridge.py) — design, jobs 15176-15178
+Code check of eval_sr (user asked for a bug): no indexing bug, but two training defects that block periodic lags:
+truncated BPTT of one day (gradient to B / theta / rho only from lags < 24 q: weekly lags unreachable, daily at the edge)
+and Adam lr 3e-3 on theta vs the harmonic spacing 2 pi / (PW q) (0.037 rad hourly) -> theta drifts (dump: 4-11 spacings).
+Training-free check: theta, rho frozen at the s1_R init, z_j = rho e^(i theta) z_(j-1) + (1 - rho) s_j (64 modes, memory
+4 h .. 2 weeks), ridge to E[t] as diag_shock_ridge (pooled channels, train fit, lam on val, test once), same origins for all
+arms (warm-up 6 weeks + H).  Arms sh (96 lags), rot, sh+rot, sh+tail (z_(t-97): only shocks older than the lags).
+Criterion (fixed): sh+rot - sh >= 0.3 pp, 3/3 seeds, >= 4/6 datasets -> the carry failure is training, fix BPTT/theta
+and rerun R/D/P; else the 96 lags already hold the periodic information.  Codex: tail arm, longer warm-up, T 110G.
