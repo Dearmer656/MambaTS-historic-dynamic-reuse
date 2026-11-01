@@ -822,3 +822,10 @@ shocks older than the lags (sh+tail >= sh+rot everywhere; sh+rot is hurt by one 
 On M1 / M2 / W the 96 lags cover only 24 h / 24 h / 16 h, so base_sh never saw the daily lag.  -> the learned carries'
 null result was their training (BPTT one day, theta drift), not the data.  Next (to confirm with user): carry with
 theta frozen, BPTT >= one week, on top of a base that already contains the fixed rotary state.
+
+## eval_sr v2: carry on top of the fixed rotary base (user: 跑) — design, jobs 15581-15584
+--base shrot: base ridge = 96 shock lags + fixed rotary state, block rot (z_(t-1)) or tail (z_(t-97)) chosen with lam on
+val, train moments after a 6-week warm-up; --freeze_theta (weekly harmonics kept); --bptt_h 168 (one week).  Arms s1_R /
+s1_D / s1_P and S_e / S_r unchanged; criteria C1 / C1b / C3 / C4 unchanged (3/3 seeds, >= 4/6).  Defaults reproduce v1.
+Codex: no correctness issue (defaults kept, Zr causal, bias last, same columns in fit and subtraction); memory T 110G.
+Note: one-week BPTT gives ~7x fewer optimizer updates per epoch than v1 (epochs kept at 10).

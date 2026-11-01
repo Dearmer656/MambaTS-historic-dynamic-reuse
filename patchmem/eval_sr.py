@@ -28,6 +28,10 @@ demos o <= t-H), m = (1/k) sum cos v_o, k in KS chosen on val per arm, target rh
 Combination y^ = f + base_sh + a_b m_S + b_b m_x, (a_b, b_b) per lead bucket (NB = 8) by least squares on all val
 origins; arms alone fit only their own coefficient.  Test once.
 
+v2 (--base shrot --freeze_theta --bptt_h 168; diag_rot_ridge showed the fixed rotary state beats the 96 lags 5/6): the
+base adds the fixed rotary shock state (theta at the weekly harmonics, memory 4 h .. 2 weeks; block 'rot' z_(t-1) or 'tail'
+z_(t-97), chosen with lam on val; train moments after a 6-week warm-up), so the carry only sees what a fixed linear
+rotary kernel cannot take; theta frozen, truncated BPTT one week.  Same arms and criteria C1 / C1b / C3 / C4.
 Criteria (fixed before the runs; a dataset counts iff 3/3 seeds; datasets E M1 M2 W T EL; a claim holds iff >= 4/6):
   C1 PaTH carry      s1_P beats s1_R and s1_D (each = base_sh + carry, test MSE)
   C1b carry adds     s1_P beats base_sh
@@ -224,20 +228,35 @@ def run(code, seed, args):
 
     # ---- shock layer, base: closed-form ridge from the shock history s_(t-1-j), j < LS, to E[t] (pooled channels)
     jl = torch.arange(LS)
-    cb = torch.arange(LS + 1, device=dev)
+    ND = 2 * D_MODES
+    NFB = LS + (2 * ND if args.base == 'shrot' else 0) + 1
+    if args.base == 'shrot':                                                       # fixed rotary state (diag_rot_ridge)
+        th_ = 2 * math.pi * torch.arange(D_MODES, dtype=torch.float64) / (PW * q)
+        rho_ = torch.exp(-1 / (q * torch.logspace(math.log10(4), math.log10(2 * PW), D_MODES, dtype=torch.float64)))
+        lam_c, gin = (rho_ * torch.exp(1j * th_)).to(dev), (1 - rho_).to(dev)
+        Zr = torch.zeros(n, C, ND)                                                 # Zr[k] = z_(k-1), shocks <= t - 1
+        zc = torch.zeros(C, D_MODES, dtype=torch.complex128, device=dev)
+        sdv = shock.to(dev).double()
+        for j in range(n - 1):
+            zc = lam_c * zc + gin * sdv[j][:, None]
+            Zr[j + 1] = torch.cat([zc.real, zc.imag], -1).float().cpu()
+        del sdv, zc
 
-    def shfeat(k, c):                                                              # (len k, len c, LS + 1) on dev
+    def shfeat(k, c):                                                              # (len k, len c, NFB) on dev
         idx = k[:, None] - 1 - jl                                                  # tau - T0, observed (<= t - 1)
         f = (shock[idx.clamp_min(0)][..., c] * (idx >= 0)[..., None]).permute(0, 2, 1)
-        return torch.cat([f, torch.ones_like(f[..., :1])], -1).to(dev)
+        parts = [f]
+        if args.base == 'shrot':
+            parts += [Zr[k][:, c], Zr[(k - LS).clamp_min(0)][:, c] * (k >= LS)[:, None, None]]
+        return torch.cat(parts + [torch.ones_like(f[..., :1])], -1).to(dev)
 
     def bmom(ks):
-        m = dict(xx=torch.zeros(LS + 1, LS + 1, dtype=torch.float64, device=dev),
-                 xy=torch.zeros(LS + 1, H, dtype=torch.float64, device=dev),
+        m = dict(xx=torch.zeros(NFB, NFB, dtype=torch.float64, device=dev),
+                 xy=torch.zeros(NFB, H, dtype=torch.float64, device=dev),
                  yy=torch.zeros(H, dtype=torch.float64, device=dev), n=0)
         for i in range(0, len(ks), 64):
             k = ks[i:i + 64]
-            Fk = shfeat(k, torch.arange(C)).double().reshape(-1, LS + 1)
+            Fk = shfeat(k, torch.arange(C)).double().reshape(-1, NFB)
             Y = E[k].to(dev).double().reshape(-1, H)
             m['xx'] += Fk.T @ Fk
             m['xy'] += Fk.T @ Y
@@ -245,17 +264,27 @@ def run(code, seed, args):
             m['n'] += len(Y)
         return m
 
-    bm = {z: bmom(torch.nonzero(split == z).flatten()) for z in (0, 1, 2)}
-    bval = {lam: ev.mse(bm[1], cb, ev.solve(bm[0], cb, lam)) for lam in ev.LAMS}
-    blam = min(bval, key=bval.get)
-    Wb = ev.solve(bm[0], cb, blam).float()                                          # LS+1 H
-    res = {'base_sh': dict(lam=blam, val_mse=bval[blam], test_mse=ev.mse(bm[2], cb, ev.solve(bm[0], cb, blam)),
-                           val_grid={str(k): v for k, v in bval.items()})}
-    print(f'[base_sh] lam {blam:g} test {res["base_sh"]["test_mse"]:.5f}', flush=True)
+    kwarm = 3 * 2 * PW * q if args.base == 'shrot' else 0                         # rotary warm-up (3 x slowest tau)
+    ktr = torch.nonzero(split == 0).flatten()
+    bm = {z: bmom(ktr[ktr >= kwarm] if z == 0 else torch.nonzero(split == z).flatten()) for z in (0, 1, 2)}
+    one = torch.tensor([NFB - 1])
+    cands = {'sh': torch.cat([jl, one])}
+    if args.base == 'shrot':                                                       # rot or tail block, chosen on val
+        cands = {'sh+rot': torch.cat([jl, torch.arange(LS, LS + ND), one]),
+                 'sh+tail': torch.cat([jl, torch.arange(LS + ND, LS + 2 * ND), one])}
+    bval = {(nm, lam): ev.mse(bm[1], cc.to(dev), ev.solve(bm[0], cc.to(dev), lam))
+            for nm, cc in cands.items() for lam in ev.LAMS}
+    bname, blam = min(bval, key=bval.get)
+    cb = cands[bname].to(dev)
+    Wb = ev.solve(bm[0], cb, blam).float()                                          # |cb| H
+    res = {'base_sh': dict(block=bname, lam=blam, val_mse=bval[(bname, blam)],
+                           test_mse=ev.mse(bm[2], cb, ev.solve(bm[0], cb, blam)),
+                           val_grid={f'{nm}|{lam:g}': v for (nm, lam), v in bval.items()})}
+    print(f'[base_sh] {bname} lam {blam:g} test {res["base_sh"]["test_mse"]:.5f}', flush=True)
     del bm
 
     def basep(k, c):                                                               # (len k, len c, H) on dev
-        return shfeat(k, c) @ Wb
+        return shfeat(k, c)[..., cb] @ Wb
 
     for i in range(0, n, 256):                                                     # E <- rho = E - base
         k = torch.arange(i, min(n, i + 256))
@@ -341,7 +370,7 @@ def run(code, seed, args):
     nx = fc.LQ + 2
     k_tr_end = int(torch.nonzero(split == 0).max()) + 1
     burn = 2 * PW * q + H
-    tb = 24 * q                                                                    # truncated BPTT: one day
+    tb = args.bptt_h * q                                                           # truncated BPTT (hours)
 
     def x_at(k, c):
         t = T0 + k
@@ -361,7 +390,9 @@ def run(code, seed, args):
     def train_carry(nb, kind):
         torch.manual_seed(seed)
         net = ShockSSM(nx, nb, kind, q, D_MODES).to(dev)
-        opt = torch.optim.Adam(net.parameters(), lr=LR)
+        if args.freeze_theta and isinstance(net.theta, nn.Parameter):
+            net.theta.requires_grad_(False)                                        # keep the weekly harmonics
+        opt = torch.optim.Adam([p_ for p_ in net.parameters() if p_.requires_grad], lr=LR)
         g = torch.Generator().manual_seed(seed)
         log = []
         for ep in range(args.epochs):
@@ -474,7 +505,8 @@ def run(code, seed, args):
     refs = dict(tefl=tefl['mse'] if tefl else None, ridge_all=ridge)
     print(f'[test] base {base:.5f} refs {refs}', flush=True)
     out = dict(dataset=code, seed=seed, H=H, L=L, checkpoint=str(checkpoint), base=base, official=official, refs=refs,
-               shares=shares, settings=dict(q=q, PW=PW, m_tr=m_tr, NB=NB, KS=KS, EPOCHS=args.epochs, max_c=args.max_c),
+               shares=shares, settings=dict(q=q, PW=PW, m_tr=m_tr, NB=NB, KS=KS, EPOCHS=args.epochs, max_c=args.max_c,
+                             base=args.base, bptt_h=args.bptt_h, freeze_theta=args.freeze_theta),
                **res)
     od.mkdir(parents=True, exist_ok=True)
     done.write_text(json.dumps(out, indent=2) + '\n')
@@ -491,6 +523,9 @@ def main():
     p.add_argument('--weeks', type=int, default=None, help='train-tail weeks (default: the whole train segment)')
     p.add_argument('--arms', default='s1_R,s1_D,s1_P')
     p.add_argument('--out_dir', default='patchmem/logs/server/err_sr')
+    p.add_argument('--base', default='sh', choices=('sh', 'shrot'), help='shrot: + fixed rotary state (rot or tail on val)')
+    p.add_argument('--bptt_h', type=int, default=24, help='truncated BPTT length in hours')
+    p.add_argument('--freeze_theta', action='store_true')
     p.add_argument('--dump', action='store_true', help='save the trained carry + test-stream T_t statistics')
     a = p.parse_args()
     run(a.data, a.seed, a)
