@@ -773,3 +773,28 @@ Pre-run checks (s3047, not part of the criteria): learned carries without a clos
 ETTh2 (phase table and SSM); linear ridge on the shock history: ETTh2 sh +7.95 / D +5.92 / Dm +0.24 / eps +7.48 /
 sh+eps +8.56; ETTm1 +2.87 / +1.52 / -0.11 / +5.56 / +6.94; Weather +5.62 / +4.86 / +0.73 / +5.80 / +7.44.
 Codex: no causality / split / indexing issue; Traffic memory -> T alone per job (64G).
+
+### Results (runs 13953-13956, EL s2025 rerun 14079 after a 4 h timeout): test gain %, mean of 3 seeds
+| data | base_sh | s1_R | s1_D | s1_P | S_e | S_r | S_e(+)s1_P | S_r(+)s1_P | TEFL | ridge all |
+|---|---|---|---|---|---|---|---|---|---|---|
+| E | 8.14 | 8.12 | 8.06 | 7.90 | 8.84 | 7.29 | 8.62 | 7.10 | 1.85 | 7.41 |
+| M1 | 2.89 | 2.23 | 2.52 | 2.44 | 8.30 | 2.36 | 7.87 | 2.01 | 5.63 | 6.61 |
+| M2 | 7.28 | 7.19 | 7.18 | 7.04 | 10.31 | 7.52 | 10.09 | 7.33 | 7.17 | 8.70 |
+| W | 5.61 | 5.41 | 5.57 | 5.60 | 9.69 | 6.26 | 9.66 | 6.26 | 6.80 | 7.09 |
+| T | 2.27 | 2.27 | 2.28 | 2.45 | 6.84 | 3.72 | 6.94 | 3.89 | -1.96 | 4.01 |
+| EL | 3.80 | 3.63 | 3.80 | 3.80 | 9.18 | 5.01 | 9.18 | 4.99 | — | — |
+Criteria (3/3 seeds per dataset):
+- C1 PaTH carry > R and D: Traffic only (1/6) -> FAIL.  C1b s1_P > base_sh: Traffic only (+0.15..0.23 pp) -> FAIL.
+- C2 shock history > full diagonal: E M1 W T (M2 2/3, EL 2/2, s2025 ridge check not rerun) -> HOLDS (4/6).
+- C3 S_r(+)s1_P > S_e(+)s1_P: 0/6 -> FAIL (retrieving the whole remaining error beats retrieving r everywhere).
+- C4 S_r(+)s1_P vs TEFL and ridge 'all': 0/5 -> FAIL.
+Energy share of the shock s in E: 0.76-0.89 (T 0.89, W 0.85, E/M1/EL 0.81, M2 0.76-0.78).
+Not a criterion: S_e (base_sh + input-window kNN of rho) beats TEFL and ridge 'all' on 5/5 datasets, 3/3 seeds (+1.0..3.0
+pp over ridge), k mostly at the grid edge 256 (T 16-64, EL 64).  Not pursued: it is kNN error retrieval (RATL/RACE type).
+What the carry learned (--dump, eval_sr --dump; analyze_carry_dump.py; E, W s3047, job 14038; E reproduces bit-exact, W carry
+arms differ 0.1-0.2 % run to run): theta left the weekly harmonics (median 4-11 spacings) to short modes (period 2.4-9 h,
+memory 3-8 h) that differ between arms; tau shrank (median 37 h -> 22-28 h); PaTH beta stays at init (median 0.23 / 0.31,
+bias -2.04 / -1.69), Householder moves 1.6-1.8 % of |z| per step, cos(u_t, u_t-1) median 0.95 / 0.997 (u ~ constant, not
+state driven); D gate median 0.997 with rare resets (W q10 0.04); carry readout rms = 0.6-4 % of rho rms.
+Conclusion: after the linear shock base nothing carry-able is left; the state-driven transfer has no role on these
+benchmarks (earlier carries without the base did not learn either).  PAT-315 carry line stopped; direction pending user.
