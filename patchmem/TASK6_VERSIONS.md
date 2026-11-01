@@ -808,3 +808,17 @@ Training-free check: theta, rho frozen at the s1_R init, z_j = rho e^(i theta) z
 arms (warm-up 6 weeks + H).  Arms sh (96 lags), rot, sh+rot, sh+tail (z_(t-97): only shocks older than the lags).
 Criterion (fixed): sh+rot - sh >= 0.3 pp, 3/3 seeds, >= 4/6 datasets -> the carry failure is training, fix BPTT/theta
 and rerun R/D/P; else the 96 lags already hold the periodic information.  Codex: tail arm, longer warm-up, T 110G.
+Results (jobs 15176-15178, all 18 runs): test gain %, seeds 3047 / 2024 / 2025
+| data | sh | rot | sh+rot | sh+tail | sh+rot - sh (pp) |
+|---|---|---|---|---|---|
+| E | 7.79 / 8.27 / 8.26 | 4.26 / 4.66 / 4.15 | 7.88 / 8.35 / 8.35 | 8.43 / 8.90 / 8.85 | 0.09 / 0.08 / 0.09 |
+| M1 | 3.05 / 3.05 / 3.43 | 5.35 / 5.36 / 6.09 | 5.32 / 5.31 / 6.04 | 5.57 / 5.58 / 6.29 | 2.27 / 2.26 / 2.61 |
+| M2 | 6.93 / 7.68 / 7.05 | 8.17 / 9.10 / 8.58 | 8.13 / 9.03 / 8.44 | 8.94 / 10.27 / 10.22 | 1.19 / 1.35 / 1.39 |
+| W | 5.40 / 4.90 / 5.94 | 6.84 / 6.10 / 7.04 | 5.77 / 5.57 / 6.79 | 7.19 / 6.40 / 7.26 | 0.37 / 0.67 / 0.85 |
+| T | 2.30 / 2.19 / 2.28 | 1.85 / 1.76 / 1.83 | 3.07 / 2.93 / 3.03 | 3.53 / 3.43 / 3.51 | 0.76 / 0.74 / 0.75 |
+| EL | 3.76 / 3.83 / 3.84 | 2.42 / 2.50 / 2.48 | 4.20 / 4.27 / 4.28 | 4.81 / 4.89 / 4.87 | 0.44 / 0.45 / 0.44 |
+Criterion holds 5/6 (all but ETTh2): the fixed rotary state carries shock information beyond the 96 lags, mostly from
+shocks older than the lags (sh+tail >= sh+rot everywhere; sh+rot is hurt by one shared lam over overlapping blocks).
+On M1 / M2 / W the 96 lags cover only 24 h / 24 h / 16 h, so base_sh never saw the daily lag.  -> the learned carries'
+null result was their training (BPTT one day, theta drift), not the data.  Next (to confirm with user): carry with
+theta frozen, BPTT >= one week, on top of a base that already contains the fixed rotary state.
