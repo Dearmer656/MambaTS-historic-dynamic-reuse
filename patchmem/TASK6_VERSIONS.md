@@ -882,13 +882,13 @@ Reading: the raw gain is shrinkage of the forecast toward 0 = the train mean in 
 correction, largest on Weather), not an amplitude miscalibration of the periodic part.  Decision per the plan: amplitude
 miscalibration does not explain the periodic forecast error -> direction stopped, no model complexity added.
 Codex: formulas and splits ok; test curve removed from the outputs (test only at the val-chosen alpha).
-Results (jobs 16258-16260; 5/6 complete, H336 s3047 partial): Traffic L720 test gain % vs backbone
+Results (jobs 16258-16260; 6/6 complete): Traffic L720 test gain % vs backbone
 | H / seed | base | P | G | GF | P_only | S_e | S_e(+)P | FC | B |
 |---|---|---|---|---|---|---|---|---|---|
 | 192 / 3047 | 0.01 | 0.42 | 0.07 | 0.02 | -0.26 | 1.40 | 1.71 | 1.19 | 1.61 |
 | 192 / 2024 | 0.02 | 0.47 | 0.09 | 0.03 | -0.22 | 1.24 | 1.56 | 1.47 | 1.68 |
 | 192 / 2025 | 0.03 | 0.50 | 0.03 | 0.03 | 0.03 | 1.34 | 1.66 | 1.72 | 1.69 |
-| 336 / 3047 | 0.24 | 0.54 | 0.20 | 0.24 | (run) | 1.18 | (run) | | |
+| 336 / 3047 | 0.24 | 0.54 | 0.20 | 0.24 | -0.02 | 1.18 | 1.42 | 1.30 | 1.65 |
 | 336 / 2024 | 0.05 | 0.34 | 0.14 | 0.06 | -0.49 | 1.04 | 1.24 | 2.09 | 1.70 |
 | 336 / 2025 | 0.21 | 0.47 | 0.18 | 0.21 | -0.12 | 1.17 | 1.39 | 2.53 | 1.62 |
 - P > G, GF on val and test in every run: the PaTH gain is the non-diagonal (cross-frequency) Householder mixing; per-mode
