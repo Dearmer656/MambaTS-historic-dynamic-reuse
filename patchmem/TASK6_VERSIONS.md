@@ -855,3 +855,14 @@ Dev protocol: Traffic L720 H192 / H336 x 3 seeds, arms s1_R / s1_D / s1_P / s1_P
 + early_stop; choices made on VAL only.  Runs on the docker A6000 (branch docker: data, 6 frozen checkpoints, refs,
 docker/run_traffic_dev.sh pushes patchmem/logs/docker/sr3/ after every run).  Confirmation on unseen settings
 (other traffic datasets / H) to be fixed after dev.
+
+### Server 3090 arms (user: why PaTH on z at all?) — commit 20d0632, jobs 16258-16260
+Question: z is already a per-frequency periodic memory (LTI under Lam); PaTH should only edit it when the state says the
+periodic pattern fails (reset a band, shift a phase, move energy between harmonics).  Householder in the mixed 128-d
+coordinates is an indirect parameterisation of these edits, and D (one scalar gate) was a weak control.  New arms:
+s1_G per-mode state gate g_k(x) (bias 6), s1_GF gate + per-mode phase shift delta_k(x) = pi tanh(.) (zero init) =
+"selective rotary" (complex diagonal selective SSM); s1_Ponly = no Lam (theta 0, rho kept), per-lead readout C_h z_t
+(compound ablation: rotation + extrapolation).  Same flags as the docker dev (shrot, freeze_theta, bptt 168,
+early_stop), Traffic L720 H192 / H336 x 3 seeds, s1_P rerun as the same-machine anchor.  Smoke 16246 ok.
+Reading (val for choices): G / GF >= P -> per-frequency selectivity suffices, Householder not needed; P clearly better
+-> cross-frequency mixing is the reason for PaTH.
