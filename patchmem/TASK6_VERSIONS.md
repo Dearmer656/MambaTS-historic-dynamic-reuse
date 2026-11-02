@@ -898,3 +898,15 @@ Results (jobs 16258-16260; 6/6 complete): Traffic L720 test gain % vs backbone
   val fits b and picks the epoch and differs from test -> a val-only rule would pick the wrong arm.  Proposal (pending
   user): split val into a fit half (b) and a selection half.
 - Docker R / D / P2 runs: nothing pushed yet.
+
+## PAT-315 PaTH mechanism analysis (user plan, 3 steps in order) — Step 1 diagnostics, commit 2611ace, jobs 17448-17450
+Carry parameters of jobs 16258-16260 were not saved -> the same config / seeds are rerun with --dump --mech (arms s1_P,
+s1_GF; Traffic L720 H192, 3 seeds); the rerun must reproduce the err_sr3 test MSE (GPU nondeterminism aside).
+eval_sr: ShockSSM.trans() = T_t split out of step (same ops); --mech records on test, per rotary mode, the change of
+complex amplitude / phase across T_t (raw and energy-weighted), and for P the self vs cross-mode part of beta u u^T z;
+after all arms an exact decomposition on test with the json coefficients: r_tot = E, d_tot = base + extra; r_inc = E - base,
+d_inc = extra; sums per (channel, lead) + fixed-lead (0/23/95/191) series of r and d.  Smoke 17444: decomposition equals
+the json test MSE of every method.  analyze_path_mech.py: gain = align (2<r,d>) - energy (<d,d>), corr rho / size s (gain
+<= rho^2 at s = rho), per lead / channel; Hilbert per fixed lead x channel after FFT band-pass (daily 20-28 h, weekly
+140-196 h): PLV, amplitude ratio, lag (> 0: correction lags r); mode plots.  Codex: mode-name parsing, fp32 readout for an
+exact decomposition, lag sign -> fixed.
