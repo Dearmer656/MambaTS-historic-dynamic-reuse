@@ -1,0 +1,13 @@
+# versions of the cluster env (mamba_iso + _pylib) that produced the PAT-307 results; torch / mamba-ssm / causal-conv1d are installed by setup_env.sh
+numpy==2.5.3
+pandas==3.0.6
+scipy==1.18.1
+scikit-learn==1.9.1
+sktime==1.2.0
+matplotlib==3.11.2
+einops==0.8.2
+sympy==1.14.0
+tqdm
+python-tsp==0.5.0
+patool
+reformer-pytorch==1.4.4

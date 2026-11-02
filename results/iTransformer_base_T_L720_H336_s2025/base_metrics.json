@@ -1,0 +1,10 @@
+{
+  "dataset": "traffic",
+  "model": "iTransformer",
+  "seed": 2025,
+  "L": 720,
+  "H": 336,
+  "elements": 919002336,
+  "mse": 0.3818744174001188,
+  "mae": 0.2725713304205811
+}
