@@ -32,7 +32,7 @@ sys.path.insert(0, str(ROOT))
 np.Inf = np.inf
 from data_provider.data_factory import data_provider
 
-L, LU = 96, 96
+L, LU = int(os.environ.get('ITR_L', '96')), 96                            # ITR_L: long-input backbone
 H = int(os.environ.get('ITR_H', '192'))
 LAMS = (1e-4, 1e-3, 1e-2, 1e-1, 1.0, 10.0)
 TEFL_NAME = {'E': 'ETTh2', 'M1': 'ETTm1', 'M2': 'ETTm2', 'W': 'weather', 'T': 'traffic'}

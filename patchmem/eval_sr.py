@@ -42,6 +42,7 @@ Criteria (fixed before the runs; a dataset counts iff 3/3 seeds; datasets E M1 M
 Also reported: the energy shares of s and r in E over train + val origins.
 """
 import argparse
+import copy
 import json
 import math
 import sys
@@ -66,7 +67,8 @@ SIG_FLOOR = 0.05
 EPOCHS, LR = 10, 3e-3
 CH = 128                                                                 # channels per carry training chunk
 CHR, BQ = 32, 64                                                         # retrieval: channels per chunk, queries
-CARRY_ARMS = {'s1_I': (1, 'I'), 's1_R': (1, 'R'), 's1_D': (1, 'D'), 's1_P': (1, 'P'), 's8_P': (8, 'P')}
+CARRY_ARMS = {'s1_I': (1, 'I', 1), 's1_R': (1, 'R', 1), 's1_D': (1, 'D', 1), 's1_P': (1, 'P', 1), 's8_P': (8, 'P', 1),
+              's1_P2': (1, 'P', 2), 's1_P4': (1, 'P', 4)}                 # (lead buckets, T_t kind, Householders per step)
 D_MODES = 64
 S_ARMS = ('S_e', 'S_r')
 LS = 96                                                                  # shock-history lags of the base
@@ -81,9 +83,9 @@ class ShockSSM(nn.Module):
       z <- Lam T_t z + B w_t,   Lam = diag(rho_k rot(theta_k)),   w_t = newest diagonal means / sig_t^gamma (nb)
       read  m[t, h] = sig_t^gamma Re-readout C_bucket(h) of Lam^(h+1) z      (forecast of the target t + h)
     T_t by kind: I and R identity (I: theta = 0, no rotation), D g(x) I, P I - b(x) u(x) u(x)^T (PaTH, on R^(2d))."""
-    def __init__(self, nx, nb, kind, q, d):
+    def __init__(self, nx, nb, kind, q, d, nh=1):
         super().__init__()
-        self.nb, self.kind, self.d = nb, kind, d
+        self.nb, self.kind, self.d, self.nh = nb, kind, d, nh
         th = 2 * math.pi * torch.arange(d).float() / (PW * q)               # weekly harmonics (incl. daily ones)
         if kind == 'I':
             self.register_buffer('theta', torch.zeros(d))
@@ -95,8 +97,8 @@ class ShockSSM(nn.Module):
         self.B = nn.Parameter(torch.randn(d * 2, nb, generator=torch.Generator().manual_seed(1)) * 0.1)
         self.Cr = nn.Parameter(torch.zeros(nb, d, 2))
         if kind == 'P':
-            self.Wu = nn.Linear(nx, 2 * d)
-            self.wb = nn.Linear(nx, 1)
+            self.Wu = nn.Linear(nx, 2 * d * nh)                                # nh = 1: identical to v1
+            self.wb = nn.Linear(nx, nh)
             nn.init.constant_(self.wb.bias, -2.0)                              # beta ~ 0.24 at init
         elif kind == 'D':
             self.wd = nn.Linear(nx, 1)
@@ -110,10 +112,13 @@ class ShockSSM(nn.Module):
         """z (B d 2), x (B nx), w (B nb) -> z."""
         Bn = z.shape[0]
         if self.kind == 'P':
-            u = F.normalize(self.Wu(x), dim=-1)
+            U = F.normalize(self.Wu(x).view(Bn, self.nh, 2 * self.d), dim=-1)
             beta = 2 * torch.sigmoid(self.wb(x))
             zf = z.flatten(1)
-            z = (zf - beta * u * (u * zf).sum(-1, keepdim=True)).view(Bn, self.d, 2)
+            for i in range(self.nh):                                           # T_t = H_1 ... H_nh, applied H_nh first
+                u, b_ = U[:, self.nh - 1 - i], beta[:, self.nh - 1 - i:self.nh - i]
+                zf = zf - b_ * u * (u * zf).sum(-1, keepdim=True)
+            z = zf.view(Bn, self.d, 2)
         elif self.kind == 'D':
             z = torch.sigmoid(self.wd(x))[:, :, None] * z
         rho = torch.sigmoid(self.rho_p)
@@ -160,10 +165,10 @@ def topk_read(Kn, vals, kq, h, ks):
 
 def run(code, seed, args):
     from patchmem.eval_itransformer_pure_icl import load_base
-    assert H == 192
     od = Path(args.out_dir)
     od.mkdir(parents=True, exist_ok=True)
-    done = od / f'{code}_H{H}_s{seed}{"_smoke" if args.max_c or args.epochs != EPOCHS else ""}.json'
+    ltag = '' if L == 96 else f'_L{L}'
+    done = od / f'{code}_H{H}{ltag}_s{seed}{"_smoke" if args.max_c or args.epochs != EPOCHS else ""}.json'
     if done.exists():
         print(f'[skip] {done}', flush=True)
         return
@@ -387,14 +392,14 @@ def run(code, seed, args):
         z = net.step(z, x, w)
         return z, sg * net.read(z, H)
 
-    def train_carry(nb, kind):
+    def train_carry(nb, kind, nh=1):
         torch.manual_seed(seed)
-        net = ShockSSM(nx, nb, kind, q, D_MODES).to(dev)
+        net = ShockSSM(nx, nb, kind, q, D_MODES, nh).to(dev)
         if args.freeze_theta and isinstance(net.theta, nn.Parameter):
             net.theta.requires_grad_(False)                                        # keep the weekly harmonics
         opt = torch.optim.Adam([p_ for p_ in net.parameters() if p_.requires_grad], lr=LR)
         g = torch.Generator().manual_seed(seed)
-        log = []
+        log, vlog, best = [], [], [float('inf'), None, -1]
         for ep in range(args.epochs):
             tot, cn = 0.0, 0
             for c in torch.randperm(C, generator=g).split(CH):
@@ -416,6 +421,14 @@ def run(code, seed, args):
                         loss, nl = 0.0, 0
                         state = state.detach()
             log.append(tot / max(cn, 1))
+            if args.early_stop:                                                    # keep the epoch best on val
+                v_ = float(fit_alone(eval_carry(net))[1][1]) / nel[1]
+                vlog.append(v_)
+                if v_ < best[0]:
+                    best[:] = [v_, copy.deepcopy(net.state_dict()), ep]
+        if args.early_stop:
+            net.load_state_dict(best[1])
+            log.append(dict(val=vlog, best_epoch=best[2]))
         net.eval()
         return net, log
 
@@ -475,12 +488,12 @@ def run(code, seed, args):
 
     arms = args.arms.split(',')
     for name in arms:
-        nb, kind = CARRY_ARMS[name]
-        net, log = train_carry(nb, kind)
+        nb, kind, nh = CARRY_ARMS[name]
+        net, log = train_carry(nb, kind, nh)
         dump = None
         if args.dump:
             dump = {key: [] for key in ('beta', 'hh_rel', 'u_cos', 'gate', 'm_rms', 'rho_rms')}
-            init = ShockSSM(nx, nb, kind, q, D_MODES)                         # same deterministic theta / rho init
+            init = ShockSSM(nx, nb, kind, q, D_MODES, nh)                         # same deterministic theta / rho init
         o = eval_carry(net, dump)
         if args.dump:
             dump = {key: torch.stack(v) for key, v in dump.items() if v}   # (test steps, C)
@@ -495,18 +508,22 @@ def run(code, seed, args):
                                          test_mse=float(sse2[2]) / nel[2])
         print(f'[{name}] test {res[name]["test_mse"]:.5f} | S_r(+) {res[f"S_r(+){name}"]["test_mse"]:.5f}', flush=True)
 
-    tefl = ev.load_tefl(code, seed)
+    tefl = ev.load_tefl(code, seed) if L == 96 else None                           # TEFL / ridge refs are L96 runs
     rp = Path('patchmem/logs/server/err_value') / f'{code}_errval_s{seed}.json'
-    ridge = json.loads(rp.read_text())['arms']['all']['test_mse'] if rp.exists() else None
+    ridge = json.loads(rp.read_text())['arms']['all']['test_mse'] if rp.exists() and L == 96 else None
+    fp = Path(args.fc_dir) / f'{code}_H{H}_L{L}_freshcast_s{seed}.json'
+    fcj = json.loads(fp.read_text()) if fp.exists() else None
     g_ = lambda x: 100 * (base - x) / base
     for k_, v in res.items():
         v['gain'] = g_(v['test_mse'])
         print(f'[test] {k_:12s} mse {v["test_mse"]:.5f} gain {v["gain"]:+.3f}% (val {v["val_mse"]:.5f})', flush=True)
-    refs = dict(tefl=tefl['mse'] if tefl else None, ridge_all=ridge)
+    refs = dict(tefl=tefl['mse'] if tefl else None, ridge_all=ridge,
+                freshcast=fcj['fc']['test_mse'] if fcj else None, B=fcj['b']['test_mse'] if fcj else None)
     print(f'[test] base {base:.5f} refs {refs}', flush=True)
     out = dict(dataset=code, seed=seed, H=H, L=L, checkpoint=str(checkpoint), base=base, official=official, refs=refs,
                shares=shares, settings=dict(q=q, PW=PW, m_tr=m_tr, NB=NB, KS=KS, EPOCHS=args.epochs, max_c=args.max_c,
-                             base=args.base, bptt_h=args.bptt_h, freeze_theta=args.freeze_theta),
+                             base=args.base, bptt_h=args.bptt_h, freeze_theta=args.freeze_theta,
+                             early_stop=args.early_stop),
                **res)
     od.mkdir(parents=True, exist_ok=True)
     done.write_text(json.dumps(out, indent=2) + '\n')
@@ -526,6 +543,8 @@ def main():
     p.add_argument('--base', default='sh', choices=('sh', 'shrot'), help='shrot: + fixed rotary state (rot or tail on val)')
     p.add_argument('--bptt_h', type=int, default=24, help='truncated BPTT length in hours')
     p.add_argument('--freeze_theta', action='store_true')
+    p.add_argument('--fc_dir', default='patchmem/logs/server/error_path', help='FreshCast / B reference jsons')
+    p.add_argument('--early_stop', action='store_true', help='keep the carry epoch with the best val MSE')
     p.add_argument('--dump', action='store_true', help='save the trained carry + test-stream T_t statistics')
     a = p.parse_args()
     run(a.data, a.seed, a)
