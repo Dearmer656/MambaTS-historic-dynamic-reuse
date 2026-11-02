@@ -48,6 +48,7 @@ import math
 import sys
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -123,6 +124,15 @@ class ShockSSM(nn.Module):
     def step(self, z, x, w):
         """z (B d 2), x (B nx), w (B nb) -> z."""
         Bn = z.shape[0]
+        z = self.trans(z, x)
+        rho = torch.sigmoid(self.rho_p)
+        c, s = rho * torch.cos(self.theta), rho * torch.sin(self.theta)
+        z = torch.stack([c * z[..., 0] - s * z[..., 1], s * z[..., 0] + c * z[..., 1]], -1)
+        return z + (w @ self.B.T).view(Bn, self.d, 2)
+
+    def trans(self, z, x):
+        """The state-driven transition T_t only (before the fixed rotation Lam)."""
+        Bn = z.shape[0]
         if self.kind == 'P':
             U = F.normalize(self.Wu(x).view(Bn, self.nh, 2 * self.d), dim=-1)
             beta = 2 * torch.sigmoid(self.wb(x))
@@ -139,10 +149,7 @@ class ShockSSM(nn.Module):
                 dl = math.pi * torch.tanh(self.wf(x))                          # (B d), |delta| < pi
                 cd, sd_ = torch.cos(dl), torch.sin(dl)
                 z = torch.stack([cd * z[..., 0] - sd_ * z[..., 1], sd_ * z[..., 0] + cd * z[..., 1]], -1)
-        rho = torch.sigmoid(self.rho_p)
-        c, s = rho * torch.cos(self.theta), rho * torch.sin(self.theta)
-        z = torch.stack([c * z[..., 0] - s * z[..., 1], s * z[..., 0] + c * z[..., 1]], -1)
-        return z + (w @ self.B.T).view(Bn, self.d, 2)
+        return z
 
     def read(self, z, h):
         """(B h): readout of Lam^(j) z, j = 1..h, with the lead bucket's C (P_only: per-lead C_h . z)."""
@@ -452,7 +459,7 @@ def run(code, seed, args):
         net.eval()
         return net, log
 
-    def eval_carry(net, dump=None):
+    def eval_carry(net, dump=None, mech=None):
         o = {key: z3() for key in ('ex', 'xx', 'sx_S_e', 'sx_S_r')}
         call = torch.arange(C, device=dev)
         wd = wdiag[net.nb].to(dev)
@@ -480,8 +487,33 @@ def run(code, seed, args):
                         dump['gate_min'].append(gk.min(-1).values.cpu())
                         if net.kind == 'GF':
                             dump['phase'].append((math.pi * torch.tanh(net.wf(x))).abs().mean(-1).cpu())
+                if mech is not None and int(split[k]) == 2 and state is not None:   # T_t per rotary mode, test
+                    x = x_at(k, call)
+                    zp = net.trans(state, x)
+                    a0, a1 = torch.view_as_complex(state.contiguous()), torch.view_as_complex(zp.contiguous())
+                    ok = (a0.abs() > 1e-8).double()
+                    rat = (a1 / torch.where(a0.abs() > 1e-8, a0, torch.ones_like(a0))).to(torch.complex128)
+                    mech['n'] += ok.sum(0)
+                    mech['dlogamp'] += (torch.log(rat.abs().clamp_min(1e-12)) * ok).sum(0)
+                    mech['dphase_abs'] += (torch.angle(rat).abs() * ok).sum(0)
+                    mech['dphase_cos'] += (torch.cos(torch.angle(rat)) * ok).sum(0)
+                    mech['dphase_sin'] += (torch.sin(torch.angle(rat)) * ok).sum(0)
+                    w0 = a0.abs().double().square()                            # energy weights (tiny states: noisy phase)
+                    mech['w_dlogamp'] += (torch.log(rat.abs().clamp_min(1e-12)) * w0).sum(0)
+                    mech['w_dphase_abs'] += (torch.angle(rat).abs() * w0).sum(0)
+                    mech['amp2_pre'] += a0.abs().double().square().sum(0)
+                    mech['amp2_post'] += a1.abs().double().square().sum(0)
+                    if net.kind == 'P' and net.nh == 1:                        # self vs cross-mode part of beta u u^T z
+                        u = F.normalize(net.Wu(x), dim=-1).view(-1, net.d, 2)
+                        beta = 2 * torch.sigmoid(net.wb(x))[:, :, None]
+                        pj = (u * state).sum(-1)                               # (C d): u_j . z_j
+                        tot = pj.sum(-1, keepdim=True)
+                        mech['self2'] += (beta * u * pj[..., None]).square().sum(-1).double().sum(0)
+                        mech['cross2'] += (beta * u * (tot - pj)[..., None]).square().sum(-1).double().sum(0)
                 state, m = step(net, state, k, call, wd)
                 z = int(split[k])
+                if mech is not None and z == 2:
+                    mech['MX'][k - k_te0] = m.cpu()
                 if dump is not None and z == 2:
                     dump['m_rms'].append(m.square().mean(-1).sqrt().cpu())
                     dump['rho_rms'].append(E[k].square().mean(-1).sqrt())
@@ -513,6 +545,9 @@ def run(code, seed, args):
         return a, b, sse.sum(-1)
 
     arms = args.arms.split(',')
+    k_te0 = int(torch.nonzero(split == 2).min())
+    n_te = int((split == 2).sum())
+    MECH = {}
     for name in arms:
         nb, kind, nh, *rest = CARRY_ARMS[name]
         rot = rest[0] if rest else True
@@ -521,7 +556,17 @@ def run(code, seed, args):
         if args.dump:
             dump = {key: [] for key in ('beta', 'hh_rel', 'u_cos', 'gate', 'gate_min', 'phase', 'm_rms', 'rho_rms')}
             init = ShockSSM(nx, nb, kind, q, D_MODES, nh, rot)                         # same deterministic theta / rho init
-        o = eval_carry(net, dump)
+        mech = None
+        if args.mech and name in args.mech.split(','):
+            mech = {key: torch.zeros(D_MODES, dtype=torch.float64, device=dev)
+                    for key in ('n', 'dlogamp', 'dphase_abs', 'w_dlogamp', 'w_dphase_abs', 'dphase_cos', 'dphase_sin', 'amp2_pre', 'amp2_post',
+                                'self2', 'cross2')}
+            mech['MX'] = torch.zeros(n_te, C, H)                               # fp32: exact decomposition
+        o = eval_carry(net, dump, mech)
+        if mech is not None:
+            MECH[name] = mech
+            MECH[name]['theta'] = net.theta.detach().double().cpu()
+            MECH[name]['rho'] = torch.sigmoid(net.rho_p).detach().double().cpu()
         if args.dump:
             dump = {key: torch.stack(v) for key, v in dump.items() if v}   # (test steps, C)
             torch.save(dict(state=net.state_dict(), theta0=init.theta.detach().clone(), rho0=init.rho_p.detach().clone(),
@@ -535,6 +580,68 @@ def run(code, seed, args):
                                          test_mse=float(sse2[2]) / nel[2])
         print(f'[{name}] test {res[name]["test_mse"]:.5f} | S_r(+) {res[f"S_r(+){name}"]["test_mse"]:.5f}', flush=True)
 
+    if MECH:                                                                       # --mech: correction diagnostics, test
+        LH = sorted({0, min(23, H - 1), H // 2 - 1, H - 1})
+        meths = {'base': None, 'S_e': ('S_e', None)}
+        for nm in MECH:
+            meths[nm] = (None, nm)
+            meths[f'S_e+{nm}'] = ('S_e', nm)
+        coef = {}
+        for mk, v in meths.items():
+            if v is None:
+                continue
+            sa, xa = v
+            if sa and xa:
+                r_ = res[f'S_e(+){xa}']
+                coef[mk] = (torch.tensor(r_['a'], device=dev)[bk], torch.tensor(r_['b'], device=dev)[bk])
+            elif sa:
+                coef[mk] = (torch.tensor(res['S_e']['a'], device=dev)[bk], None)
+            else:
+                coef[mk] = (None, torch.tensor(res[xa]['b'], device=dev)[bk])
+        z2 = lambda: torch.zeros(C, H, dtype=torch.float64, device=dev)
+        sm = {f'{mk}_{t_}': z2() for mk in meths for t_ in ('rd_tot', 'dd_tot', 'rd_inc', 'dd_inc')}
+        sm['rr_tot'], sm['rr_inc'] = z2(), z2()
+        ser = {key: torch.zeros(n_te, C, len(LH), dtype=torch.float16) for key in ['r_inc', 'd_base'] +
+               [f'd_{mk}' for mk in meths if mk != 'base']}
+        with torch.no_grad():
+            for i in range(0, n_te, 64):
+                kk = torch.arange(k_te0 + i, min(k_te0 + n_te, k_te0 + i + 64))
+                rho_ = E[kk].to(dev).double()
+                bp = basep(kk, torch.arange(C)).double()
+                rt = rho_ + bp
+                sm['rr_tot'] += rt.square().sum(0)
+                sm['rr_inc'] += rho_.square().sum(0)
+                ser['r_inc'][i:i + len(kk)] = rho_[..., LH].half().cpu()
+                ser['d_base'][i:i + len(kk)] = bp[..., LH].half().cpu()
+                for mk in meths:
+                    di = torch.zeros_like(rho_)
+                    if mk in coef:
+                        ca, cb_ = coef[mk]
+                        if ca is not None:
+                            di = di + ca * MS['S_e'][kk].to(dev).double()
+                        if cb_ is not None:
+                            di = di + cb_ * MECH[meths[mk][1]]['MX'][kk - k_te0].to(dev).double()
+                    dt = bp + di
+                    sm[f'{mk}_rd_tot'] += (rt * dt).sum(0)
+                    sm[f'{mk}_dd_tot'] += dt.square().sum(0)
+                    sm[f'{mk}_rd_inc'] += (rho_ * di).sum(0)
+                    sm[f'{mk}_dd_inc'] += di.square().sum(0)
+                    if mk != 'base':
+                        ser[f'd_{mk}'][i:i + len(kk)] = di[..., LH].half().cpu()
+        rr = float(sm['rr_tot'].sum())
+        for mk in meths:
+            g_ = 100 * (2 * float(sm[f'{mk}_rd_tot'].sum()) - float(sm[f'{mk}_dd_tot'].sum())) / rr
+            ref = {'base': 'base_sh', 'S_e': 'S_e'}.get(mk, mk.replace('S_e+', 'S_e(+)'))
+            print(f'[mech] {mk:12s} gain {g_:+.3f}% (json test mse {res[ref]["test_mse"]:.5f}, '
+                  f'decomp {(rr - 2 * float(sm[f"{mk}_rd_tot"].sum()) + float(sm[f"{mk}_dd_tot"].sum())) / nel[2]:.5f})',
+                  flush=True)
+        out_m = {key: v.cpu().numpy() for key, v in sm.items()}
+        out_m.update({key: v.numpy() for key, v in ser.items()})
+        for nm, mm in MECH.items():
+            out_m.update({f'mode_{nm}_{key}': v.cpu().numpy() for key, v in mm.items() if key != 'MX'})
+        np.savez_compressed(od / f'{code}_H{H}{ltag}_s{seed}_mech.npz', leads=np.array(LH), q=q,
+                            methods=np.array(list(meths)), **out_m)
+        del MECH
     tefl = ev.load_tefl(code, seed) if L == 96 else None                           # TEFL / ridge refs are L96 runs
     rp = Path('patchmem/logs/server/err_value') / f'{code}_errval_s{seed}.json'
     ridge = json.loads(rp.read_text())['arms']['all']['test_mse'] if rp.exists() and L == 96 else None
@@ -572,6 +679,7 @@ def main():
     p.add_argument('--freeze_theta', action='store_true')
     p.add_argument('--fc_dir', default='patchmem/logs/server/error_path', help='FreshCast / B reference jsons')
     p.add_argument('--early_stop', action='store_true', help='keep the carry epoch with the best val MSE')
+    p.add_argument('--mech', default='', help='carry arms (comma list) for the correction / mode diagnostics')
     p.add_argument('--dump', action='store_true', help='save the trained carry + test-stream T_t statistics')
     a = p.parse_args()
     run(a.data, a.seed, a)
