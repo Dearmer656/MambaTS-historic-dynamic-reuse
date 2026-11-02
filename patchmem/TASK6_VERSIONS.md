@@ -866,3 +866,19 @@ s1_G per-mode state gate g_k(x) (bias 6), s1_GF gate + per-mode phase shift delt
 early_stop), Traffic L720 H192 / H336 x 3 seeds, s1_P rerun as the same-machine anchor.  Smoke 16246 ok.
 Reading (val for choices): G / GF >= P -> per-frequency selectivity suffices, Householder not needed; P clearly better
 -> cross-frequency mixing is the reason for PaTH.
+
+## Amplitude miscalibration check: one scalar alpha (diag_amp_scale.py, plot_amp_scale.py; job 17149)
+Frozen iTransformer L96 H192, raw y' = alpha y^ vs centered y' = mu + alpha (y^ - mu) (mu = input-window mean), one
+alpha per dataset+seed, grid 0.7..1.3 step .025, chosen on val, test once (base = official). Test gain %, s3047/2024/2025:
+| data | raw alpha | raw gain | centered alpha | centered gain |
+|---|---|---|---|---|
+| Weather | .800/.775/.775 | 3.19/2.02/2.41 | 1.025/.950/.925 | -0.09/0.38/0.69 |
+| Traffic | .975 x3 | 0.29/0.23/0.29 | .975 x3 | 0.17/0.12/0.18 |
+| ETTh2 | .975 x3 | 0.84/1.01/0.82 | 1.000/1.025/1.025 | 0.00/-0.14/-0.15 |
+| ETTm1 | .900 x3 | 0.97/0.81/0.96 | 1.050/1.050/1.025 | -0.49/-0.44/-0.18 |
+Raw scaling improves 12/12 runs with the same alpha across seeds; centered scaling (the amplitude test: periodic swing
+around the local level) is ~0 or negative (ETTh2 / ETTm1 prefer alpha >= 1, test worse; Traffic +0.12..0.18; Weather mixed).
+Reading: the raw gain is shrinkage of the forecast toward 0 = the train mean in the standardised scale (a level / bias
+correction, largest on Weather), not an amplitude miscalibration of the periodic part.  Decision per the plan: amplitude
+miscalibration does not explain the periodic forecast error -> direction stopped, no model complexity added.
+Codex: formulas and splits ok; test curve removed from the outputs (test only at the val-chosen alpha).
