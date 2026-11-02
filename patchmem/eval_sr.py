@@ -68,7 +68,9 @@ EPOCHS, LR = 10, 3e-3
 CH = 128                                                                 # channels per carry training chunk
 CHR, BQ = 32, 64                                                         # retrieval: channels per chunk, queries
 CARRY_ARMS = {'s1_I': (1, 'I', 1), 's1_R': (1, 'R', 1), 's1_D': (1, 'D', 1), 's1_P': (1, 'P', 1), 's8_P': (8, 'P', 1),
-              's1_P2': (1, 'P', 2), 's1_P4': (1, 'P', 4)}                 # (lead buckets, T_t kind, Householders per step)
+              's1_P2': (1, 'P', 2), 's1_P4': (1, 'P', 4),                 # (lead buckets, T_t kind, Householders per step
+              's1_Ponly': (1, 'P', 1, False),
+              's1_G': (1, 'G', 1), 's1_GF': (1, 'GF', 1)}                   # per-mode state gate (+ per-mode phase shift)                             #  [, rotation: False = theta 0 + per-lead readout])
 D_MODES = 64
 S_ARMS = ('S_e', 'S_r')
 LS = 96                                                                  # shock-history lags of the base
@@ -82,12 +84,13 @@ class ShockSSM(nn.Module):
     """Carried shock state z in R^(d x 2) per channel (d damped-rotation modes, RoPE view): at origin t
       z <- Lam T_t z + B w_t,   Lam = diag(rho_k rot(theta_k)),   w_t = newest diagonal means / sig_t^gamma (nb)
       read  m[t, h] = sig_t^gamma Re-readout C_bucket(h) of Lam^(h+1) z      (forecast of the target t + h)
-    T_t by kind: I and R identity (I: theta = 0, no rotation), D g(x) I, P I - b(x) u(x) u(x)^T (PaTH, on R^(2d))."""
-    def __init__(self, nx, nb, kind, q, d, nh=1):
+    T_t by kind: I and R identity (I: theta = 0, no rotation), D g(x) I, P I - b(x) u(x) u(x)^T (PaTH, on R^(2d)),
+    G per-mode gate g_k(x), GF gate + per-mode phase shift delta_k(x) (selective rotary); rot=False (P_only): theta 0, per-lead readout."""
+    def __init__(self, nx, nb, kind, q, d, nh=1, rot=True):
         super().__init__()
-        self.nb, self.kind, self.d, self.nh = nb, kind, d, nh
+        self.nb, self.kind, self.d, self.nh, self.rot = nb, kind, d, nh, rot
         th = 2 * math.pi * torch.arange(d).float() / (PW * q)               # weekly harmonics (incl. daily ones)
-        if kind == 'I':
+        if kind == 'I' or not rot:
             self.register_buffer('theta', torch.zeros(d))
         else:
             self.theta = nn.Parameter(th)
@@ -96,6 +99,8 @@ class ShockSSM(nn.Module):
         self.rho_p = nn.Parameter(torch.logit(torch.exp(-1 / tau)))
         self.B = nn.Parameter(torch.randn(d * 2, nb, generator=torch.Generator().manual_seed(1)) * 0.1)
         self.Cr = nn.Parameter(torch.zeros(nb, d, 2))
+        if not rot:                                                            # P_only: no extrapolation by Lam^(h+1),
+            self.Ch = nn.Parameter(torch.zeros(H, d, 2))                       # one readout per lead from z_t
         if kind == 'P':
             self.Wu = nn.Linear(nx, 2 * d * nh)                                # nh = 1: identical to v1
             self.wb = nn.Linear(nx, nh)
@@ -103,6 +108,13 @@ class ShockSSM(nn.Module):
         elif kind == 'D':
             self.wd = nn.Linear(nx, 1)
             nn.init.constant_(self.wd.bias, 6.0)                               # g ~ 0.998 at init
+        elif kind in ('G', 'GF'):                                              # selective rotary: per-mode gate g_k(x)
+            self.wg = nn.Linear(nx, d)
+            nn.init.constant_(self.wg.bias, 6.0)
+            if kind == 'GF':                                                   # + per-mode phase shift delta_k(x)
+                self.wf = nn.Linear(nx, d)
+                nn.init.zeros_(self.wf.weight)
+                nn.init.zeros_(self.wf.bias)                                   # delta = 0 at init
         self.gamma = nn.Parameter(torch.ones(()))
 
     def g(self):
@@ -121,13 +133,21 @@ class ShockSSM(nn.Module):
             z = zf.view(Bn, self.d, 2)
         elif self.kind == 'D':
             z = torch.sigmoid(self.wd(x))[:, :, None] * z
+        elif self.kind in ('G', 'GF'):
+            z = torch.sigmoid(self.wg(x))[:, :, None] * z
+            if self.kind == 'GF':
+                dl = math.pi * torch.tanh(self.wf(x))                          # (B d), |delta| < pi
+                cd, sd_ = torch.cos(dl), torch.sin(dl)
+                z = torch.stack([cd * z[..., 0] - sd_ * z[..., 1], sd_ * z[..., 0] + cd * z[..., 1]], -1)
         rho = torch.sigmoid(self.rho_p)
         c, s = rho * torch.cos(self.theta), rho * torch.sin(self.theta)
         z = torch.stack([c * z[..., 0] - s * z[..., 1], s * z[..., 0] + c * z[..., 1]], -1)
         return z + (w @ self.B.T).view(Bn, self.d, 2)
 
     def read(self, z, h):
-        """(B h): readout of Lam^(j) z, j = 1..h, with the lead bucket's C."""
+        """(B h): readout of Lam^(j) z, j = 1..h, with the lead bucket's C (P_only: per-lead C_h . z)."""
+        if not self.rot:
+            return torch.einsum('bdc,hdc->bh', z, self.Ch[:h])
         j = torch.arange(1, h + 1, device=z.device, dtype=z.dtype)[:, None]
         a = torch.sigmoid(self.rho_p)[None] ** j
         pc, ps = a * torch.cos(j * self.theta), a * torch.sin(j * self.theta)  # h d
@@ -392,9 +412,9 @@ def run(code, seed, args):
         z = net.step(z, x, w)
         return z, sg * net.read(z, H)
 
-    def train_carry(nb, kind, nh=1):
+    def train_carry(nb, kind, nh=1, rot=True):
         torch.manual_seed(seed)
-        net = ShockSSM(nx, nb, kind, q, D_MODES, nh).to(dev)
+        net = ShockSSM(nx, nb, kind, q, D_MODES, nh, rot).to(dev)
         if args.freeze_theta and isinstance(net.theta, nn.Parameter):
             net.theta.requires_grad_(False)                                        # keep the weekly harmonics
         opt = torch.optim.Adam([p_ for p_ in net.parameters() if p_.requires_grad], lr=LR)
@@ -454,6 +474,12 @@ def run(code, seed, args):
                         u_prev = u
                     elif net.kind == 'D':
                         dump['gate'].append(torch.sigmoid(net.wd(x))[:, 0].cpu())
+                    elif net.kind in ('G', 'GF'):                              # per-mode gate: mean over modes (steps C)
+                        gk = torch.sigmoid(net.wg(x))
+                        dump['gate'].append(gk.mean(-1).cpu())
+                        dump['gate_min'].append(gk.min(-1).values.cpu())
+                        if net.kind == 'GF':
+                            dump['phase'].append((math.pi * torch.tanh(net.wf(x))).abs().mean(-1).cpu())
                 state, m = step(net, state, k, call, wd)
                 z = int(split[k])
                 if dump is not None and z == 2:
@@ -488,12 +514,13 @@ def run(code, seed, args):
 
     arms = args.arms.split(',')
     for name in arms:
-        nb, kind, nh = CARRY_ARMS[name]
-        net, log = train_carry(nb, kind, nh)
+        nb, kind, nh, *rest = CARRY_ARMS[name]
+        rot = rest[0] if rest else True
+        net, log = train_carry(nb, kind, nh, rot)
         dump = None
         if args.dump:
-            dump = {key: [] for key in ('beta', 'hh_rel', 'u_cos', 'gate', 'm_rms', 'rho_rms')}
-            init = ShockSSM(nx, nb, kind, q, D_MODES, nh)                         # same deterministic theta / rho init
+            dump = {key: [] for key in ('beta', 'hh_rel', 'u_cos', 'gate', 'gate_min', 'phase', 'm_rms', 'rho_rms')}
+            init = ShockSSM(nx, nb, kind, q, D_MODES, nh, rot)                         # same deterministic theta / rho init
         o = eval_carry(net, dump)
         if args.dump:
             dump = {key: torch.stack(v) for key, v in dump.items() if v}   # (test steps, C)
