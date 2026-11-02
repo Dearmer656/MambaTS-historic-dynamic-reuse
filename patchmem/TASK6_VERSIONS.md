@@ -829,3 +829,18 @@ val, train moments after a 6-week warm-up; --freeze_theta (weekly harmonics kept
 s1_D / s1_P and S_e / S_r unchanged; criteria C1 / C1b / C3 / C4 unchanged (3/3 seeds, >= 4/6).  Defaults reproduce v1.
 Codex: no correctness issue (defaults kept, Zr causal, bias last, same columns in fit and subtraction); memory T 110G.
 Note: one-week BPTT gives ~7x fewer optimizer updates per epoch than v1 (epochs kept at 10).
+Results v2 (jobs 15581-15584, 18/18): test gain %, mean of 3 seeds (base block chosen on val: sh+rot on M1, sh+tail else)
+| data | base | s1_R | s1_D | s1_P | S_e | S_e(+)s1_P | S_r(+)s1_P | TEFL | ridge all |
+|---|---|---|---|---|---|---|---|---|---|
+| E | 8.81 | 8.20 | 8.24 | 8.39 | 9.45 | 9.08 | 7.58 | 1.85 | 7.41 |
+| M1 | 5.55 | 5.49 | 4.61 | 6.47 | 10.72 | 10.83 | 5.55 | 5.63 | 6.61 |
+| M2 | 9.81 | 9.70 | 9.32 | 9.99 | 11.75 | 11.81 | 10.17 | 7.17 | 8.70 |
+| W | 6.94 | 7.15 | 7.13 | 7.89 | 10.70 | 11.25 | 8.47 | 6.80 | 7.09 |
+| T | 3.49 | 3.49 | 3.53 | 4.38 | 7.39 | 7.65 | 5.31 | -1.96 | 4.01 |
+| EL | 4.85 | 4.86 | 4.85 | 4.94 | 9.50 | 9.54 | 6.04 | — | — |
+Criteria (3/3 seeds): C1 P > R, D: M1 M2 T (E fails s3047 by 0.02 vs D, W s2024, EL s2025) -> 3/6 FAIL;
+C1b P > base: M1 T W -> 3/6 FAIL (E: carry overfits, train loss P 0.49 -> 0.46-0.48 but test below base);
+C3 0/6 FAIL; C4 S_r(+)s1_P > TEFL and ridge: M2 W T -> 3/5 FAIL.
+Versus v1: PaTH now learns (train loss drops, R stays flat); on M1 / W / T s1_P - base = +0.92 / +0.95 / +0.89 pp while
+R and D add ~0 there, i.e. the gain is the state-driven Householder, not the rotation.  Misses: E (overfit, no
+early stopping on val), EL (~+0.1).  S_e(+)s1_P > S_e on M1 / W / T / EL.
