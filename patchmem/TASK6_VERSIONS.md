@@ -910,3 +910,25 @@ the json test MSE of every method.  analyze_path_mech.py: gain = align (2<r,d>) 
 <= rho^2 at s = rho), per lead / channel; Hilbert per fixed lead x channel after FFT band-pass (daily 20-28 h, weekly
 140-196 h): PLV, amplitude ratio, lag (> 0: correction lags r); mode plots.  Codex: mode-name parsing, fp32 readout for an
 exact decomposition, lag sign -> fixed.
+Step 1 results (jobs 17448-17450; reruns reproduce err_sr3 P / GF test MSE exactly; decomposition = json test MSE exactly).
+Beyond base (r = E - base), Traffic L720 H192, s3047 / 2024 / 2025:
+| method | gain % | align 2<r,d> | energy <d,d> | rho | s | gain / rho^2 |
+|---|---|---|---|---|---|---|
+| P | .41/.45/.48 | .73/.72/.97 | .32/.27/.49 | .065/.069/.069 | .057/.052/.070 | .99/.94/1.00 |
+| GPhi | .003/.008/.001 | .012/.017/.013 | .009/.009/.012 | .006/.009/.006 | .009/.010/.011 | .78/.99/.23 |
+| S_e | 1.39/1.22/1.31 | 3.42/3.16/3.34 | 2.03/1.95/2.03 | .120/.113/.117 | .142/.140/.143 | .96/.95/.95 |
+| S_e+P | 1.69/1.54/1.64 | 4.00/3.70/4.03 | 2.31/2.17/2.40 | .132/.126/.130 | .152/.147/.155 | .98/.97/.96 |
+- Amplitude is not the difference: every method sits at its optimal size (gain ~ rho^2, s ~ rho; the val-fitted bucket
+  coefficient sets it).  P vs GPhi is entirely alignment rho (.065-.069 vs .006-.009).
+- Per lead: GPhi helps only lead 0 (1.5-2.3 %), ~0 elsewhere; P 0.7 % (h0-23), 0.45 (h24-95), 0.33-0.46 (h96-191).
+- Parseval split of <r, d> along time (fixed lead): P at h0 is 85-99 % non-harmonic (transient); at h23/95/191 75-100 %
+  sits on the daily / weekly harmonics (24/k, 168/k +-4 %), mostly the higher daily harmonics (12, 8, 6 h ...) since the
+  20-28 h band carries ~0 beyond h23.  S_e: ~60 % harmonic / 40 % non-harmonic at every lead.
+- Hilbert daily band (fundamental): PLV of P is not above GPhi (h0 .48-.69 vs .51-.82), and both amplitude ratios -> 0
+  beyond h23 -> P's gain is not a better phase of the daily fundamental.
+- Rotary modes across T_t (test, energy-weighted): P edits little per step (|d phase| .03 rad, d log amp -.011..-.014,
+  energy ratio ~1); its update is 98 % cross-mode, which equals the share of a random direction (1 - 1/64): not evidence by
+  itself.  GPhi rotates modes a lot (|d phase| 1.0-1.3 rad / step, damps) yet its readout aligns with r only at lead 0.
+Answer (Step 1): P's improvement is alignment, not amplitude; the aligned content beyond lead 0 is the higher daily /
+weekly harmonics of the error waveform (shape), not the phase of the daily fundamental; per-mode gate + phase (GPhi)
+cannot reproduce it.  Consistent with, but not proof of, cross-mode mixing -> Step 2.
