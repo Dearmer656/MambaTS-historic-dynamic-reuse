@@ -844,3 +844,14 @@ C3 0/6 FAIL; C4 S_r(+)s1_P > TEFL and ridge: M2 W T -> 3/5 FAIL.
 Versus v1: PaTH now learns (train loss drops, R stays flat); on M1 / W / T s1_P - base = +0.92 / +0.95 / +0.89 pp while
 R and D add ~0 there, i.e. the gain is the state-driven Householder, not the rotation.  Misses: E (overfit, no
 early stopping on val), EL (~+0.1).  S_e(+)s1_P > S_e on M1 / W / T / EL.
+
+## Traffic long lookback (user: focus on Traffic, L = 720, H = 192 / 336) — eval_sr v3 dev, docker branch fc83e75
+Why: at L720 the other methods' gains shrink (FreshCast 1.5-2.5 %, B ~1.7 %, residual ICL 0.4 %); the short-input
+"weekly history substitute" no longer explains a gain, so a carry gain there is the state-dependent part.
+v3 code (bd1611d): ITR_L lookback; s1_P2 / s1_P4 = 2 / 4 Householders per step (T_t = H_1 ... H_nh; 2 reflections can
+express a state-driven rotation = phase shift of a periodic mode); --early_stop (epoch with the best val MSE of the carry
+alone); FreshCast / B refs (--fc_dir).  Smoke (job 16106, ETTh2 2 ch, 2 epochs): all arms run, early-stop log ok.
+Dev protocol: Traffic L720 H192 / H336 x 3 seeds, arms s1_R / s1_D / s1_P / s1_P2, flags shrot + freeze_theta + bptt 168
++ early_stop; choices made on VAL only.  Runs on the docker A6000 (branch docker: data, 6 frozen checkpoints, refs,
+docker/run_traffic_dev.sh pushes patchmem/logs/docker/sr3/ after every run).  Confirmation on unseen settings
+(other traffic datasets / H) to be fixed after dev.
