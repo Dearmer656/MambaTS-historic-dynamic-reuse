@@ -1018,3 +1018,13 @@ Result (job 18400): W on val_select: Rm 192/96/96 h, Dm 8 days, Wm 8 weeks.  Tes
   H336 P .40/.33/.37, Pfix .29/.29/.33, Pdiag .16/.17/.11, GPhi .05/.06/.04
 - P > P_fixed_u 6/6 (margin .04-.23 pp; Pfix with 548 params keeps 70-90% of P's gain) -> input-dependent direction adds a
   little; P > P_diag 6/6 (.16-.45 pp) -> cross-mode coupling matters.  Best epochs scattered (1..9).
+
+### PaTH retrieval (eval_pathret.py) — user choices: path on values, values = observed continuations y, memory = all matured
+### origins (12 weeks) + learned hour-of-week clock bias.  Daily Householder path from each day's 24 lead-0 errors.
+Arms B0 (B-like fixed same-hour-of-week retrieval), A1 (learned retrieval, H = I), A2 (+ daily path on values),
+A2s (each memory day keeps its transition set, random order).  Causal unit test passes for all arms (change with y[>=t]
+perturbed = rerun float noise <= 5e-7; y[t-1] perturbed changes the output).  Train 8 epochs x 2000 origins (all channels),
+early stop on val_select, test once, 3 seeds; jobs below.
+Criteria fixed in advance (test, 3/3 seeds): (1) A1 > B0 (learned retrieval over fixed same-clock retrieval);
+(2) A2 > A1 and A2 > A2s (the ordered daily path adds); (3) afterwards stacked with S_e / P (eval_sr --ext) - A2 must
+still add beyond A1 in the stack.  Ties -> no path claim.
