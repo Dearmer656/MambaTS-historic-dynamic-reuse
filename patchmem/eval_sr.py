@@ -461,7 +461,7 @@ def run(code, seed, args):
         nup = 0
         for ep in range(args.epochs):
             lr_ep = args.lr * (0.5 * (1 + math.cos(math.pi * ep / args.epochs)) if args.lr_sched == 'cos' else 1.0)
-            tot, cn = 0.0, 0
+            tot, cn, t_ep = 0.0, 0, time.time()
             for c in torch.randperm(C, generator=g).split(CH):
                 cg = c.to(dev)
                 e_ = E[:k_tr_end, c].to(dev)
@@ -493,6 +493,9 @@ def run(code, seed, args):
                 vlog.append(v_)
                 if v_ < best[0]:
                     best[:] = [v_, copy.deepcopy(net.state_dict()), ep]
+            print(f'[carry {kind}{nh}] epoch {ep} train {log[-1]:.5f} ({100 * (zero_ref - log[-1]) / zero_ref:+.2f}% vs zero '
+                  f'{zero_ref:.5f})' + (f' val {vlog[-1]:.5f}' if args.early_stop else '') +
+                  f' lr {opt.param_groups[0]["lr"]:.2e} {time.time() - t_ep:.0f}s', flush=True)
         if args.early_stop:
             net.load_state_dict(best[1])
             log.append(dict(val=vlog, best_epoch=best[2]))
