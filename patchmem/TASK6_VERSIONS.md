@@ -1004,3 +1004,17 @@ W 1/2/4/8 weeks); W chosen on val_select, then stacked per lead bucket (val_fit)
 Arms fixed in advance: Rm, Dm, Wm, Dm+Wm, T3 = Rm+Dm+Wm, T3+P, T3+S_e, T3+S_e+P, T3+B, T3+B+S_e+P, T3+FC+S_e+P, T3+FC+B+S_e+P.
 Questions: (a) how much do causal mean templates alone give (vs B); (b) does B add beyond T3 (retrieval vs mean template);
 (c) does P still add beyond T3+S_e.
+Result (job 18400): W on val_select: Rm 192/96/96 h, Dm 8 days, Wm 8 weeks.  Test gain % vs backbone (3047/2024/2025):
+  Rm .00/.01/.03, Dm .02/.02/.04, Wm .01/-.13/-.08 (val_select gain ~1.7%!), T3 -.04/-.15/-.09; T3+S_e 1.37/1.20/1.33 (< S_e);
+  T3+B 1.18/1.27/1.41 (~ B); T3+S_e+P 1.70/1.58/1.64; T3+B+S_e+P 2.17/2.19/2.20 (< B+S_e+P).
+- Causal error-mean templates (recent level, same clock, same hour-of-week) give ~0 on test: the correctable part is not
+  the error level.  B's gain is not a mean template.  P still adds beyond T3+S_e 3/3.
+- Wm: large val_select gain, none on test (short buckets +.3..+.4, long buckets -.5..-.6): another val/test mismatch.
+- Uncentered / raw-pooled error correlations (err_corr_lag --norm unc|raw) are almost identical to z-score: per-channel
+  error means are negligible, long-lag (336/504 h) correlation ~0 on test.
+
+### Step 2 final (H192 + H336, 3 seeds, test gain %): P vs P_fixed_u vs P_diag vs GPhi
+  H192 P .45/.55/.50, Pfix .33/.32/.32, Pdiag .11/.10/.07, GPhi .02/.03/.03
+  H336 P .40/.33/.37, Pfix .29/.29/.33, Pdiag .16/.17/.11, GPhi .05/.06/.04
+- P > P_fixed_u 6/6 (margin .04-.23 pp; Pfix with 548 params keeps 70-90% of P's gain) -> input-dependent direction adds a
+  little; P > P_diag 6/6 (.16-.45 pp) -> cross-mode coupling matters.  Best epochs scattered (1..9).
