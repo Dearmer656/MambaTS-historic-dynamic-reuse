@@ -628,6 +628,45 @@ def run(code, seed, args):
         assert (idx[need] >= 0).all(), f'{nm}: missing val/test origins'
         EXT[nm] = (torch.from_numpy(zx[nm][:, :C]), idx)
         print(f'[ext] {nm} {tuple(zx[nm].shape)}', flush=True)
+    TPL_GRID = {'Rm': (1, (24, 48, 96, 192)), 'Dm': (24, (1, 2, 4, 8)), 'Wm': (168, (1, 2, 4, 8))}   # (period h, W)
+    if args.tpl:                                                                   # causal running-mean error templates
+        hh = torch.arange(H, device=dev)
+
+        def tpl_chunk(Ec, P, W):
+            """Ec (n cc H) rho on dev.  mean of rho_(t - P m)[h], m = m0(h) .. m0(h) + W - 1, m0 = ceil((h+1)/P)
+            (targets observed by t - 1); fewer terms near the start.  Returns (n cc H)."""
+            nn_ = Ec.shape[0]
+            npad = -nn_ % P
+            Sp = torch.cat([Ec, Ec.new_zeros(npad, *Ec.shape[1:])]).reshape(-1, P, *Ec.shape[1:]).cumsum(0)
+            Sp = Sp.reshape(-1, *Ec.shape[1:])[:nn_]                               # Sp[k] = sum of rho_i, i <= k, i = k mod P
+            t_ = torch.arange(nn_, device=dev)[:, None]
+            m0 = (hh + P) // P                                                     # ceil((h + 1) / P)
+            hi = t_ - P * m0[None]                                                 # (n H)
+            lo = hi - P * W
+            g = lambda ix: torch.where((ix >= 0)[:, None, :], Sp[ix.clamp_min(0), :, hh[None].expand(nn_, -1)].permute(0, 2, 1), 0.0)
+            cnt = torch.where(hi >= 0, torch.clamp(hi // P + 1, max=W), torch.zeros_like(hi)).clamp_min(1)
+            return (g(hi) - g(lo)) / cnt[:, None, :]
+
+        tsum = {(nm, W): {'em': z3(), 'mm': z3()} for nm, (P, Ws) in TPL_GRID.items() if nm in args.tpl.split(',') for W in Ws}
+        kall = torch.arange(n, device=dev)
+        for c in torch.arange(C).split(64):
+            Ec = E[:, c].to(dev)
+            for (nm, W), d in tsum.items():
+                m_ = tpl_chunk(Ec, TPL_GRID[nm][0] * q, W)
+                acc(d['em'], bsumf(Ec * m_), kall)
+                acc(d['mm'], bsumf(m_.square()), kall)
+        for nm in args.tpl.split(','):
+            P, Ws = TPL_GRID[nm]
+            fitW = {W: fit1(tsum[(nm, W)]['em'], tsum[(nm, W)]['mm']) for W in Ws}
+            Wb = min(Ws, key=lambda W: float(fitW[W][1][SEL]))
+            res[f'tpl_{nm}'] = dict(W=Wb, P=P, val_mse=float(fitW[Wb][1][SEL]) / nel[SEL], test_mse=float(fitW[Wb][1][2]) / nel[2],
+                                   grid={str(W): float(fitW[W][1][SEL]) / nel[SEL] for W in Ws})
+            T_ = torch.zeros(n, C, H, dtype=torch.float16)
+            for c in torch.arange(C).split(64):
+                T_[:, c[0]:c[-1] + 1] = tpl_chunk(E[:, c].to(dev), P * q, Wb).half().cpu()
+            EXT[nm] = (T_, torch.arange(n))
+            print(f'[tpl] {nm} P {P} W {Wb} test {res[f"tpl_{nm}"]["test_mse"]:.5f} val grid '
+                  + ' '.join(f'{k}:{v:.5f}' for k, v in res[f'tpl_{nm}']['grid'].items()), flush=True)
     k_te0 = int(torch.nonzero(split == 2).min())
     n_te = int((split == 2).sum())
     MECH = {}
@@ -675,8 +714,11 @@ def run(code, seed, args):
         print(f'[{name}] test {res[name]["test_mse"]:.5f} | S_r(+) {res[f"S_r(+){name}"]["test_mse"]:.5f}', flush=True)
         if EXT:                                                                    # per-lead-bucket stacking, fit on val_fit
             names = ['S_e', 'P'] + list(EXT)
+            T3 = ['Rm', 'Dm', 'Wm']
             subsets = [['FC'], ['B'], ['S_e'], ['P'], ['FC', 'P'], ['FC', 'S_e'], ['FC', 'S_e', 'P'], ['B', 'S_e'],
-                       ['B', 'S_e', 'P'], ['FC', 'B', 'S_e'], ['FC', 'B', 'S_e', 'P']]
+                       ['B', 'S_e', 'P'], ['FC', 'B', 'S_e'], ['FC', 'B', 'S_e', 'P'],
+                       ['Rm'], ['Dm'], ['Wm'], ['Dm', 'Wm'], T3, T3 + ['P'], T3 + ['S_e'], T3 + ['S_e', 'P'],
+                       T3 + ['B'], T3 + ['B', 'S_e', 'P'], T3 + ['FC', 'S_e', 'P'], T3 + ['FC', 'B', 'S_e', 'P']]
             for sub in subsets:
                 if any(x not in names for x in sub):
                     continue
@@ -687,7 +729,7 @@ def run(code, seed, args):
                                         g1[..., None])[..., 0]                    # NB p
                 sse = torch.stack([ee[z] - 2 * (cf * o['g'][z][:, ix]).sum(-1) +
                                    torch.einsum('bi,bij,bj->b', cf, o['G'][z][:, ix][:, :, ix], cf) for z in range(4)])
-                key = 'stack[' + '+'.join(sub).replace('P', name) + ']'
+                key = 'stack[' + '+'.join(x if x != 'P' else name for x in sub) + ']'
                 res[key] = dict(coef={x: cf[:, i].tolist() for i, x in enumerate(sub)}, val_mse=float(sse[SEL].sum()) / nel[SEL],
                                 test_mse=float(sse[2].sum()) / nel[2],
                                 test_bucket_gain=(100 * (ee[2] - sse[2]) / ee[2].clamp_min(EPS)).tolist())   # vs base_sh
@@ -790,6 +832,7 @@ def main():
     p.add_argument('--warmup', type=int, default=0, help='linear lr warmup over this many updates')
     p.add_argument('--ext', default='', help='stack raw external corrections (comma list, e.g. FC,B) with S_e and the carry')
     p.add_argument('--ext_dir', default='patchmem/logs/server/err_stack/fc')
+    p.add_argument('--tpl', default='', help='causal running-mean error templates as stacking regressors: Rm,Dm,Wm')
     p.add_argument('--load_carry', default='', help='dir with {code}_H{H}_s{seed}_{arm}_dump.pt: load instead of training')
     p.add_argument('--zero_only', action='store_true', help='print the carry zero reference and stop')
     p.add_argument('--log_every', type=int, default=100, help='print the mean train loss of the last N updates')

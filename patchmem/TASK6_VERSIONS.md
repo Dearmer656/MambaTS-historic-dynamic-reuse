@@ -996,3 +996,11 @@ Result (job 18285, elm72 6000; first attempt 18243 landed on V100 and was moved)
 - val / test disagree: every FC arm has the lowest val, every B arm the best test; val selection picks FC+S_e+P (3/3).
   Consistent with the error-correlation result (test daily periodicity ~50% stronger than train/val; B = same-clock pool).
 - stacked FC (per-bucket coefficients on val_fit) is worse than FC's own global w: FC raw corrections are unstable val -> test.
+
+### Causal running-mean error templates (user: error levels per stage matter; correlation analyses had removed means)
+eval_sr --tpl Rm,Dm,Wm: per channel and lead, mean of matured rho_(t - P m)[h] (target observed by t - 1):
+Rm recent mean (P 1 h, W 24/48/96/192 h), Dm same clock (P 24 h, W 1/2/4/8 days), Wm same hour-of-week (P 168 h,
+W 1/2/4/8 weeks); W chosen on val_select, then stacked per lead bucket (val_fit) with S_e / P / FC / B.
+Arms fixed in advance: Rm, Dm, Wm, Dm+Wm, T3 = Rm+Dm+Wm, T3+P, T3+S_e, T3+S_e+P, T3+B, T3+B+S_e+P, T3+FC+S_e+P, T3+FC+B+S_e+P.
+Questions: (a) how much do causal mean templates alone give (vs B); (b) does B add beyond T3 (retrieval vs mean template);
+(c) does P still add beyond T3+S_e.
