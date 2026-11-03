@@ -458,7 +458,7 @@ def run(code, seed, args):
         opt = torch.optim.Adam(prm, lr=args.lr)
         g = torch.Generator().manual_seed(seed)
         log, vlog, best, ulog = [], [], [float('inf'), None, -1], []
-        nup = 0
+        nup, win = 0, [0.0, 0]
         for ep in range(args.epochs):
             lr_ep = args.lr * (0.5 * (1 + math.cos(math.pi * ep / args.epochs)) if args.lr_sched == 'cos' else 1.0)
             tot, cn, t_ep = 0.0, 0, time.time()
@@ -485,6 +485,12 @@ def run(code, seed, args):
                             opt.step()
                             nup += 1
                             tot, cn = tot + float(loss), cn + nl
+                            win[0] += float(loss); win[1] += nl
+                            if nup % args.log_every == 0:                          # running window of the last updates
+                                print(f'[carry {kind}{nh}] ep {ep} upd {nup} train {win[0] / win[1]:.5f} '
+                                      f'({100 * (zero_ref - win[0] / win[1]) / zero_ref:+.2f}% vs zero) '
+                                      f'lr {opt.param_groups[0]["lr"]:.2e}', flush=True)
+                                win[:] = [0.0, 0]
                         loss, nl = 0.0, 0
                         state = state.detach()
             log.append(tot / max(cn, 1))
@@ -786,6 +792,7 @@ def main():
     p.add_argument('--ext_dir', default='patchmem/logs/server/err_stack/fc')
     p.add_argument('--load_carry', default='', help='dir with {code}_H{H}_s{seed}_{arm}_dump.pt: load instead of training')
     p.add_argument('--zero_only', action='store_true', help='print the carry zero reference and stop')
+    p.add_argument('--log_every', type=int, default=100, help='print the mean train loss of the last N updates')
     p.add_argument('--log_updates', action='store_true', help='keep per-update train loss + grad norm in train_loss')
     p.add_argument('--weeks', type=int, default=None, help='train-tail weeks (default: the whole train segment)')
     p.add_argument('--arms', default='s1_R,s1_D,s1_P')
