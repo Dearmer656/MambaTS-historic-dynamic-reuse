@@ -428,6 +428,11 @@ def run(code, seed, args):
     k_tr_end = int(torch.nonzero(split == 0).max()) + 1
     burn = 2 * PW * q + H
     tb = args.bptt_h * q                                                           # truncated BPTT (hours)
+    zero_ref = float(E[burn:k_tr_end].double().square().mean())                    # carry train loss with m = 0
+    res['base_sh']['carry_zero_ref'] = zero_ref
+    print(f'[zero] carry train target rho = E - base: mean rho^2 {zero_ref:.5f} (k {burn}..{k_tr_end})', flush=True)
+    if args.zero_only:
+        return
 
     def x_at(k, c):
         t = T0 + k
@@ -725,6 +730,7 @@ def main():
     p.add_argument('--lr', type=float, default=LR, help='carry Adam lr')
     p.add_argument('--lr_sched', default='const', choices=('const', 'cos'))
     p.add_argument('--warmup', type=int, default=0, help='linear lr warmup over this many updates')
+    p.add_argument('--zero_only', action='store_true', help='print the carry zero reference and stop')
     p.add_argument('--log_updates', action='store_true', help='keep per-update train loss + grad norm in train_loss')
     p.add_argument('--weeks', type=int, default=None, help='train-tail weeks (default: the whole train segment)')
     p.add_argument('--arms', default='s1_R,s1_D,s1_P')
