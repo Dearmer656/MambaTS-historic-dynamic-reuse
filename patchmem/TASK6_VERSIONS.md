@@ -952,3 +952,17 @@ const 3e-3 (reference) / 1e-3 / 3e-4 / 1e-4, cos+warmup500 at 3e-3 and 1e-3.  Ou
 Fixed criterion: LR is the cause only if some config gives a train-loss reduction >= 2% vs zero carry (reference best ~0.8%)
 with a steady decrease AND a val_select gain clearly above the reference; otherwise the ceiling is the model/target, not LR.
 Test MSE reported but not used to pick an LR.
+
+### FC / B vs PaTH correction analysis — commit 392ba37, job 18184 (elm82)
+eval_freshcast --mech_out (FC rerun: test gain 1.110/1.502/1.722% vs original 1.188/1.47/1.72%, GPU nondeterminism in
+train_rkr; B identical 1.610/1.679/1.690%) + merge_fc_mech.py -> patchmem/logs/server/err_fc_mech (all corrections vs the
+backbone; error series match eval_sr to fp16).  Traffic L720 H192, seeds 3047/2024/2025:
+- decomposition: P rho .066/.071/.071, s .058/.053/.070, eff ~1.  FC rho .135/.140/.148 (2x P) but s .219/.208/.215 > rho ->
+  eff .61/.77/.79 (over-scaled: optimal-scale gain 1.82/1.96/2.18% vs actual).  B rho .128-.131, eff ~1.  S_e+P rho .127-.132 ~ B.
+- per lead: FC lead 0 -11.5/-9.8/-9.4% (B -2.4/-2.0/-1.3%), P lead 0 +1.3..+2.0%.  Mean h0-23: P .65-.69, FC .44-1.02,
+  B .80-1.02; h24-95: P .48-.54, FC 1.71-2.15, B 1.82-1.88; h96-191: P .34-.49, FC .77-1.54, B 1.52-1.74.
+- Hilbert daily band: lead 0 PLV P .55-.71 > FC .39-.41 > B .29-.32, but P amp ratio .12-.15 vs FC .62-.66; lead 191 P PLV
+  .23-.25 amp .01-.02 vs FC .29 amp .26-.29.  Weekly lead 191: P PLV .49-.67 amp .02-.04, FC .46-.52 amp .26-.31.
+- band split of the alignment: FC / B at h23-191 ~half harmonic, half non-harmonic; at lead 0 their 28-140 h part is negative.
+Reading: FC's advantage = 2x correlation sustained over mid/long leads; P is best at lead 0 but its periodic-band
+correction fades with lead (readout C Lambda^(h+1) damps by rho^(h+1)).  The two are complementary in lead.
