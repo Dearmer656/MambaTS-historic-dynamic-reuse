@@ -977,3 +977,12 @@ correction fades with lead (readout C Lambda^(h+1) damps by rho^(h+1)).  The two
 - same target, lead gap: .99 -> .72 (target-position error vector nearly 1-D: the target's shock).
 - Reading for the path interval: segments shorter than ~6-12 h are redundant; 24 h = full daily cycle; candidates k in {12, 24, 48},
   final choice needs a downstream (val) criterion.
+
+### Lead-wise stacking (FC long leads, something else short) — commit after 43360dc, job 18243
+Question (user): FC is weak / harmful at short leads; can a short-lead method (S_e, PaTH carry P) plus FC at long leads beat FC?
+Per lead bucket (8 buckets of 24 leads) least squares of rho = E - base on [S_e, P, FC raw (r - f), B raw (y_B - f)],
+fit on val_fit, reported val_select / test once.  P = the Step 2 s1_P carry loaded from err_s2 dumps (no retraining; its test
+MSE must reproduce Step 2).  FC retrained once (GPU nondeterminism) and its raw corrections dumped for every val+test origin.
+Arms fixed in advance: FC, B, S_e, P, FC+P, FC+S_e, FC+S_e+P, B+S_e, B+S_e+P, FC+B+S_e, FC+B+S_e+P.
+Criteria (3/3 seeds, test): (i) FC+S_e+P beats FC and B; (ii) FC+S_e+P beats FC+S_e -> P adds beyond S_e;
+(iii) the extra gain sits in the short-lead buckets.
