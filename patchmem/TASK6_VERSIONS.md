@@ -986,3 +986,13 @@ MSE must reproduce Step 2).  FC retrained once (GPU nondeterminism) and its raw 
 Arms fixed in advance: FC, B, S_e, P, FC+P, FC+S_e, FC+S_e+P, B+S_e, B+S_e+P, FC+B+S_e, FC+B+S_e+P.
 Criteria (3/3 seeds, test): (i) FC+S_e+P beats FC and B; (ii) FC+S_e+P beats FC+S_e -> P adds beyond S_e;
 (iii) the extra gain sits in the short-lead buckets.
+Result (job 18285, elm72 6000; first attempt 18243 landed on V100 and was moved): s1_P loaded test 0.36138/0.36369/0.36151
+= Step 2 exactly.  Test gain % vs backbone (val_select MSE in brackets), seeds 3047/2024/2025:
+  FC .62/.92/1.03 (own-w FC 1.03/1.49/1.72) | B 1.21/1.30/1.32 (own B 1.61/1.68/1.69) | S_e 1.44/1.28/1.37 | P .45/.55/.50
+  FC+S_e 1.34/1.54/1.64 | FC+S_e+P 1.59/1.84/1.86 | B+S_e 1.98/1.94/2.01 | B+S_e+P 2.25/2.28/2.26 | FC+B+S_e+P 1.79/2.08/2.03
+- (ii) P adds beyond the others 3/3 in every combination: +.25/.30/.22 pp over FC+S_e, +.27/.34/.25 over B+S_e.
+  Increment per lead bucket largest at h0-23 (+.46..+.56) but present in every bucket (+.16..+.37).
+- (i) FC+S_e+P beats stacked FC and own-w FC 3/3, but not own B on s3047 (1.59 vs 1.61).
+- val / test disagree: every FC arm has the lowest val, every B arm the best test; val selection picks FC+S_e+P (3/3).
+  Consistent with the error-correlation result (test daily periodicity ~50% stronger than train/val; B = same-clock pool).
+- stacked FC (per-bucket coefficients on val_fit) is worse than FC's own global w: FC raw corrections are unstable val -> test.
