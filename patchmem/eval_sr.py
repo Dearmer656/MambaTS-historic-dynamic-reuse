@@ -46,6 +46,7 @@ import copy
 import json
 import math
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -71,7 +72,8 @@ CHR, BQ = 32, 64                                                         # retri
 CARRY_ARMS = {'s1_I': (1, 'I', 1), 's1_R': (1, 'R', 1), 's1_D': (1, 'D', 1), 's1_P': (1, 'P', 1), 's8_P': (8, 'P', 1),
               's1_P2': (1, 'P', 2), 's1_P4': (1, 'P', 4),                 # (lead buckets, T_t kind, Householders per step
               's1_Ponly': (1, 'P', 1, False),
-              's1_G': (1, 'G', 1), 's1_GF': (1, 'GF', 1)}                   # per-mode state gate (+ per-mode phase shift)                             #  [, rotation: False = theta 0 + per-lead readout])
+              's1_G': (1, 'G', 1), 's1_GF': (1, 'GF', 1),
+              's1_Pfix': (1, 'PF', 1), 's1_Pdiag': (1, 'PD', 1)}            # Step 2: fixed u / diagonal-only                   # per-mode state gate (+ per-mode phase shift)                             #  [, rotation: False = theta 0 + per-lead readout])
 D_MODES = 64
 S_ARMS = ('S_e', 'S_r')
 LS = 96                                                                  # shock-history lags of the base
@@ -102,10 +104,14 @@ class ShockSSM(nn.Module):
         self.Cr = nn.Parameter(torch.zeros(nb, d, 2))
         if not rot:                                                            # P_only: no extrapolation by Lam^(h+1),
             self.Ch = nn.Parameter(torch.zeros(H, d, 2))                       # one readout per lead from z_t
-        if kind == 'P':
+        if kind in ('P', 'PD'):                                                # PD: same generator, diagonal use
             self.Wu = nn.Linear(nx, 2 * d * nh)                                # nh = 1: identical to v1
             self.wb = nn.Linear(nx, nh)
             nn.init.constant_(self.wb.bias, -2.0)                              # beta ~ 0.24 at init
+        elif kind == 'PF':                                                     # one global trainable u, beta_t from x
+            self.uf = nn.Parameter(torch.randn(2 * d, generator=torch.Generator().manual_seed(2)))
+            self.wb = nn.Linear(nx, 1)
+            nn.init.constant_(self.wb.bias, -2.0)
         elif kind == 'D':
             self.wd = nn.Linear(nx, 1)
             nn.init.constant_(self.wd.bias, 6.0)                               # g ~ 0.998 at init
@@ -130,9 +136,24 @@ class ShockSSM(nn.Module):
         z = torch.stack([c * z[..., 0] - s * z[..., 1], s * z[..., 0] + c * z[..., 1]], -1)
         return z + (w @ self.B.T).view(Bn, self.d, 2)
 
+    def u_beta(self, x):
+        """(u (B 2d) unit, beta (B 1)) of a single-Householder kind (P / PF / PD, nh = 1)."""
+        beta = 2 * torch.sigmoid(self.wb(x))[:, :1]
+        if self.kind == 'PF':
+            return F.normalize(self.uf, dim=0).expand(x.shape[0], -1), beta
+        return F.normalize(self.Wu(x)[:, :2 * self.d], dim=-1), beta
+
     def trans(self, z, x):
         """The state-driven transition T_t only (before the fixed rotation Lam)."""
         Bn = z.shape[0]
+        if self.kind in ('PF', 'PD'):
+            u, beta = self.u_beta(x)
+            zf = z.flatten(1)
+            if self.kind == 'PF':                                              # I - beta_t u u^T, u fixed
+                zf = zf - beta * u * (u * zf).sum(-1, keepdim=True)
+            else:                                                              # I - beta_t diag(u_t^2)
+                zf = zf * (1 - beta * u.square())
+            return zf.view(Bn, self.d, 2)
         if self.kind == 'P':
             U = F.normalize(self.Wu(x).view(Bn, self.nh, 2 * self.d), dim=-1)
             beta = 2 * torch.sigmoid(self.wb(x))
@@ -216,7 +237,11 @@ def run(code, seed, args):
     split[times <= n_tr - H] = 0
     split[(times >= n_tr) & (times <= n_tr + n_va - H)] = 1
     split[times >= n_tr + n_va] = 2
-    nel = {s: int((split == s).sum()) * C * H for s in (0, 1, 2)}
+    if args.val_split:                                                             # val_fit (1) | val_select (3), in time
+        vk = torch.nonzero(split == 1).flatten()
+        split[vk[len(vk) // 2:]] = 3
+    SEL = 3 if args.val_split else 1                                               # selection rows (epoch / k / lam / arm)
+    nel = {s: max(int((split == s).sum()) * C * H, 1) for s in (0, 1, 2, 3)}
     spl = split.to(dev)
     base = float(E[split == 2].double().square().sum()) / nel[2]
     if args.max_c is None and abs(base - official) > 1e-4:
@@ -246,8 +271,7 @@ def run(code, seed, args):
     sh = {'E': 0.0, 's': 0.0, 'r': 0.0}
     for i in range(0, n, 256):
         k = torch.arange(i, min(n, i + 256))
-        k = k[split[k] >= 0]
-        k = k[split[k] <= 1]
+        k = k[(split[k] == 0) | (split[k] == 1) | (split[k] == 3)]
         if len(k) == 0:
             continue
         e_ = E[k].to(dev).double()
@@ -298,13 +322,14 @@ def run(code, seed, args):
 
     kwarm = 3 * 2 * PW * q if args.base == 'shrot' else 0                         # rotary warm-up (3 x slowest tau)
     ktr = torch.nonzero(split == 0).flatten()
-    bm = {z: bmom(ktr[ktr >= kwarm] if z == 0 else torch.nonzero(split == z).flatten()) for z in (0, 1, 2)}
+    bm = {z: bmom(ktr[ktr >= kwarm] if z == 0 else torch.nonzero(split == z).flatten())
+          for z in ((0, 1, 2, 3) if args.val_split else (0, 1, 2))}
     one = torch.tensor([NFB - 1])
     cands = {'sh': torch.cat([jl, one])}
     if args.base == 'shrot':                                                       # rot or tail block, chosen on val
         cands = {'sh+rot': torch.cat([jl, torch.arange(LS, LS + ND), one]),
                  'sh+tail': torch.cat([jl, torch.arange(LS + ND, LS + 2 * ND), one])}
-    bval = {(nm, lam): ev.mse(bm[1], cc.to(dev), ev.solve(bm[0], cc.to(dev), lam))
+    bval = {(nm, lam): ev.mse(bm[SEL], cc.to(dev), ev.solve(bm[0], cc.to(dev), lam))
             for nm, cc in cands.items() for lam in ev.LAMS}
     bname, blam = min(bval, key=bval.get)
     cb = cands[bname].to(dev)
@@ -330,11 +355,11 @@ def run(code, seed, args):
 
     def acc(dst, x, ks_):                                                          # dst (3 NB)
         s_ = spl[ks_]
-        for z in (0, 1, 2):
+        for z in (0, 1, 2, 3):
             dst[z] += x[s_ == z].sum(0)
 
-    def z3():
-        return torch.zeros(3, NB, dtype=torch.float64, device=dev)
+    def z3():                                                                      # rows train / val_fit / test / val_select
+        return torch.zeros(4, NB, dtype=torch.float64, device=dev)
 
     # ---- residual layer: retrieval, pass 1 sums for every k, pass 2 stores m of the val-chosen k
     Xd = X[:, :C].to(dev)
@@ -373,10 +398,10 @@ def run(code, seed, args):
     sums = retrieval(KS)
     kbest = {}
     for a in S_ARMS:
-        kbest[a] = min(KS, key=lambda k: float(fit1(sums[a][k]['em'], sums[a][k]['mm'])[1][1]))
+        kbest[a] = min(KS, key=lambda k: float(fit1(sums[a][k]['em'], sums[a][k]['mm'])[1][SEL]))
         coef, sse = fit1(sums[a][kbest[a]]['em'], sums[a][kbest[a]]['mm'])
-        res[a] = dict(k=kbest[a], a=coef.tolist(), val_mse=float(sse[1]) / nel[1], test_mse=float(sse[2]) / nel[2],
-                      grid={str(k): float(fit1(sums[a][k]['em'], sums[a][k]['mm'])[1][1]) / nel[1] for k in KS})
+        res[a] = dict(k=kbest[a], a=coef.tolist(), val_mse=float(sse[SEL]) / nel[SEL], test_mse=float(sse[2]) / nel[2],
+                      grid={str(k): float(fit1(sums[a][k]['em'], sums[a][k]['mm'])[1][SEL]) / nel[SEL] for k in KS})
         print(f'[{a}] k {kbest[a]} test {res[a]["test_mse"]:.5f}', flush=True)
     MS = {a: torch.zeros(n, C, H, dtype=torch.float16) for a in S_ARMS}
     retrieval(tuple(sorted(set(kbest.values()))), MS, kbest)
@@ -449,7 +474,7 @@ def run(code, seed, args):
                         state = state.detach()
             log.append(tot / max(cn, 1))
             if args.early_stop:                                                    # keep the epoch best on val
-                v_ = float(fit_alone(eval_carry(net))[1][1]) / nel[1]
+                v_ = float(fit_alone(eval_carry(net))[1][SEL]) / nel[SEL]   # b on val_fit, chosen on val_select
                 vlog.append(v_)
                 if v_ < best[0]:
                     best[:] = [v_, copy.deepcopy(net.state_dict()), ep]
@@ -471,11 +496,18 @@ def run(code, seed, args):
                     x = x_at(k, call)
                     zf = state.flatten(1)
                     zn = zf.norm(dim=-1).clamp_min(EPS)
-                    if net.kind == 'P':                                    # PaTH: beta, |beta u u^T z| / |z|, u drift
-                        u = F.normalize(net.Wu(x), dim=-1)
-                        beta = 2 * torch.sigmoid(net.wb(x))[:, 0]
+                    if net.kind in ('P', 'PF', 'PD'):                      # beta, |T_t z - z| / |z|, u drift
+                        if net.kind == 'P':                                # (as before, incl. nh > 1)
+                            u = F.normalize(net.Wu(x), dim=-1)
+                            beta = 2 * torch.sigmoid(net.wb(x))[:, 0]
+                        else:
+                            u, beta = net.u_beta(x)
+                            beta = beta[:, 0]
                         dump['beta'].append(beta.cpu())
-                        dump['hh_rel'].append((beta * (u * zf).sum(-1).abs() / zn).cpu())
+                        if net.kind == 'PD':
+                            dump['hh_rel'].append((beta[:, None] * u.square() * zf).norm(dim=-1).div(zn).cpu())
+                        else:
+                            dump['hh_rel'].append((beta * (u * zf).sum(-1).abs() / zn).cpu())
                         if u_prev is not None:
                             dump['u_cos'].append((u * u_prev).sum(-1).cpu())
                         u_prev = u
@@ -503,9 +535,13 @@ def run(code, seed, args):
                     mech['w_dphase_abs'] += (torch.angle(rat).abs() * w0).sum(0)
                     mech['amp2_pre'] += a0.abs().double().square().sum(0)
                     mech['amp2_post'] += a1.abs().double().square().sum(0)
-                    if net.kind == 'P' and net.nh == 1:                        # self vs cross-mode part of beta u u^T z
-                        u = F.normalize(net.Wu(x), dim=-1).view(-1, net.d, 2)
-                        beta = 2 * torch.sigmoid(net.wb(x))[:, :, None]
+                    if net.kind == 'PD':                                       # diagonal: all of the update is self-mode
+                        u, beta = net.u_beta(x)
+                        upd = (beta * u.square() * state.flatten(1)).view(-1, net.d, 2)
+                        mech['self2'] += upd.square().sum(-1).double().sum(0)
+                    if net.kind in ('P', 'PF') and net.nh == 1:                # self vs cross-mode part of beta u u^T z
+                        u, beta = net.u_beta(x)
+                        u, beta = u.reshape(-1, net.d, 2), beta[:, :, None]
                         pj = (u * state).sum(-1)                               # (C d): u_j . z_j
                         tot = pj.sum(-1, keepdim=True)
                         mech['self2'] += (beta * u * pj[..., None]).square().sum(-1).double().sum(0)
@@ -551,7 +587,10 @@ def run(code, seed, args):
     for name in arms:
         nb, kind, nh, *rest = CARRY_ARMS[name]
         rot = rest[0] if rest else True
+        t_start = time.time()
         net, log = train_carry(nb, kind, nh, rot)
+        t_train = time.time() - t_start
+        n_par = sum(p_.numel() for p_ in net.parameters() if p_.requires_grad)
         dump = None
         if args.dump:
             dump = {key: [] for key in ('beta', 'hh_rel', 'u_cos', 'gate', 'gate_min', 'phase', 'm_rms', 'rho_rms')}
@@ -572,11 +611,11 @@ def run(code, seed, args):
             torch.save(dict(state=net.state_dict(), theta0=init.theta.detach().clone(), rho0=init.rho_p.detach().clone(),
                             q=q, PW=PW, train_loss=log, **dump), od / f'{code}_H{H}_s{seed}_{name}_dump.pt')
         b, sse = fit_alone(o)
-        res[name] = dict(b=b.tolist(), val_mse=float(sse[1]) / nel[1], test_mse=float(sse[2]) / nel[2],
-                         train_loss=log, gamma=float(net.g()))
+        res[name] = dict(b=b.tolist(), val_mse=float(sse[SEL]) / nel[SEL], test_mse=float(sse[2]) / nel[2],
+                         train_loss=log, gamma=float(net.g()), n_params=n_par, train_s=t_train)
         for a_ in S_ARMS:
             a, b2, sse2 = fit_joint(o, a_)
-            res[f'{a_}(+){name}'] = dict(a=a.tolist(), b=b2.tolist(), val_mse=float(sse2[1]) / nel[1],
+            res[f'{a_}(+){name}'] = dict(a=a.tolist(), b=b2.tolist(), val_mse=float(sse2[SEL]) / nel[SEL],
                                          test_mse=float(sse2[2]) / nel[2])
         print(f'[{name}] test {res[name]["test_mse"]:.5f} | S_r(+) {res[f"S_r(+){name}"]["test_mse"]:.5f}', flush=True)
 
@@ -657,7 +696,7 @@ def run(code, seed, args):
     out = dict(dataset=code, seed=seed, H=H, L=L, checkpoint=str(checkpoint), base=base, official=official, refs=refs,
                shares=shares, settings=dict(q=q, PW=PW, m_tr=m_tr, NB=NB, KS=KS, EPOCHS=args.epochs, max_c=args.max_c,
                              base=args.base, bptt_h=args.bptt_h, freeze_theta=args.freeze_theta,
-                             early_stop=args.early_stop),
+                             early_stop=args.early_stop, val_split=args.val_split),
                **res)
     od.mkdir(parents=True, exist_ok=True)
     done.write_text(json.dumps(out, indent=2) + '\n')
@@ -678,6 +717,7 @@ def main():
     p.add_argument('--bptt_h', type=int, default=24, help='truncated BPTT length in hours')
     p.add_argument('--freeze_theta', action='store_true')
     p.add_argument('--fc_dir', default='patchmem/logs/server/error_path', help='FreshCast / B reference jsons')
+    p.add_argument('--val_split', action='store_true', help='val_fit (first half) fits b / a, val_select picks')
     p.add_argument('--early_stop', action='store_true', help='keep the carry epoch with the best val MSE')
     p.add_argument('--mech', default='', help='carry arms (comma list) for the correction / mode diagnostics')
     p.add_argument('--dump', action='store_true', help='save the trained carry + test-stream T_t statistics')
