@@ -19,8 +19,18 @@ from patchmem.eval_itransformer_pure_icl import load_base
 DMAX = 504                                                                        # 3 weeks
 
 
-def zs(x):                                                                        # z-score over dim 0
-    return (x - x.mean(0)) / x.std(0).clamp_min(1e-8)
+NORM = 'z'                                                                        # set from --norm
+
+
+def zs(x):
+    """Scale over dim 0 (time).  z: per-series mean removed, / std (correlation);  unc: mean kept, / per-series RMS
+    (uncentered correlation);  raw: mean kept, / one RMS over all channels (pooled second moments, large-error
+    channels weigh more)."""
+    if NORM == 'z':
+        return (x - x.mean(0)) / x.std(0).clamp_min(1e-8)
+    if NORM == 'unc':
+        return x / x.square().mean(0).sqrt().clamp_min(1e-8)
+    return x                                                                      # raw: pooled sums, normalised at the end
 
 
 def stats(E, dev):
@@ -42,7 +52,12 @@ def stats(E, dev):
         S = torch.stack([Z[ts - h, h] for h in range(Hh)], 1)                     # (n-H+1) H c : S[t, h] = e_(t-h)[h]
         S = zs(S)
         Cm += torch.einsum('tic,tjc->ij', S, S) / len(ts)
-    return A.numpy(), (B / C).cpu().numpy(), (Cm / C).cpu().numpy()
+    A, B, Cm = A.numpy(), (B / C).cpu().numpy(), (Cm / C).cpu().numpy()
+    if NORM == 'raw':                                                             # pooled over channels, lag 0 = 1
+        A = A / A[:, :1]
+        B = B / np.sqrt(np.outer(np.diag(B), np.diag(B)))
+        Cm = Cm / np.sqrt(np.outer(np.diag(Cm), np.diag(Cm)))
+    return A, B, Cm
 
 
 def by_gap(M):
@@ -54,7 +69,11 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--seed', type=int, default=3047)
     p.add_argument('--out_dir', default='patchmem/logs/server/err_corr')
+    p.add_argument('--norm', default='z', choices=('z', 'unc', 'raw'))
     a = p.parse_args()
+    global NORM
+    NORM = a.norm
+    tag = '' if NORM == 'z' else f'_{NORM}'
     exp, _, _ = load_base('T', a.seed)
     dev = exp.device
     X, M, n_tr, n_va = ev.load_series(exp, 'T')
@@ -65,7 +84,7 @@ def main():
     od = Path(a.out_dir); od.mkdir(parents=True, exist_ok=True)
     for name, m in (('train', o <= n_tr - H), ('val', (o >= n_tr) & (o <= n_tr + n_va - H)), ('test', o >= n_tr + n_va)):
         A, B, Cm = stats(E[m], dev)
-        np.savez_compressed(od / f'T_H{H}_L{L}_s{a.seed}_{name}.npz', A=A, B=B, Cm=Cm)
+        np.savez_compressed(od / f'T_H{H}_L{L}_s{a.seed}{tag}_{name}.npz', A=A, B=B, Cm=Cm)
         out[name] = dict(n=int(m.sum()))
         for h in (0, 23, 95, 191):
             out[name][f'A_h{h}'] = {f'd{d}': float(A[h, d]) for d in (1, 2, 6, 12, 24, 48, 72, 168, 336, 504)}
@@ -77,7 +96,7 @@ def main():
             print(f'  A h{h:3d}: ' + ' '.join(f'{k} {v:+.3f}' for k, v in out[name][f'A_h{h}'].items()), flush=True)
         print('  B same origin, lead gap: ' + ' '.join(f'{k} {v:+.3f}' for k, v in out[name]['B_gap'].items()), flush=True)
         print('  C same target, lead gap: ' + ' '.join(f'{k} {v:+.3f}' for k, v in out[name]['C_gap'].items()), flush=True)
-    (od / f'T_H{H}_L{L}_s{a.seed}.json').write_text(json.dumps(out, indent=1) + '\n')
+    (od / f'T_H{H}_L{L}_s{a.seed}{tag}.json').write_text(json.dumps(out, indent=1) + '\n')
 
 
 if __name__ == '__main__':

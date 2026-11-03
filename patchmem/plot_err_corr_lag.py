@@ -7,20 +7,23 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 D = Path('patchmem/logs/server/err_corr')
 seed = sys.argv[1] if len(sys.argv) > 1 else '3047'
+tags = sys.argv[2].split(',') if len(sys.argv) > 2 else ['']                     # e.g. ',_unc,_raw'
 SPL = ('train', 'val', 'test')
-z = {s: np.load(D / f'T_H192_L720_s{seed}_{s}.npz') for s in SPL}
+z = {(t, s): np.load(D / f'T_H192_L720_s{seed}{t}_{s}.npz') for t in tags for s in SPL}
+LS = {'': '-', '_unc': '--', '_raw': ':'}
+NAME = {'': 'z-score', '_unc': 'uncentered', '_raw': 'raw pooled'}
 gap = lambda M: np.array([np.mean(np.diagonal(M, k)) for k in range(M.shape[0])])
 fig, ax = plt.subplots(2, 3, figsize=(17, 8))
 for j, h in enumerate((0, 23, 191)):
-    for s in SPL:
-        ax[0, j].plot(z[s]['A'][h], lw=1, label=s)
+    for (t, s), v in z.items():
+        ax[0, j].plot(v['A'][h], LS[t], lw=1, color=f'C{SPL.index(s)}', label=f'{s} {NAME[t]}')
     ax[0, j].set(title=f'same lead h={h}: corr(e_o[h], e_(o+d)[h])', xlabel='target gap d (h)')
-for j, (key, t) in enumerate((('B', 'same origin: corr(e_o[i], e_o[j])'), ('Cm', 'same target: corr(e_(tau-i)[i], e_(tau-j)[j])'))):
-    for s in SPL:
-        ax[1, j].plot(gap(z[s][key]), lw=1, label=s)
-    ax[1, j].set(title=t + ' vs |i-j|', xlabel='lead gap |i-j|')
-for s in SPL:
-    ax[1, 2].plot(z[s]['A'][191][:49], 'o-', ms=2, lw=1, label=f'{s} h191')
+for j, (key, ttl) in enumerate((('B', 'same origin: corr(e_o[i], e_o[j])'), ('Cm', 'same target: corr(e_(tau-i)[i], e_(tau-j)[j])'))):
+    for (t, s), v in z.items():
+        ax[1, j].plot(gap(v[key]), LS[t], lw=1, color=f'C{SPL.index(s)}', label=f'{s} {NAME[t]}')
+    ax[1, j].set(title=ttl + ' vs |i-j|', xlabel='lead gap |i-j|')
+for (t, s), v in z.items():
+    ax[1, 2].plot(v['A'][191][:49], LS[t], marker='o', ms=2, lw=1, color=f'C{SPL.index(s)}', label=f'{s} {NAME[t]}')
 ax[1, 2].set(title='zoom: same lead h=191, d <= 48', xlabel='target gap d (h)')
 for a in ax.flat:
     a.axhline(0, color='k', lw=.5)
@@ -29,6 +32,6 @@ for a in ax.flat:
             a.axvline(v, color='grey', lw=.4, ls=':')
     a.legend(fontsize=7)
 fig.tight_layout()
-out = D / f'err_corr_lag_s{seed}.png'
+out = D / f'err_corr_lag_s{seed}{"".join(tags) if tags != [""] else ""}.png'
 fig.savefig(out, dpi=90)
 print(out)
