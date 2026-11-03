@@ -966,3 +966,5 @@ backbone; error series match eval_sr to fp16).  Traffic L720 H192, seeds 3047/20
 - band split of the alignment: FC / B at h23-191 ~half harmonic, half non-harmonic; at lead 0 their 28-140 h part is negative.
 Reading: FC's advantage = 2x correlation sustained over mid/long leads; P is best at lead 0 but its periodic-band
 correction fades with lead (readout C Lambda^(h+1) damps by rho^(h+1)).  The two are complementary in lead.
+
+- 2026-11-03: LR diagnosis job 18142 and zero-ref job 18168 cancelled by the user (direction under review). Only result: L720 s3047 mean rho^2 = 0.19856 vs mean E^2 0.19867, so the E^2-based carry percentages stand.
