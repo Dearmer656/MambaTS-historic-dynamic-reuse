@@ -399,6 +399,30 @@ def run(code, seed, args):
         w_ur = min(max(v['eu'] / max(v['uu'], 1e-12), 0.0), 1.0)
         print(f'[val] w_fc {w_fc:.3f} w_ur {w_ur:.3f}', flush=True)
         te = sweep(test_o, w_fc, w_ur)
+    if args.ext_out:                                                                 # raw corrections, every val + test origin
+        ext_o = torch.cat([torch.arange(n_tr, n_tr + n_va - H + 1), test_o])
+        ext = {k: np.zeros((len(ext_o), C, H), dtype=np.float16) for k in ('FC', 'B')}
+        with torch.no_grad():
+            for i in range(0, len(ext_o), args.forecast_bs):
+                ob = ext_o[i:i + args.forecast_bs]
+                F = forecast(exp, Xc, Mc, ob)
+                for j, t0 in enumerate(ob.tolist()):
+                    for c in chunks(C, dev):
+                        t = torch.full_like(c, t0)
+                        sp = build(X, ws, sdesc, order, t, c)
+                        R = readout(X, ws, t, c, sp['s'], sp['p'], sp['val'])
+                        r = (model(sp['z'], sp['u'], sp['valid'])[..., None] * R).sum(1)
+                        f = F[j][:, c].T
+                        ci = c.cpu().numpy()
+                        ext['FC'][i + j, ci] = (r - f).half().cpu().numpy()
+                        if bcfg is not None:
+                            mt, st, vh = b_arm(X, ost, t, c, b_ages, bcfg['readout'], bcfg['beta'])
+                            yb = f + bcfg['a'] * (mt - f) + bcfg['c'] * st * vh
+                            ext['B'][i + j, ci] = (yb - f).half().cpu().numpy()
+        eo = Path(args.ext_out)
+        eo.mkdir(parents=True, exist_ok=True)
+        np.savez(eo / f'{code}_H{H}_L{L}_s{seed}_ext.npz', origins=ext_o.numpy(), w_fc=w_fc, **ext)
+        print(f'[ext] saved {len(ext_o)} origins', flush=True)
     n = te['n']
     base = te['ee'] / n
     if abs(base - official) > 1e-4:
@@ -427,7 +451,7 @@ def run(code, seed, args):
         for nm in ('FC', 'B'):
             g_ = 100 * (2 * float(mech[f'{nm}_rd'].sum()) - float(mech[f'{nm}_dd'].sum())) / float(mech['rr'].sum())
             print(f'[mech] {nm} gain {g_:+.3f}%', flush=True)
-    p = Path(args.mech_out or args.out_dir) / f'{code}_H{H}_L{L}_freshcast_s{seed}.json'
+    p = Path(args.mech_out or args.ext_out or args.out_dir) / f'{code}_H{H}_L{L}_freshcast_s{seed}.json'
     p.write_text(json.dumps(out, indent=2) + '\n')
     print(f'[done] {p}', flush=True)
 
@@ -438,6 +462,7 @@ def main():
     p.add_argument('--seed', type=int, default=3047)
     p.add_argument('--forecast_bs', type=int, default=8)
     p.add_argument('--out_dir', default='patchmem/logs/server/error_path')
+    p.add_argument('--ext_out', default='', help='save raw FC / B corrections (r - f, y_B - f) for every val + test origin')
     p.add_argument('--mech_out', default='', help='save test corrections (sums + lead series) and the json here')
     a = p.parse_args()
     run(a.data, a.seed, a)

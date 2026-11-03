@@ -503,6 +503,10 @@ def run(code, seed, args):
 
     def eval_carry(net, dump=None, mech=None):
         o = {key: z3() for key in ('ex', 'xx', 'sx_S_e', 'sx_S_r')}
+        if EXT:                                                                    # --ext: Gram sums of [S_e, P, ext...]
+            npr = 2 + len(EXT)
+            o['G'] = torch.zeros(4, NB, npr, npr, dtype=torch.float64, device=dev)
+            o['g'] = torch.zeros(4, NB, npr, dtype=torch.float64, device=dev)
         call = torch.arange(C, device=dev)
         wd = wdiag[net.nb].to(dev)
         state = None
@@ -578,6 +582,13 @@ def run(code, seed, args):
                     v[f'sx_{a}'] = MS[a][k].to(dev).double() * x_
                 for key, val in v.items():
                     o[key][z] += torch.zeros(NB, dtype=torch.float64, device=dev).index_add_(0, bk, val.sum(0))
+                if EXT and z >= 1:
+                    Rk = torch.stack([MS['S_e'][k].to(dev).double(), x_] +
+                                     [EXT[nm][0][EXT[nm][1][k]].to(dev).double() for nm in EXT])      # p C H
+                    o['G'][z] += torch.zeros(NB, npr, npr, dtype=torch.float64, device=dev).index_add_(
+                        0, bk, torch.einsum('ich,jch->hij', Rk, Rk))
+                    o['g'][z] += torch.zeros(NB, npr, dtype=torch.float64, device=dev).index_add_(
+                        0, bk, torch.einsum('ich,ch->hi', Rk, e_))
         return o
 
     def fit_alone(o):
@@ -598,6 +609,16 @@ def run(code, seed, args):
         return a, b, sse.sum(-1)
 
     arms = args.arms.split(',')
+    EXT = {}
+    for nm in (args.ext.split(',') if args.ext else []):                          # raw FC / B corrections (eval_freshcast)
+        zx = np.load(Path(args.ext_dir) / f'{code}_H{H}_L{L}_s{seed}_ext.npz')
+        idx = torch.full((n,), -1, dtype=torch.long)
+        kk = torch.as_tensor(zx['origins']) - T0
+        idx[kk] = torch.arange(len(kk))
+        need = split >= 1
+        assert (idx[need] >= 0).all(), f'{nm}: missing val/test origins'
+        EXT[nm] = (torch.from_numpy(zx[nm][:, :C]), idx)
+        print(f'[ext] {nm} {tuple(zx[nm].shape)}', flush=True)
     k_te0 = int(torch.nonzero(split == 2).min())
     n_te = int((split == 2).sum())
     MECH = {}
@@ -605,7 +626,15 @@ def run(code, seed, args):
         nb, kind, nh, *rest = CARRY_ARMS[name]
         rot = rest[0] if rest else True
         t_start = time.time()
-        net, log = train_carry(nb, kind, nh, rot)
+        if args.load_carry:                                                        # reuse a trained carry (--dump state)
+            torch.manual_seed(seed)
+            net = ShockSSM(nx, nb, kind, q, D_MODES, nh, rot).to(dev)
+            ld = torch.load(Path(args.load_carry) / f'{code}_H{H}_s{seed}_{name}_dump.pt', map_location=dev, weights_only=False)
+            net.load_state_dict(ld['state'])
+            net.eval()
+            log = ld['train_loss']
+        else:
+            net, log = train_carry(nb, kind, nh, rot)
         t_train = time.time() - t_start
         n_par = sum(p_.numel() for p_ in net.parameters() if p_.requires_grad)
         dump = None
@@ -635,6 +664,26 @@ def run(code, seed, args):
             res[f'{a_}(+){name}'] = dict(a=a.tolist(), b=b2.tolist(), val_mse=float(sse2[SEL]) / nel[SEL],
                                          test_mse=float(sse2[2]) / nel[2])
         print(f'[{name}] test {res[name]["test_mse"]:.5f} | S_r(+) {res[f"S_r(+){name}"]["test_mse"]:.5f}', flush=True)
+        if EXT:                                                                    # per-lead-bucket stacking, fit on val_fit
+            names = ['S_e', 'P'] + list(EXT)
+            subsets = [['FC'], ['B'], ['S_e'], ['P'], ['FC', 'P'], ['FC', 'S_e'], ['FC', 'S_e', 'P'], ['B', 'S_e'],
+                       ['B', 'S_e', 'P'], ['FC', 'B', 'S_e'], ['FC', 'B', 'S_e', 'P']]
+            for sub in subsets:
+                if any(x not in names for x in sub):
+                    continue
+                ix = torch.tensor([names.index(x) for x in sub], device=dev)
+                G1, g1 = o['G'][1][:, ix][:, :, ix], o['g'][1][:, ix]
+                lam = 1e-9 * G1.diagonal(dim1=1, dim2=2).sum(-1).clamp_min(EPS)
+                cf = torch.linalg.solve(G1 + lam[:, None, None] * torch.eye(len(sub), device=dev, dtype=torch.float64),
+                                        g1[..., None])[..., 0]                    # NB p
+                sse = torch.stack([ee[z] - 2 * (cf * o['g'][z][:, ix]).sum(-1) +
+                                   torch.einsum('bi,bij,bj->b', cf, o['G'][z][:, ix][:, :, ix], cf) for z in range(4)])
+                key = 'stack[' + '+'.join(sub).replace('P', name) + ']'
+                res[key] = dict(coef={x: cf[:, i].tolist() for i, x in enumerate(sub)}, val_mse=float(sse[SEL].sum()) / nel[SEL],
+                                test_mse=float(sse[2].sum()) / nel[2],
+                                test_bucket_gain=(100 * (ee[2] - sse[2]) / ee[2].clamp_min(EPS)).tolist())   # vs base_sh
+                print(f'[stack] {key:28s} test {res[key]["test_mse"]:.5f} val {res[key]["val_mse"]:.5f} | bucket gain% vs base_sh '
+                      + ' '.join(f'{x:+.2f}' for x in res[key]['test_bucket_gain']), flush=True)
 
     if MECH:                                                                       # --mech: correction diagnostics, test
         LH = sorted({0, min(23, H - 1), H // 2 - 1, H - 1})
@@ -730,6 +779,9 @@ def main():
     p.add_argument('--lr', type=float, default=LR, help='carry Adam lr')
     p.add_argument('--lr_sched', default='const', choices=('const', 'cos'))
     p.add_argument('--warmup', type=int, default=0, help='linear lr warmup over this many updates')
+    p.add_argument('--ext', default='', help='stack raw external corrections (comma list, e.g. FC,B) with S_e and the carry')
+    p.add_argument('--ext_dir', default='patchmem/logs/server/err_stack/fc')
+    p.add_argument('--load_carry', default='', help='dir with {code}_H{H}_s{seed}_{arm}_dump.pt: load instead of training')
     p.add_argument('--zero_only', action='store_true', help='print the carry zero reference and stop')
     p.add_argument('--log_updates', action='store_true', help='keep per-update train loss + grad norm in train_loss')
     p.add_argument('--weeks', type=int, default=None, help='train-tail weeks (default: the whole train segment)')
