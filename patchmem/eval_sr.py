@@ -449,10 +449,13 @@ def run(code, seed, args):
         net = ShockSSM(nx, nb, kind, q, D_MODES, nh, rot).to(dev)
         if args.freeze_theta and isinstance(net.theta, nn.Parameter):
             net.theta.requires_grad_(False)                                        # keep the weekly harmonics
-        opt = torch.optim.Adam([p_ for p_ in net.parameters() if p_.requires_grad], lr=LR)
+        prm = [p_ for p_ in net.parameters() if p_.requires_grad]
+        opt = torch.optim.Adam(prm, lr=args.lr)
         g = torch.Generator().manual_seed(seed)
-        log, vlog, best = [], [], [float('inf'), None, -1]
+        log, vlog, best, ulog = [], [], [float('inf'), None, -1], []
+        nup = 0
         for ep in range(args.epochs):
+            lr_ep = args.lr * (0.5 * (1 + math.cos(math.pi * ep / args.epochs)) if args.lr_sched == 'cos' else 1.0)
             tot, cn = 0.0, 0
             for c in torch.randperm(C, generator=g).split(CH):
                 cg = c.to(dev)
@@ -468,7 +471,14 @@ def run(code, seed, args):
                         if nl:
                             opt.zero_grad()
                             (loss / nl).backward()
+                            if args.log_updates:                                   # (epoch, mean loss, grad norm)
+                                gn = torch.stack([p_.grad.detach().double().norm() for p_ in prm if p_.grad is not None]).norm()
+                                ulog.append((ep, float(loss) / nl, float(gn)))
+                            if args.lr_sched != 'const' or args.warmup:            # linear warmup over updates
+                                for pg in opt.param_groups:
+                                    pg['lr'] = lr_ep * min(1.0, (nup + 1) / max(args.warmup, 1))
                             opt.step()
+                            nup += 1
                             tot, cn = tot + float(loss), cn + nl
                         loss, nl = 0.0, 0
                         state = state.detach()
@@ -481,6 +491,8 @@ def run(code, seed, args):
         if args.early_stop:
             net.load_state_dict(best[1])
             log.append(dict(val=vlog, best_epoch=best[2]))
+        if args.log_updates:
+            log.append(dict(updates=ulog))
         net.eval()
         return net, log
 
@@ -710,6 +722,10 @@ def main():
     p.add_argument('--bs', type=int, default=64)
     p.add_argument('--max_c', type=int, default=None)
     p.add_argument('--epochs', type=int, default=EPOCHS)
+    p.add_argument('--lr', type=float, default=LR, help='carry Adam lr')
+    p.add_argument('--lr_sched', default='const', choices=('const', 'cos'))
+    p.add_argument('--warmup', type=int, default=0, help='linear lr warmup over this many updates')
+    p.add_argument('--log_updates', action='store_true', help='keep per-update train loss + grad norm in train_loss')
     p.add_argument('--weeks', type=int, default=None, help='train-tail weeks (default: the whole train segment)')
     p.add_argument('--arms', default='s1_R,s1_D,s1_P')
     p.add_argument('--out_dir', default='patchmem/logs/server/err_sr')

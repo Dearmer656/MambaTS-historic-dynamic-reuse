@@ -942,3 +942,13 @@ val_mse); test untouched.  Traffic L720 H192 / H336 x 3 seeds; --mech / --dump f
 self vs cross-mode).  Smoke 17923 ok (decomposition = json).  Codex: PD diagnostics and P2/P4 dump path fixed.
 Acceptance (user): P > P_fixed_u stably -> input-dependent direction matters; P > P_diag stably -> non-diagonal
 coupling necessary; ties -> drop the dynamic cross-mode claim.  P_only not used as evidence.
+
+### Carry LR diagnosis — job 18142 (elm72, 1 GPU)
+Question (user): is the flat carry train loss an LR problem (too large / oscillating)?  Evidence before: s1_P train loss only
+0.3-1.1% below the zero-carry reference (mean E^2 on train targets 0.19867/0.19746/0.19710, carry_zero_ref.py), saw-tooth across
+epochs; s1_GF ~0.  New flags (defaults bit-identical): --lr, --lr_sched cos (per epoch), --warmup N (linear over updates, ~476
+updates per epoch), --log_updates (per-update loss + grad norm).  s1_P, Traffic L720 H192 s3047, Step 2 settings, configs:
+const 3e-3 (reference) / 1e-3 / 3e-4 / 1e-4, cos+warmup500 at 3e-3 and 1e-3.  Output patchmem/logs/server/err_lr/<cfg>/.
+Fixed criterion: LR is the cause only if some config gives a train-loss reduction >= 2% vs zero carry (reference best ~0.8%)
+with a steady decrease AND a val_select gain clearly above the reference; otherwise the ceiling is the model/target, not LR.
+Test MSE reported but not used to pick an LR.
