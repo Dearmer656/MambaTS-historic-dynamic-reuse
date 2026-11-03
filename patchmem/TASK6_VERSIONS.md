@@ -968,3 +968,12 @@ Reading: FC's advantage = 2x correlation sustained over mid/long leads; P is bes
 correction fades with lead (readout C Lambda^(h+1) damps by rho^(h+1)).  The two are complementary in lead.
 
 - 2026-11-03: LR diagnosis job 18142 and zero-ref job 18168 cancelled by the user (direction under review). Only result: L720 s3047 mean rho^2 = 0.19856 vs mean E^2 0.19867, so the E^2-based carry percentages stand.
+
+### Error correlation vs target / lead gap (err_corr_lag.py, Traffic L720 H192, 3 seeds, train/val/test descriptive)
+- same lead, target gap d: AR-like decay d1 .56-.63, d2 .30-.37, d6 .06-.11, d12 .02-.05 (all leads); daily peaks only at long
+  leads (h95 d24 .16/.20/.27-.28, h191 d24 .21/.22-.23/.31-.32 train/val/test), peaks at 24k up to 168 h then gone; lead 0 and
+  lead 23 almost no periodicity.  Test has stronger daily peaks than train.
+- same origin, lead gap: same shape (g1 .57-.62, peaks at 24k, g24 .17-.29).
+- same target, lead gap: .99 -> .72 (target-position error vector nearly 1-D: the target's shock).
+- Reading for the path interval: segments shorter than ~6-12 h are redundant; 24 h = full daily cycle; candidates k in {12, 24, 48},
+  final choice needs a downstream (val) criterion.
