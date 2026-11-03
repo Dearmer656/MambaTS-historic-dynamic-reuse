@@ -932,3 +932,13 @@ Beyond base (r = E - base), Traffic L720 H192, s3047 / 2024 / 2025:
 Answer (Step 1): P's improvement is alignment, not amplitude; the aligned content beyond lead 0 is the higher daily /
 weekly harmonics of the error waveform (shape), not the phase of the daily fundamental; per-mode gate + phase (GPhi)
 cannot reproduce it.  Consistent with, but not proof of, cross-mode mixing -> Step 2.
+
+### Step 2: isolate state-dependent cross-mode mixing — commit bd144b6, jobs 17937-17939
+Arms (same frozen iTransformer L720, shrot base, theta frozen, BPTT 168, early stop): GPhi (per-mode gate + phase),
+P (I - beta_t u_t u_t^T), P_fixed_u = s1_Pfix (I - beta_t u u^T, one global trainable u; 548 params vs 13092),
+P_diag = s1_Pdiag (I - beta_t diag(u_t^2), the same generator as P; 13092 params).  --val_split: val in time order ->
+val_fit (first half: retrieval a, carry b, joint a/b) and val_select (second half: base block/lam, k, epoch, reported
+val_mse); test untouched.  Traffic L720 H192 / H336 x 3 seeds; --mech / --dump for P / Pfix / Pdiag (beta_t, u drift,
+self vs cross-mode).  Smoke 17923 ok (decomposition = json).  Codex: PD diagnostics and P2/P4 dump path fixed.
+Acceptance (user): P > P_fixed_u stably -> input-dependent direction matters; P > P_diag stably -> non-diagonal
+coupling necessary; ties -> drop the dynamic cross-mode claim.  P_only not used as evidence.
