@@ -1086,3 +1086,14 @@ every case shown = grid edge):
 - Not pre-registered: rolling helps exactly the drifting-strength regressors (FC +.7-1.0 pp 3/3, B0, pathret arms) and
   slightly hurts the stable P; roll[FC+S_e+P] 2.38/2.31/2.35 > static B+S_e+P 3/3 (best so far, but val_select does not
   single it out reliably).
+Result (jobs 20301/20302, A100).  Sum-of-parts check <= 1e-5 all runs.  Test, gain % vs base_sh; bins 0|1-5|6-23|24-71|72-167|>=168 h.
+  P full: H192 .43/.53/.47, H336 .36/.28/.34 (3047/2024/2025).  Leave-bin-out drop, P, H192 s3047: .002 .016 .064 .091 .121 .074
+  (s2024 .002 .018 .084 .118 .145 .089; s2025 .002 .014 .080 .096 .118 .037); H336 similar, peak 72-167 in 6/6.
+  Ages 0-5 h give ~0 (only-bin <= .02) in every run: P's gain comes from shocks 6 h - 1 week old (+ remainder).
+  P - Pfix drop by bin, H192: 3047 .001 .007 .020 .037 .028 -.002; 2024 .001 .014 .052 .066 .062 .023; 2025 .000 .002 .036 .061 .055 -.006;
+  H336: path advantage in 6-71 h, Pfix better at >=168 h (-.02..-.04).  Pdiag small in every bin.
+- (A1) same peak bin (72-167 h) 6/6 but its drop is only 23-31% of the full gain (< 50%) -> fails: not localised to one delay.
+- (A2) in 72-167 h, drop(P) - drop(Pfix) = .028/.062/.055 vs required .058/.115/.090 -> fails.
+- (A3) 72-167 h drop > 0 in 79-95% of test weeks 6/6, but val_select picks the same bin only 3/6 -> fails.
+- Reading: P corrects with a slow state built from shocks of the last ~6 h to 1 week (read mostly at short leads); the
+  input-dependent path adds mainly on 6-71 h old shocks; no single delay, and val does not identify it.
