@@ -1109,3 +1109,4 @@ Result (job 20303, A100-80; B96 == eval_freshcast B, max |diff| 3.9e-3).  Test g
 - Reading: the two retrievals use different scales.  B (same hour-of-week analogs) needs a key over the last 2-4 days;
   longer keys dilute it.  S_e (free kNN) needs >= 2 weeks of key; at l = 96 it keeps ~70% of its l = 720 gain
   (1.02/.89/.93 vs 1.44/1.28/1.37), at l = 24 ~30%.  Nothing beyond 2 weeks is used (336 == 720).
+Addendum pathret v2 (val_fit): A2s test gain .58/.85/.52 (3047/2024/2025; job 19123) vs A2 .51/.54/.42 -> shuffled order >= ordered 3/3, no path-order claim.
