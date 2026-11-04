@@ -1097,3 +1097,15 @@ Result (jobs 20301/20302, A100).  Sum-of-parts check <= 1e-5 all runs.  Test, ga
 - (A3) 72-167 h drop > 0 in 79-95% of test weeks 6/6, but val_select picks the same bin only 3/6 -> fails.
 - Reading: P corrects with a slow state built from shocks of the last ~6 h to 1 week (read mostly at short leads); the
   input-dependent path adds mainly on 6-71 h old shocks; no single delay, and val does not identify it.
+Result (job 20303, A100-80; B96 == eval_freshcast B, max |diff| 3.9e-3).  Test gain % vs backbone (3047/2024/2025), static stack.
+  B by R (24/48/96/168/336/720): 3047 .98 1.14 1.21 1.18 .86 .75; 2024 1.01 1.19 1.30 1.29 .92 .79; 2025 1.20 1.32 1.32 1.28 1.11 .99.
+  S_e by l: 3047 .43 .65 1.02 1.25 1.44 1.44; 2024 .34 .55 .89 1.12 1.27 1.28; 2025 .37 .58 .93 1.18 1.36 1.37.
+  B_R+S_e(l)+P grid, val_select pick: 3047 (R48,l336) 2.25; 2024 (R48,l336|720 tie) 2.25; 2025 (R24,l336) 2.25
+  vs default (R96,l720) 2.25/2.28/2.26 -> window selection adds nothing.
+  val_select picks for B alone: 48/48/24 (test 1.14/1.19/1.20 < R96); for S_e alone: 336 3/3 (= l720 within .01).
+- (W1) B best at R <= 168 and worse at 336/720: holds 3/3 (peak 48-96, -.35..-.5 pp at 720).
+- (W2) S_e with l <= 168 beats l = 720: fails 0/3; S_e rises monotonically to l = 336 and is flat 336 -> 720.
+- (W3) both improve with length: fails (B falls).
+- Reading: the two retrievals use different scales.  B (same hour-of-week analogs) needs a key over the last 2-4 days;
+  longer keys dilute it.  S_e (free kNN) needs >= 2 weeks of key; at l = 96 it keeps ~70% of its l = 720 gain
+  (1.02/.89/.93 vs 1.44/1.28/1.37), at l = 24 ~30%.  Nothing beyond 2 weeks is used (336 == 720).
