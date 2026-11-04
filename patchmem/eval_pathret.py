@@ -180,8 +180,9 @@ def run(seed, args):
     base = float((X[(rte + T0)[:, None] + kh][..., :C] - Fd[rte]).double().square().mean())
     assert args.max_c is not None or abs(base - official) < 1e-4, (base, official)
     print(f'[base] {base:.5f} n {n} C {C} hour0 {hour0}', flush=True)
-    ktr = torch.nonzero(split == 0).flatten()
+    ktr = torch.nonzero(split == {'train': 0, 'val_fit': 1}[args.fit]).flatten()
     ktr = ktr[ktr >= M_WEEKS * P_STAT]                                             # full memory window
+    print(f'[fit] {args.fit}: {len(ktr)} origins, {min(args.steps, len(ktr))} steps/epoch', flush=True)
     g = torch.Generator().manual_seed(seed)
 
     def evaluate(rows, store=None):
@@ -234,7 +235,7 @@ def run(seed, args):
         seed=seed, arm=args.arm, base=base, test_mse=res['test'], gain=gain, val_fit=res['val_fit'], val_select=res['val_select'],
         train_loss=log, val_log=vlog, best_epoch=best[2], a=net.a.tolist(), c=net.c.tolist(), clock=net.clock.tolist(),
         tau=float(net.log_tau.exp()), settings=dict(P=P_STAT, R=R, M_weeks=M_WEEKS, dk=DK, epochs=args.epochs,
-                                                    steps=args.steps, lr=args.lr, hour0=hour0)), indent=1) + '\n')
+                                                    steps=args.steps, lr=args.lr, hour0=hour0, fit=args.fit)), indent=1) + '\n')
 
 
 def main():
@@ -244,6 +245,7 @@ def main():
     p.add_argument('--epochs', type=int, default=6)
     p.add_argument('--steps', type=int, default=1500, help='training origins per epoch (each with all channels)')
     p.add_argument('--lr', type=float, default=1e-3)
+    p.add_argument('--fit', default='train', choices=('train', 'val_fit'), help='origins the retrieval / coefficients are fit on')
     p.add_argument('--bs', type=int, default=64)
     p.add_argument('--max_c', type=int, default=None)
     p.add_argument('--val_stride', type=int, default=4, help='val_select subsample for early stopping')

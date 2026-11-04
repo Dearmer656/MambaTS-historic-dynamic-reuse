@@ -1036,3 +1036,10 @@ Result (jobs 18583 A1->A2->B0, 18584 A2s; elm72 6000).  Test gain % vs backbone 
 - Train loss stays at the no-correction level (~0.199 vs zero 0.1987) for all arms; B0 (same retrieval as B) fit on train
   gives ~1.0% vs B fit on val_fit ~1.65%: train-segment backbone errors (in-sample) under-state the correctable part.
   Next candidate (not run, awaits user): fit retrieval/coefficients on val_fit, early stop on val_select.
+
+### PaTH retrieval v2: fit on val_fit (eval_pathret --fit val_fit; user approved 2026-11-04)
+Same arms / model / criteria as above; only change: training origins = val_fit (first half of val, memories reach back
+into train), 12 epochs over all val_fit origins, early stop on val_select[::4], test once.  Out: err_pathret_vf/.
+Jobs 19122 (A1 -> A2 -> B0), 19123 (A2s), elm72 6000.
+Criteria (test, 3/3): (0) B0 should reach ~B (1.6%) if the train-fit diagnosis is right; (1) A1 > B0; (2) A2 > A1 and
+A2 > A2s; (3) stack with S_e / P via eval_sr --ext, A2 still beats A1.  Ties -> no path claim.
