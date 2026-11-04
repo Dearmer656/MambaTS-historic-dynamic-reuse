@@ -1028,3 +1028,11 @@ early stop on val_select, test once, 3 seeds; jobs below.
 Criteria fixed in advance (test, 3/3 seeds): (1) A1 > B0 (learned retrieval over fixed same-clock retrieval);
 (2) A2 > A1 and A2 > A2s (the ordered daily path adds); (3) afterwards stacked with S_e / P (eval_sr --ext) - A2 must
 still add beyond A1 in the stack.  Ties -> no path claim.
+Result (jobs 18583 A1->A2->B0, 18584 A2s; elm72 6000).  Test gain % vs backbone (3047/2024/2025):
+  B0 .92/.96/1.06, A1 .89/.94/1.06, A2 .99/1.00/1.08, A2s .98/.99/1.17.  (eval_freshcast B, coefficients fit on val_fit: 1.61/1.68/1.69.)
+- (1) A1 > B0 fails (0/3 strictly; 2025 tie): learned q.k + clock bias does not beat fixed same-hour-of-week retrieval.
+- (2) A2 > A1 3/3 (+.09/+.05/+.02) but A2 > A2s fails (+.01/+.01/-.09): the gain is not from the path order.  No path claim.
+- (3) not run (criteria 1-2 already fail).
+- Train loss stays at the no-correction level (~0.199 vs zero 0.1987) for all arms; B0 (same retrieval as B) fit on train
+  gives ~1.0% vs B fit on val_fit ~1.65%: train-segment backbone errors (in-sample) under-state the correctable part.
+  Next candidate (not run, awaits user): fit retrieval/coefficients on val_fit, early stop on val_select.
