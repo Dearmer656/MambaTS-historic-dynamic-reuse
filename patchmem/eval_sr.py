@@ -723,6 +723,90 @@ def run(code, seed, args):
         print(f'[roll]  {rk:28s} test {res[rk]["test_mse"]:.5f} val {res[rk]["val_mse"]:.5f} W {Wb} | bucket gain% vs base_sh '
               + ' '.join(f'{x:+.2f}' for x in res[rk]['test_bucket_gain']), flush=True)
 
+    AGE_BINS = ((0, 1), (1, 6), (6, 24), (24, 72), (72, 168), (168, None))      # injection age in steps (hours)
+
+    def age_decomp(net, name, b):
+        """Exact split of the carry correction by injection age.  T_t depends on x_t only (not on z), so
+        z_t = sum_k Phi(t, k) B w_k: track every age 0..167 separately plus one remainder (>= 168); readout is linear.
+        Uses the trained carry and its val_fit coefficient b (per bucket): only-bin and leave-bin-out SSE."""
+        assert net.kind in ('P', 'PF', 'PD') and net.nh == 1 and net.rot
+        A = 168
+        call = torch.arange(C, device=dev)
+        wd = wdiag[net.nb].to(dev)
+        k_s = int(torch.nonzero(split >= 1).min()) - A - 2
+        bb = torch.tensor(b, device=dev, dtype=torch.float64)[bk]                  # H
+        nbin = len(AGE_BINS)
+        acc_ = {key: torch.zeros(4, NB, dtype=torch.float64, device=dev) for key in ['full'] + [f'only{i}' for i in range(nbin)]
+                + [f'loo{i}' for i in range(nbin)]}
+        n_wk = (n - k_te0) // 168 + 1
+        wk = {key: torch.zeros(n_wk, dtype=torch.float64, device=dev) for key in ['ee'] + list(acc_)}
+        rho = torch.sigmoid(net.rho_p)
+        c_, s_ = rho * torch.cos(net.theta), rho * torch.sin(net.theta)
+        state, Z, Rm = None, None, None
+        err = 0.0
+        with torch.no_grad():
+            for k in range(n):
+                if k < k_s:
+                    state, _ = step(net, state, k, call, wd)
+                    continue
+                if Z is None:                                                      # everything injected before k_s
+                    Rm = state.clone() if state is not None else torch.zeros(C, net.d, 2, device=dev)
+                    Z = torch.zeros(A, C, net.d, 2, device=dev)
+                x = x_at(k, call)
+                u, beta = net.u_beta(x)                                            # (C 2d), (C 1)
+                def T(z_):                                                         # z_ (..., C, d, 2): T_t then Lam
+                    zf = z_.flatten(-2)
+                    if net.kind == 'PD':
+                        zf = zf * (1 - beta * u.square())
+                    else:
+                        zf = zf - beta * u * (u * zf).sum(-1, keepdim=True)
+                    z_ = zf.view(z_.shape)
+                    return torch.stack([c_ * z_[..., 0] - s_ * z_[..., 1], s_ * z_[..., 0] + c_ * z_[..., 1]], -1)
+                Z, Rm = T(Z), T(Rm)
+                Rm = Rm + Z[A - 1]
+                Z = torch.roll(Z, 1, 0)
+                sg = sig[k, call][:, None] ** net.g()
+                w = wd[k - 1] / sg if k >= 1 else torch.zeros(C, net.nb, device=dev)
+                Z[0] = (w @ net.B.T).view(C, net.d, 2)
+                state, m = step(net, state, k, call, wd)                           # reference path
+                comp = [Z[lo:hi].sum(0) if hi is not None else Rm for lo, hi in AGE_BINS]
+                err = max(err, float((sum(comp) - state).abs().max()))
+                z = int(split[k])
+                if z < 0:
+                    continue
+                e_ = E[k].to(dev).double()
+                mb = [(sg * net.read(c, H)).double() * bb for c in comp]          # C H, scaled by b
+                mf = sum(mb)
+                vals = {'full': (e_ - mf).square()}
+                for i, m_ in enumerate(mb):
+                    vals[f'only{i}'] = (e_ - m_).square()
+                    vals[f'loo{i}'] = (e_ - (mf - m_)).square()
+                for key, v in vals.items():
+                    acc_[key][z] += torch.zeros(NB, dtype=torch.float64, device=dev).index_add_(0, bk, v.sum(0))
+                if z == 2:
+                    w_ = (k - k_te0) // 168
+                    wk['ee'][w_] += e_.square().sum()
+                    for key, v in vals.items():
+                        wk[key][w_] += v.sum()
+        print(f'[age] {name}: max |sum of age parts - state| {err:.2e}', flush=True)
+        out = {}
+        for zn, z in (('val_select', SEL), ('test', 2)):
+            g = lambda key: float(100 * (ee[z].sum() - acc_[key][z].sum()) / ee[z].sum())
+            gf = g('full')
+            out[zn] = dict(full=gf, only=[g(f'only{i}') for i in range(nbin)], drop=[gf - g(f'loo{i}') for i in range(nbin)],
+                           bucket_full=(100 * (ee[z] - acc_['full'][z]) / ee[z].clamp_min(EPS)).tolist(),
+                           bucket_drop=[(100 * (acc_[f'loo{i}'][z] - acc_['full'][z]) / ee[z].clamp_min(EPS)).tolist()
+                                        for i in range(nbin)])
+            print(f'[age] {name} {zn:10s} full {gf:+.3f}% | only ' + ' '.join(f'{x:+.3f}' for x in out[zn]['only'])
+                  + ' | drop(leave-out) ' + ' '.join(f'{x:+.3f}' for x in out[zn]['drop']), flush=True)
+        okw = wk['ee'] > 0
+        out['week_drop_pos'] = [float(((wk[f'loo{i}'] - wk['full'])[okw] > 0).double().mean()) for i in range(nbin)]
+        out['week_full_pos'] = float(((wk['ee'] - wk['full'])[okw] > 0).double().mean())
+        out['bins'] = [list(x) for x in AGE_BINS]
+        print(f'[age] {name} test weeks: full>0 {out["week_full_pos"]:.2f} | drop>0 per bin '
+              + ' '.join(f'{x:.2f}' for x in out['week_drop_pos']), flush=True)
+        res[f'age_{name}'] = out
+
     for name in arms:
         nb, kind, nh, *rest = CARRY_ARMS[name]
         rot = rest[0] if rest else True
@@ -765,6 +849,8 @@ def run(code, seed, args):
             res[f'{a_}(+){name}'] = dict(a=a.tolist(), b=b2.tolist(), val_mse=float(sse2[SEL]) / nel[SEL],
                                          test_mse=float(sse2[2]) / nel[2])
         print(f'[{name}] test {res[name]["test_mse"]:.5f} | S_r(+) {res[f"S_r(+){name}"]["test_mse"]:.5f}', flush=True)
+        if args.age:
+            age_decomp(net, name, res[name]['b'])
         if EXT:                                                                    # per-lead-bucket stacking, fit on val_fit
             names = ['S_e', 'P'] + list(EXT)
             T3 = ['Rm', 'Dm', 'Wm']
@@ -862,6 +948,8 @@ def run(code, seed, args):
     fcj = json.loads(fp.read_text()) if fp.exists() else None
     g_ = lambda x: 100 * (base - x) / base
     for k_, v in res.items():
+        if 'test_mse' not in v:                                                    # age_* diagnostics
+            continue
         v['gain'] = g_(v['test_mse'])
         print(f'[test] {k_:12s} mse {v["test_mse"]:.5f} gain {v["gain"]:+.3f}% (val {v["val_mse"]:.5f})', flush=True)
     refs = dict(tefl=tefl['mse'] if tefl else None, ridge_all=ridge,
@@ -890,6 +978,7 @@ def main():
     p.add_argument('--ext', default='', help='stack raw external corrections (comma list, e.g. FC,B) with S_e and the carry')
     p.add_argument('--ext_dir', default='patchmem/logs/server/err_stack/fc')
     p.add_argument('--tpl', default='', help='causal running-mean error templates as stacking regressors: Rm,Dm,Wm')
+    p.add_argument('--age', action='store_true', help='split the carry correction by shock injection age (P / Pfix / Pdiag)')
     p.add_argument('--roll', default='', help='causal rolling stack: window grid in val/test origins, e.g. 168,336,672')
     p.add_argument('--load_carry', default='', help='dir with {code}_H{H}_s{seed}_{arm}_dump.pt: load instead of training')
     p.add_argument('--zero_only', action='store_true', help='print the carry zero reference and stop')

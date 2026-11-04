@@ -1058,3 +1058,12 @@ pooled over the bucket's leads (causal); W chosen on val_select.  Static stack (
 Codex review: no bugs.  Smoke (20 channels) ok.  Job: stack_roll.sh, out err_stack_roll/.
 Criteria (test, 3/3 seeds): (R1) roll[B+S_e+P] > stack[B+S_e+P] (rolling strength beats a fixed one); (R2) roll[B] > stack[B]
 and roll[B0] > stack[B0]; (R3) pathret under roll: A1 > B0, A2 > A1 and A2 > A2s, alone and with S_e+P.
+
+### Shock-age decomposition of the carry (eval_sr --age; item 2 of 3)
+T_t depends on x_t only, so z_t = sum_k Phi(t,k) B w_k exactly; ages 0..167 tracked separately + remainder (sum check
+vs the reference state: 2e-6 on the 20-channel smoke).  Bins (hours since injection): 0 | 1-5 | 6-23 | 24-71 | 72-167 | >=168.
+Loaded Step 2 carries (P, Pfix, Pdiag), their val_fit coefficient b; per bin: only-bin gain and leave-bin-out drop
+(full gain - gain without the bin), val_select / test / test weeks.  H192 + H336, 3 seeds.  Out err_age/.
+Criteria (fixed before the run): (A1 localisation) one bin has the largest test drop and drop >= 50% of P's full gain, same
+bin 6/6; (A2 path) in that bin drop(P) - drop(Pfix) >= 0.5 (gain(P) - gain(Pfix)), same vs Pdiag, 6/6; (A3 stable)
+drop > 0 in >= 70% of test weeks, and val_select picks the same bin as test, 6/6.
