@@ -1075,3 +1075,14 @@ Each scored by the static val_fit stack (one coefficient per lead bucket); windo
 Readings fixed in advance (test, 3/3): B best at R <= 168 and worse at 336/720 -> the useful key is the recent deviation
 shape; S_e with l <= 168 beats l = 720 -> long windows dilute it; both improve with length -> slow information unused.
 Job: win_sweep.sh, out err_bwin/, err_win/.
+Result (job 20284).  Test gain % vs backbone (3047/2024/2025), static (val_fit) -> rolling (W chosen on val_select: 672 in
+every case shown = grid edge):
+  FC .63/.92/1.03 -> 1.60/1.61/1.85;  B 1.21/1.30/1.32 -> 1.34/1.37/1.26;  S_e 1.44/1.28/1.38 -> 1.41/1.29/1.35;
+  P .45/.55/.50 -> .42/.48/.35;  B+S_e+P 2.25/2.28/2.26 -> 2.34/2.31/2.10;  FC+S_e+P 1.59/1.84/1.86 -> 2.38/2.31/2.35;
+  B0 .28/.35/.57 -> .80/.78/.89;  A1 .59/.68/.86 -> .93/.97/.96;  A2 .85/.82/.91 -> 1.05/1.05/1.05;  A2s .79/.76/1.01 -> 1.04/1.03/1.09;
+  A1+S_e+P roll 2.06/1.99/1.84, A2+S_e+P roll 2.14/2.05/1.92, A2s+S_e+P roll 2.12/2.03/1.93, B0+S_e+P roll 1.93/1.83/1.79.
+- (R1) roll[B+S_e+P] > static 2/3 -> fails.  (R2) B 2/3 fails; B0 3/3.
+- (R3) under roll: A1 > B0 3/3 (alone and +S_e+P); A2 > A1 3/3 (both); A2 > A2s 2/3 (s2025 loses, both) -> no path-order claim.
+- Not pre-registered: rolling helps exactly the drifting-strength regressors (FC +.7-1.0 pp 3/3, B0, pathret arms) and
+  slightly hurts the stable P; roll[FC+S_e+P] 2.38/2.31/2.35 > static B+S_e+P 3/3 (best so far, but val_select does not
+  single it out reliably).
