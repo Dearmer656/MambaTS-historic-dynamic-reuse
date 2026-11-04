@@ -516,6 +516,13 @@ def run(code, seed, args):
             npr = 2 + len(EXT)
             o['G'] = torch.zeros(4, NB, npr, npr, dtype=torch.float64, device=dev)
             o['g'] = torch.zeros(4, NB, npr, dtype=torch.float64, device=dev)
+            if args.roll:                                                          # per origin x lead (val + test rows)
+                o['rows'] = torch.nonzero(split >= 1).flatten()
+                o['rpos'] = torch.full((n,), -1, dtype=torch.long)
+                o['rpos'][o['rows']] = torch.arange(len(o['rows']))
+                o['RG'] = torch.zeros(len(o['rows']), H, npr, npr, dtype=torch.float64, device=dev)
+                o['Rg'] = torch.zeros(len(o['rows']), H, npr, dtype=torch.float64, device=dev)
+                o['Re'] = torch.zeros(len(o['rows']), H, dtype=torch.float64, device=dev)
         call = torch.arange(C, device=dev)
         wd = wdiag[net.nb].to(dev)
         state = None
@@ -598,6 +605,11 @@ def run(code, seed, args):
                         0, bk, torch.einsum('ich,jch->hij', Rk, Rk))
                     o['g'][z] += torch.zeros(NB, npr, dtype=torch.float64, device=dev).index_add_(
                         0, bk, torch.einsum('ich,ch->hi', Rk, e_))
+                    if args.roll:
+                        r_ = int(o['rpos'][k])
+                        o['RG'][r_] = torch.einsum('ich,jch->hij', Rk, Rk)
+                        o['Rg'][r_] = torch.einsum('ich,ch->hi', Rk, e_)
+                        o['Re'][r_] = e_.square().sum(0)
         return o
 
     def fit_alone(o):
@@ -618,9 +630,11 @@ def run(code, seed, args):
         return a, b, sse.sum(-1)
 
     arms = args.arms.split(',')
+    ROLL_W = [int(w) for w in args.roll.split(',')] if args.roll else []
     EXT = {}
     for nm in (args.ext.split(',') if args.ext else []):                          # raw FC / B corrections (eval_freshcast)
-        zx = np.load(Path(args.ext_dir) / f'{code}_H{H}_L{L}_s{seed}_ext.npz')
+        nm, _, xdir = nm.partition('@')                                            # name@dir: e.g. A2@.../err_pathret/A2
+        zx = np.load(Path(xdir or args.ext_dir) / f'{code}_H{H}_L{L}_s{seed}_ext.npz')
         idx = torch.full((n,), -1, dtype=torch.long)
         kk = torch.as_tensor(zx['origins']) - T0
         idx[kk] = torch.arange(len(kk))
@@ -670,6 +684,45 @@ def run(code, seed, args):
     k_te0 = int(torch.nonzero(split == 2).min())
     n_te = int((split == 2).sum())
     MECH = {}
+    def roll_stack(o, sub, ix, key):
+        """Causal rolling stack: at origin t, per lead bucket, least squares over the last W val/test origins j whose
+        lead-h' target is observed (j + h' <= t - 1), pooled over the bucket's leads; W chosen on val_select."""
+        rows = o['rows'].to(dev)
+        tr = times.to(dev)[rows]                                                   # origin times of the stored rows
+        p_ = len(sub)
+        RG = o['RG'][:, :, ix][:, :, :, ix]
+        Rg = o['Rg'][:, :, ix]
+        CG = torch.cat([torch.zeros_like(RG[:1]), RG.cumsum(0)])                   # (R + 1) H p p
+        Cg = torch.cat([torch.zeros_like(Rg[:1]), Rg.cumsum(0)])
+        hh = torch.arange(H, device=dev)
+        pos = torch.searchsorted(tr, tr[:, None] - hh[None] - 1, right=True)     # R H: # rows with j <= t - h' - 1
+        own_G = torch.zeros(len(rows), NB, p_, p_, dtype=torch.float64, device=dev).index_add_(1, bk, RG)
+        own_g = torch.zeros(len(rows), NB, p_, dtype=torch.float64, device=dev).index_add_(1, bk, Rg)
+        own_e = torch.zeros(len(rows), NB, dtype=torch.float64, device=dev).index_add_(1, bk, o['Re'])
+        zr = split.to(dev)[rows]
+        out = {}
+        for W in ROLL_W:
+            lo = (pos - W).clamp_min(0)
+            G = torch.zeros(len(rows), NB, p_, p_, dtype=torch.float64, device=dev)
+            g = torch.zeros(len(rows), NB, p_, dtype=torch.float64, device=dev)
+            for h0 in range(0, H, 48):                                             # memory: chunks of leads
+                hs = hh[h0:h0 + 48]
+                G.index_add_(1, bk[hs], CG[pos[:, hs], hs] - CG[lo[:, hs], hs])
+                g.index_add_(1, bk[hs], Cg[pos[:, hs], hs] - Cg[lo[:, hs], hs])
+            lam = 1e-6 * G.diagonal(dim1=-2, dim2=-1).sum(-1).clamp_min(EPS)
+            cf = torch.linalg.solve(G + lam[..., None, None] * torch.eye(p_, device=dev, dtype=torch.float64),
+                                    g[..., None])[..., 0]                         # R NB p
+            sse = own_e - 2 * (cf * own_g).sum(-1) + torch.einsum('rbi,rbij,rbj->rb', cf, own_G, cf)   # R NB
+            out[W] = {z: sse[zr == z].sum(0) for z in (1, 2, 3)}
+        Wb = min(ROLL_W, key=lambda W: float(out[W][SEL].sum()))
+        rk = 'roll' + key[5:]
+        res[rk] = dict(W=Wb, val_mse=float(out[Wb][SEL].sum()) / nel[SEL], test_mse=float(out[Wb][2].sum()) / nel[2],
+                       test_bucket_gain=(100 * (ee[2] - out[Wb][2]) / ee[2].clamp_min(EPS)).tolist(),
+                       grid={str(W): dict(val=float(out[W][SEL].sum()) / nel[SEL], test=float(out[W][2].sum()) / nel[2])
+                             for W in ROLL_W})
+        print(f'[roll]  {rk:28s} test {res[rk]["test_mse"]:.5f} val {res[rk]["val_mse"]:.5f} W {Wb} | bucket gain% vs base_sh '
+              + ' '.join(f'{x:+.2f}' for x in res[rk]['test_bucket_gain']), flush=True)
+
     for name in arms:
         nb, kind, nh, *rest = CARRY_ARMS[name]
         rot = rest[0] if rest else True
@@ -719,6 +772,8 @@ def run(code, seed, args):
                        ['B', 'S_e', 'P'], ['FC', 'B', 'S_e'], ['FC', 'B', 'S_e', 'P'],
                        ['Rm'], ['Dm'], ['Wm'], ['Dm', 'Wm'], T3, T3 + ['P'], T3 + ['S_e'], T3 + ['S_e', 'P'],
                        T3 + ['B'], T3 + ['B', 'S_e', 'P'], T3 + ['FC', 'S_e', 'P'], T3 + ['FC', 'B', 'S_e', 'P']]
+            for x in ('B0', 'A1', 'A2', 'A2s'):                                   # eval_pathret arms
+                subsets += [[x], [x, 'S_e'], [x, 'S_e', 'P'], [x, 'B', 'S_e', 'P']]
             for sub in subsets:
                 if any(x not in names for x in sub):
                     continue
@@ -735,6 +790,8 @@ def run(code, seed, args):
                                 test_bucket_gain=(100 * (ee[2] - sse[2]) / ee[2].clamp_min(EPS)).tolist())   # vs base_sh
                 print(f'[stack] {key:28s} test {res[key]["test_mse"]:.5f} val {res[key]["val_mse"]:.5f} | bucket gain% vs base_sh '
                       + ' '.join(f'{x:+.2f}' for x in res[key]['test_bucket_gain']), flush=True)
+                if args.roll:
+                    roll_stack(o, sub, ix, key)
 
     if MECH:                                                                       # --mech: correction diagnostics, test
         LH = sorted({0, min(23, H - 1), H // 2 - 1, H - 1})
@@ -833,6 +890,7 @@ def main():
     p.add_argument('--ext', default='', help='stack raw external corrections (comma list, e.g. FC,B) with S_e and the carry')
     p.add_argument('--ext_dir', default='patchmem/logs/server/err_stack/fc')
     p.add_argument('--tpl', default='', help='causal running-mean error templates as stacking regressors: Rm,Dm,Wm')
+    p.add_argument('--roll', default='', help='causal rolling stack: window grid in val/test origins, e.g. 168,336,672')
     p.add_argument('--load_carry', default='', help='dir with {code}_H{H}_s{seed}_{arm}_dump.pt: load instead of training')
     p.add_argument('--zero_only', action='store_true', help='print the carry zero reference and stop')
     p.add_argument('--log_every', type=int, default=100, help='print the mean train loss of the last N updates')

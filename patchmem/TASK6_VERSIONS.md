@@ -1050,3 +1050,11 @@ Result (job 19122; A2s 19123 still running).  Test gain % (3047/2024/2025): B0 .
   a,c ~.08-.15 (train fit) to ~.25-.30 (val_fit): train under-states and val over-states the correction strength test wants;
   the correctable deviation size drifts over time (val/test mismatch again).
 - (1) A1 > B0 fails 0/3.  A2 > A1 3/3 (+.08/+.06/+.07), A2s pending.
+
+### Rolling stack (eval_sr --roll 168,336,672; user approved 2026-11-04, item 1 of 3)
+At each val/test origin t and lead bucket, least-squares coefficients of the chosen regressors (S_e, P, FC, B, pathret
+v1 arms) are re-fit on the last W stored val/test origins j whose lead-h' target is observed by t - 1 (j + h' <= t - 1),
+pooled over the bucket's leads (causal); W chosen on val_select.  Static stack (fit once on val_fit) printed alongside.
+Codex review: no bugs.  Smoke (20 channels) ok.  Job: stack_roll.sh, out err_stack_roll/.
+Criteria (test, 3/3 seeds): (R1) roll[B+S_e+P] > stack[B+S_e+P] (rolling strength beats a fixed one); (R2) roll[B] > stack[B]
+and roll[B0] > stack[B0]; (R3) pathret under roll: A1 > B0, A2 > A1 and A2 > A2s, alone and with S_e+P.
