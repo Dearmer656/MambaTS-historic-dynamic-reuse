@@ -1043,3 +1043,10 @@ into train), 12 epochs over all val_fit origins, early stop on val_select[::4], 
 Jobs 19122 (A1 -> A2 -> B0), 19123 (A2s), elm72 6000.
 Criteria (test, 3/3): (0) B0 should reach ~B (1.6%) if the train-fit diagnosis is right; (1) A1 > B0; (2) A2 > A1 and
 A2 > A2s; (3) stack with S_e / P via eval_sr --ext, A2 still beats A1.  Ties -> no path claim.
+Result (job 19122; A2s 19123 still running).  Test gain % (3047/2024/2025): B0 .64/.76/.80, A1 .43/.48/.35, A2 .51/.54/.42
+  (train-fit v1: B0 .92/.96/1.06, A1 .89/.94/1.06, A2 .99/1.00/1.08).  val_select improves (B0 0.3674 -> 0.3643, s3047)
+  while test gets worse.
+- (0) fails: fitting on val_fit does not bring B0 to B; the train-fit diagnosis was wrong.  Learned strengths grow from
+  a,c ~.08-.15 (train fit) to ~.25-.30 (val_fit): train under-states and val over-states the correction strength test wants;
+  the correctable deviation size drifts over time (val/test mismatch again).
+- (1) A1 > B0 fails 0/3.  A2 > A1 3/3 (+.08/+.06/+.07), A2s pending.
