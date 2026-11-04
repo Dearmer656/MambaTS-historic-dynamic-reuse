@@ -374,7 +374,7 @@ def run(code, seed, args):
         with torch.no_grad():
             for c in torch.arange(C).split(CHR):
                 cg = c.to(dev)
-                Kn = norm_windows(Xd, td, cg, L)
+                Kn = norm_windows(Xd, td, cg, args.se_len or L)                     # S_e key window (default L)
                 Kn = (Kn / Kn.norm(dim=-1, keepdim=True).clamp_min(1e-6)).half()
                 Ec = E[:, c].to(dev)
                 Rc = torch.cat([resid(torch.arange(j, min(n, j + 512)), c) for j in range(0, n, 512)])
@@ -858,8 +858,9 @@ def run(code, seed, args):
                        ['B', 'S_e', 'P'], ['FC', 'B', 'S_e'], ['FC', 'B', 'S_e', 'P'],
                        ['Rm'], ['Dm'], ['Wm'], ['Dm', 'Wm'], T3, T3 + ['P'], T3 + ['S_e'], T3 + ['S_e', 'P'],
                        T3 + ['B'], T3 + ['B', 'S_e', 'P'], T3 + ['FC', 'S_e', 'P'], T3 + ['FC', 'B', 'S_e', 'P']]
-            for x in ('B0', 'A1', 'A2', 'A2s'):                                   # eval_pathret arms
-                subsets += [[x], [x, 'S_e'], [x, 'S_e', 'P'], [x, 'B', 'S_e', 'P']]
+            for x in EXT:                                                          # eval_pathret arms, B window variants
+                if x not in ('FC', 'B', 'Rm', 'Dm', 'Wm'):
+                    subsets += [[x], [x, 'S_e'], [x, 'S_e', 'P'], [x, 'B', 'S_e', 'P']]
             for sub in subsets:
                 if any(x not in names for x in sub):
                     continue
@@ -979,6 +980,7 @@ def main():
     p.add_argument('--ext_dir', default='patchmem/logs/server/err_stack/fc')
     p.add_argument('--tpl', default='', help='causal running-mean error templates as stacking regressors: Rm,Dm,Wm')
     p.add_argument('--age', action='store_true', help='split the carry correction by shock injection age (P / Pfix / Pdiag)')
+    p.add_argument('--se_len', type=int, default=0, help='S_e key window length (0: the backbone input length L)')
     p.add_argument('--roll', default='', help='causal rolling stack: window grid in val/test origins, e.g. 168,336,672')
     p.add_argument('--load_carry', default='', help='dir with {code}_H{H}_s{seed}_{arm}_dump.pt: load instead of training')
     p.add_argument('--zero_only', action='store_true', help='print the carry zero reference and stop')

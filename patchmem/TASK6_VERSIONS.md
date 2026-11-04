@@ -1067,3 +1067,11 @@ Loaded Step 2 carries (P, Pfix, Pdiag), their val_fit coefficient b; per bin: on
 Criteria (fixed before the run): (A1 localisation) one bin has the largest test drop and drop >= 50% of P's full gain, same
 bin 6/6; (A2 path) in that bin drop(P) - drop(Pfix) >= 0.5 (gain(P) - gain(Pfix)), same vs Pdiag, 6/6; (A3 stable)
 drop > 0 in >= 70% of test weeks, and val_select picks the same bin as test, 6/6.
+
+### Retrieval key-window sweep (item 3 of 3): eval_bwin.py (B variants) + eval_sr --se_len
+B: same fixed config (P 168, value readout, beta 8, a .21, c .17, same-hour-of-week ages), only the query/key window R
+in {24,48,96,168,336,720} (B96 must equal eval_freshcast B).  S_e: key window l in the same grid (default 720).
+Each scored by the static val_fit stack (one coefficient per lead bucket); window chosen on val_select; all printed.
+Readings fixed in advance (test, 3/3): B best at R <= 168 and worse at 336/720 -> the useful key is the recent deviation
+shape; S_e with l <= 168 beats l = 720 -> long windows dilute it; both improve with length -> slow information unused.
+Job: win_sweep.sh, out err_bwin/, err_win/.
