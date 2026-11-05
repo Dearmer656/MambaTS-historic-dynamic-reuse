@@ -807,6 +807,102 @@ def run(code, seed, args):
               + ' '.join(f'{x:.2f}' for x in out['week_drop_pos']), flush=True)
         res[f'age_{name}'] = out
 
+    def src_pass(net, name, b):
+        """--src: where the carry's gain comes from.  Pass 1 (exact replica of eval_carry, checked against its test MSE) stores
+        per (val/test origin, channel): gain d = sum_h e^2 - (e - b m)^2 (all leads, leads < 24), and the transition
+        statistics of T_t: beta, |T_t z - z| (hha), / |z| (hh), cos(u_t, u_t-1), |z|.  Then causal ablations of the trained
+        net: T_t -> I at chosen val/test cells (state, readout, b unchanged; b also refit on val_fit)."""
+        assert net.kind in ('P', 'PF') and net.nh == 1
+        call = torch.arange(C, device=dev)
+        wd = wdiag[net.nb].to(dev)
+        rows = torch.nonzero(split >= 1).flatten()
+        rpos = torch.full((n,), -1, dtype=torch.long)
+        rpos[rows] = torch.arange(len(rows))
+        k_v0 = int(rows.min())
+        bt = torch.tensor(b, device=dev, dtype=torch.float64)
+        bb = bt[bk]
+        st = {key: torch.zeros(len(rows), C) for key in ('d_all', 'd_s', 'ee', 'beta', 'hha', 'hh', 'ucos', 'zn')}
+        rho = torch.sigmoid(net.rho_p)
+        c_, s_ = rho * torch.cos(net.theta), rho * torch.sin(net.theta)
+        z0 = [None]
+
+        def run_(mask=None, rec=False):
+            """mask (n C) bool, cpu: True -> T_t = I at that cell.  Returns {'ex','xx'} per split x bucket."""
+            acc_ = {key: z3() for key in ('ex', 'xx')}
+            k0 = 0 if rec else k_v0
+            state = torch.zeros(C, net.d, 2, device=dev) if rec else z0[0].clone()
+            u_prev = None
+            with torch.no_grad():
+                for k in range(k0, n):
+                    if rec and k == k_v0:
+                        z0[0] = state.clone()
+                    x = x_at(k, call)
+                    zT = net.trans(state, x)
+                    r = int(rpos[k])
+                    if rec and r >= 0:
+                        u, beta = net.u_beta(x)
+                        zf = state.flatten(1)
+                        zn = zf.norm(dim=-1)
+                        hha = beta[:, 0] * (u * zf).sum(-1).abs()                  # |T_t z - z| (|u| = 1)
+                        st['beta'][r], st['hha'][r], st['zn'][r] = beta[:, 0].cpu(), hha.cpu(), zn.cpu()
+                        st['hh'][r] = (hha / zn.clamp_min(EPS)).cpu()
+                        if u_prev is not None:
+                            st['ucos'][r] = (u * u_prev).sum(-1).cpu()
+                        u_prev = u
+                    if mask is not None:
+                        zT = torch.where(mask[k].to(dev)[:, None, None], state, zT)
+                    z_ = torch.stack([c_ * zT[..., 0] - s_ * zT[..., 1], s_ * zT[..., 0] + c_ * zT[..., 1]], -1)
+                    sg = sig[k, call][:, None] ** net.g()
+                    w = wd[k - 1] / sg if k >= 1 else torch.zeros(C, net.nb, device=dev)
+                    state = z_ + (w @ net.B.T).view(C, net.d, 2)
+                    m = sg * net.read(state, H)
+                    z = int(split[k])
+                    if z < 0:
+                        continue
+                    e_, x_ = E[k].to(dev).double(), m.double()
+                    acc_['ex'][z] += torch.zeros(NB, dtype=torch.float64, device=dev).index_add_(0, bk, (e_ * x_).sum(0))
+                    acc_['xx'][z] += torch.zeros(NB, dtype=torch.float64, device=dev).index_add_(0, bk, (x_ * x_).sum(0))
+                    if rec:
+                        d = e_.square() - (e_ - bb * x_).square()
+                        st['d_all'][r], st['d_s'][r] = d.sum(-1).float().cpu(), d[:, :24].sum(-1).float().cpu()
+                        st['ee'][r] = e_.square().sum(-1).float().cpu()
+            return acc_
+
+        def gains(a_):
+            out = {}
+            b2 = torch.where(a_['xx'][1] > 0, a_['ex'][1] / a_['xx'][1].clamp_min(EPS), torch.zeros_like(bt))
+            for tag, bc in (('fixb', bt), ('refit', b2)):
+                sse = ee - 2 * bc * a_['ex'] + bc ** 2 * a_['xx']
+                out[tag] = {zn: float(100 * (ee[z].sum() - sse[z].sum()) / ee[z].sum()) for zn, z in (('val_select', SEL), ('test', 2))}
+            return out
+
+        full = gains(run_(rec=True))
+        ref = 100 * (ee[2].sum() - res[name]['test_mse'] * nel[2]) / ee[2].sum()
+        print(f'[src] {name}: replica test gain {full["fixb"]["test"]:+.4f}% vs eval_carry {float(ref):+.4f}%', flush=True)
+        assert abs(full['fixb']['test'] - float(ref)) < 1e-3
+        out = {'full': full}
+        vr = (split[rows] == 1) | (split[rows] == 3)                               # val rows: thresholds from val only
+        g = torch.Generator().manual_seed(seed)
+        for tag, q_ in (('top10', 0.9), ('top30', 0.7)):
+            th = torch.quantile(st['hha'][vr].flatten()[torch.randperm(int(vr.sum()) * C, generator=g)[:4_000_000]], q_)
+            sel = st['hha'] >= th                                                  # (rows C)
+            frac = float(sel.float().mean())
+            for kind_, mk in ((tag, sel), (f'rand{tag[3:]}', torch.rand(sel.shape, generator=g) < frac), (f'keep{tag[3:]}', ~sel)):
+                M = torch.zeros(n, C, dtype=torch.bool)
+                M[rows] = mk
+                out[kind_] = dict(frac=float(mk.float().mean()), **gains(run_(M)))
+        M = torch.zeros(n, C, dtype=torch.bool)
+        M[rows] = True
+        out['noT'] = dict(frac=1.0, **gains(run_(M)))
+        for key, v in out.items():
+            print(f'[src] {name} {key:7s} frac {v.get("frac", 0):.3f} | test fixb {v["fixb"]["test"]:+.3f} refit {v["refit"]["test"]:+.3f}'
+                  f' | val fixb {v["fixb"]["val_select"]:+.3f} refit {v["refit"]["val_select"]:+.3f}', flush=True)
+        res[f'src_{name}'] = out
+        tt = T0 + rows
+        np.savez(od / f'{code}_H{H}_s{seed}_{name}_src.npz', rows=rows.numpy(), times=tt.numpy(), split=split[rows].numpy(),
+                 dmu=dmu[rows.to(dev)].float().cpu().numpy(), dls=dls[rows.to(dev)].float().cpu().numpy(),
+                 **{key: v.numpy() for key, v in st.items()})
+
     for name in arms:
         nb, kind, nh, *rest = CARRY_ARMS[name]
         rot = rest[0] if rest else True
@@ -851,6 +947,8 @@ def run(code, seed, args):
         print(f'[{name}] test {res[name]["test_mse"]:.5f} | S_r(+) {res[f"S_r(+){name}"]["test_mse"]:.5f}', flush=True)
         if args.age:
             age_decomp(net, name, res[name]['b'])
+        if args.src:
+            src_pass(net, name, res[name]['b'])
         if EXT:                                                                    # per-lead-bucket stacking, fit on val_fit
             names = ['S_e', 'P'] + list(EXT)
             T3 = ['Rm', 'Dm', 'Wm']
@@ -980,6 +1078,7 @@ def main():
     p.add_argument('--ext_dir', default='patchmem/logs/server/err_stack/fc')
     p.add_argument('--tpl', default='', help='causal running-mean error templates as stacking regressors: Rm,Dm,Wm')
     p.add_argument('--age', action='store_true', help='split the carry correction by shock injection age (P / Pfix / Pdiag)')
+    p.add_argument('--src', action='store_true', help='per origin x channel gain + T_t stats of P / Pfix, T_t -> I ablations')
     p.add_argument('--se_len', type=int, default=0, help='S_e key window length (0: the backbone input length L)')
     p.add_argument('--roll', default='', help='causal rolling stack: window grid in val/test origins, e.g. 168,336,672')
     p.add_argument('--load_carry', default='', help='dir with {code}_H{H}_s{seed}_{arm}_dump.pt: load instead of training')

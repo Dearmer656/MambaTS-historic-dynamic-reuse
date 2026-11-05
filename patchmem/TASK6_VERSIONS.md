@@ -1110,3 +1110,17 @@ Result (job 20303, A100-80; B96 == eval_freshcast B, max |diff| 3.9e-3).  Test g
   longer keys dilute it.  S_e (free kNN) needs >= 2 weeks of key; at l = 96 it keeps ~70% of its l = 720 gain
   (1.02/.89/.93 vs 1.44/1.28/1.37), at l = 24 ~30%.  Nothing beyond 2 weeks is used (336 == 720).
 Addendum pathret v2 (val_fit): A2s test gain .58/.85/.52 (3047/2024/2025; job 19123) vs A2 .51/.54/.42 -> shuffled order >= ordered 3/3, no path-order claim.
+
+### Source of the P / Pfix gain: eval_sr --src (loaded Step 2 carries, no retraining)
+Pass 1 replicates eval_carry exactly (asserted on test gain) and stores per (val/test origin, channel): carry gain
+d = sum_h e^2 - (e - b m)^2 and T_t stats (beta, hha = |T_t z - z|, hh = hha / |z|, cos(u_t, u_t-1), |z|).  Causal
+ablations of the trained net: T_t -> I at val/test cells with hha >= the val 90% (70%) quantile ("top10" / "top30"),
+at a random same-size set ("rand"), or everywhere except those cells ("keep"), and "noT" = T -> I at all val/test cells;
+b fixed and refit on val_fit.  Smoke (32 channels, s3047, H192): P full .236, top10 .014 (refit), rand10 .197, keep10 .216.
+Criteria fixed in advance (test, refit b, H192 + H336 x 3 seeds):
+- (S1) removing T at the top-10% cells loses >= 70% of the arm's gain while the random 10% loses <= 30%: 6/6 for P.
+- (S2) keeping T only at the top-10% cells retains >= 70% of the gain: 6/6 for P.
+- (S3) P - Pfix per-cell gain difference: the groups (hour-of-week, |dmu| decile, channel; <= 20% of cells, chosen on
+  val) hold >= 50% of the test difference in >= 5/6.
+Then describe the top-10% cells (hour-of-week, input change dmu / dls, channels, time since previous event).
+Job: src_diag.sh <H> (21675 H192, 21676 H336), out err_src/.
