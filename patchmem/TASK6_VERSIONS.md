@@ -1195,3 +1195,17 @@ Criteria fixed in advance (test), each "supported" at >= 5/6, "rejected" at <= t
 - (C2) beta is a clock: PFh - PFc >= .7 (Pfix - PFc); rejected if <= .3.
 - (C3) direction is a clock: Ph - Pfix >= .7 (P - Pfix); rejected if <= .3.
 Jobs: clock_prove.sh <H>, out err_clock/cs{0,1000}/.  Smoke (32 ch, 2 epochs) runs; no Codex review (MCP disconnected, CLI sandbox failure).
+
+### Gated carries: results (jobs 22497 / 22498, H192 + H336 x 3 seeds, carry seeds 0 + 1000; test gain % vs base_sh)
+Mean over carry seeds, unit order H192 s3047/2024/2025, H336 s3047/2024/2025:
+  P .438/.457/.497/.355/.321/.360; Pfix .266/.254/.268/.254/.192/.272; PST .391/.291/.458/.218/.267/.193; PSI .266/.278/.266/.218/.172/.130; PSR .245/.249/.311/.238/.213/.227
+  m = P - Pfix .172/.202/.229/.101/.129/.088.  (PST - Pfix)/m .73/.18/.83/-.35/.59/-.91; (PSI - Pfix)/m .00/.11/-.01/-.35/-.15/-1.63; (PSR - Pfix)/m -.12/-.03/.19/-.16/.16/-.52.
+- E0 holds: median noise .050 < median m .151 (max noise .137).
+- E1 fails: 2/6 (needed 5/6).
+- E2 holds: PSI 6/6, PSR 6/6.
+- Pre-registered claim "the stable P gain comes from the input-chosen direction at the large-rewrite cells": NOT established.
+Outside the criteria: P > Pfix in 12/12 same-carry-seed pairs, so the P - Pfix margin survives re-initialisation.  PST is itself unstable: |cs0 - cs1000| .017/.183/.107/.200/.044/.181
+(P .006-.137, Pfix .003-.102), so E1's failure can mean either that the direction at those cells is not the source or that the hard gate trains unreliably; this run does not separate them.
+Realised gate fraction, no-grad passes: PST .102-.126, PSI .105-.141, PSR .100.
+Corrections to the carry-seed-0 reading: "PSI / PSR clearly below Pfix" and "PST > PSR 6/6" came from a high Pfix at cs0 and did not survive (PSI, PSR within noise of Pfix in most units; PST > PSR 4/6).
+Correction to the ladder note above: with Pfix averaged over carry seeds, Pdiag -> Pfix (Pdiag still cs0 only) .17/.18/.22/.13/.08/.19 is >= P - Pfix in 2/6, not 5/6.  Pfix keeps 54-76% of P.
