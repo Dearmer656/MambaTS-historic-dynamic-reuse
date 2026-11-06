@@ -73,10 +73,14 @@ CARRY_ARMS = {'s1_I': (1, 'I', 1), 's1_R': (1, 'R', 1), 's1_D': (1, 'D', 1), 's1
               's1_P2': (1, 'P', 2), 's1_P4': (1, 'P', 4),                 # (lead buckets, T_t kind, Householders per step
               's1_Ponly': (1, 'P', 1, False),
               's1_G': (1, 'G', 1), 's1_GF': (1, 'GF', 1),
-              's1_Pfix': (1, 'PF', 1), 's1_Pdiag': (1, 'PD', 1)}            # Step 2: fixed u / diagonal-only                   # per-mode state gate (+ per-mode phase shift)                             #  [, rotation: False = theta 0 + per-lead readout])
+              's1_Pfix': (1, 'PF', 1), 's1_Pdiag': (1, 'PD', 1),
+              's1_PST': (1, 'PST', 1), 's1_PSI': (1, 'PSI', 1), 's1_PSR': (1, 'PSR', 1)}            # Step 2: fixed u / diagonal-only                   # per-mode state gate (+ per-mode phase shift)                             #  [, rotation: False = theta 0 + per-lead readout])
 D_MODES = 64
 S_ARMS = ('S_e', 'S_r')
 LS = 96                                                                  # shock-history lags of the base
+
+
+GATE_FRAC = 0.1                                                         # PST / PSI / PSR: share of input-direction cells
 
 
 def lead_bucket(h, nb, dev):
@@ -112,6 +116,13 @@ class ShockSSM(nn.Module):
             self.uf = nn.Parameter(torch.randn(2 * d, generator=torch.Generator().manual_seed(2)))
             self.wb = nn.Linear(nx, 1)
             nn.init.constant_(self.wb.bias, -2.0)
+        elif kind in ('PST', 'PSI', 'PSR'):                                    # input u_x(x) or fixed u_f, chosen per cell
+            self.Wu = nn.Linear(nx, 2 * d)
+            self.uf = nn.Parameter(torch.randn(2 * d, generator=torch.Generator().manual_seed(2)))
+            self.wb = nn.Linear(nx, 1)
+            nn.init.constant_(self.wb.bias, -2.0)
+            self.register_buffer('tau', torch.full((), -1.0))                  # running 90% quantile of beta |u_x . z|
+            self.gs = [0, 0]                                                   # gate on, cells (no-grad passes)
         elif kind == 'D':
             self.wd = nn.Linear(nx, 1)
             nn.init.constant_(self.wd.bias, 6.0)                               # g ~ 0.998 at init
@@ -154,6 +165,24 @@ class ShockSSM(nn.Module):
             else:                                                              # I - beta_t diag(u_t^2)
                 zf = zf * (1 - beta * u.square())
             return zf.view(Bn, self.d, 2)
+        if self.kind in ('PST', 'PSI', 'PSR'):
+            # PST: u_x at the large-rewrite cells (a = beta |u_x . z| >= tau), u_f elsewhere; PSI: the reverse;
+            # PSR: u_x at a random GATE_FRAC of cells, u_f elsewhere.  beta_t from x in all three.
+            zf = z.flatten(1)
+            ux, uf = F.normalize(self.Wu(x), dim=-1), F.normalize(self.uf, dim=0)
+            beta = 2 * torch.sigmoid(self.wb(x))
+            a = (beta[:, 0] * (ux * zf).sum(-1).abs()).detach()
+            if torch.is_grad_enabled():                                        # tau from training streams only
+                q_ = torch.quantile(a, 1 - GATE_FRAC)
+                self.tau.copy_(q_ if self.tau < 0 else 0.99 * self.tau + 0.01 * q_)
+            gate = torch.rand(Bn, device=z.device) < GATE_FRAC if self.kind == 'PSR' else a >= self.tau
+            if not torch.is_grad_enabled():
+                self.gs[0] += int(gate.sum())
+                self.gs[1] += Bn
+            if self.kind == 'PSI':
+                gate = ~gate
+            u = torch.where(gate[:, None], ux, uf.expand_as(ux))
+            return (zf - beta * u * (u * zf).sum(-1, keepdim=True)).view(Bn, self.d, 2)
         if self.kind == 'P':
             U = F.normalize(self.Wu(x).view(Bn, self.nh, 2 * self.d), dim=-1)
             beta = 2 * torch.sigmoid(self.wb(x))
@@ -450,13 +479,13 @@ def run(code, seed, args):
         return z, sg * net.read(z, H)
 
     def train_carry(nb, kind, nh=1, rot=True):
-        torch.manual_seed(seed)
+        torch.manual_seed(seed + args.carry_seed)
         net = ShockSSM(nx, nb, kind, q, D_MODES, nh, rot).to(dev)
         if args.freeze_theta and isinstance(net.theta, nn.Parameter):
             net.theta.requires_grad_(False)                                        # keep the weekly harmonics
         prm = [p_ for p_ in net.parameters() if p_.requires_grad]
         opt = torch.optim.Adam(prm, lr=args.lr)
-        g = torch.Generator().manual_seed(seed)
+        g = torch.Generator().manual_seed(seed + args.carry_seed)
         log, vlog, best, ulog = [], [], [float('inf'), None, -1], []
         nup, win = 0, [0.0, 0]
         for ep in range(args.epochs):
@@ -978,6 +1007,9 @@ def run(code, seed, args):
             res[f'{a_}(+){name}'] = dict(a=a.tolist(), b=b2.tolist(), val_mse=float(sse2[SEL]) / nel[SEL],
                                          test_mse=float(sse2[2]) / nel[2])
         print(f'[{name}] test {res[name]["test_mse"]:.5f} | S_r(+) {res[f"S_r(+){name}"]["test_mse"]:.5f}', flush=True)
+        if kind in ('PST', 'PSI', 'PSR'):
+            res[name]['gate_frac'] = net.gs[0] / max(net.gs[1], 1)
+            print(f'[{name}] gate frac (no-grad passes) {res[name]["gate_frac"]:.3f} tau {float(net.tau):.4f}', flush=True)
         if args.age:
             age_decomp(net, name, res[name]['b'])
         if args.src:
@@ -1111,6 +1143,7 @@ def main():
     p.add_argument('--ext_dir', default='patchmem/logs/server/err_stack/fc')
     p.add_argument('--tpl', default='', help='causal running-mean error templates as stacking regressors: Rm,Dm,Wm')
     p.add_argument('--age', action='store_true', help='split the carry correction by shock injection age (P / Pfix / Pdiag)')
+    p.add_argument('--carry_seed', type=int, default=0, help='added to seed for the carry init / channel order (backbone unchanged)')
     p.add_argument('--src_dir', action='store_true', help='with --src: only the top10 / rand10 cells, T -> I and other u')
     p.add_argument('--src', action='store_true', help='per origin x channel gain + T_t stats of P / Pfix, T_t -> I ablations')
     p.add_argument('--se_len', type=int, default=0, help='S_e key window length (0: the backbone input length L)')

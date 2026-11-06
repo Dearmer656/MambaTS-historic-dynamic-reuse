@@ -1160,3 +1160,19 @@ ushuf .10/.37/.08, .14/.14/.22, urand .07-.50, umean .05-.17, uz 1.38-2.60.
   direction: any other direction there (other time / random / fixed / radial) is worse than no rewrite at all, while the
   same swap at random cells costs 3-13x less.  Caveat: within-model ablation (B / readout co-adapted with P's u); the
   between-model difference P - Pfix is .04-.23 pp.
+
+### Between-model test of the input-chosen direction at large-rewrite cells: gated carries PST / PSI / PSR
+Removes the co-adaptation caveat of the ablations: each arm is trained from scratch with the Step 2 config (10 epochs,
+bptt 168 h, frozen theta, early stop on val_select; same x, same beta_t(x)).  Per cell T_t = I - beta_t u u^T, with
+a_t = beta_t |u_x(x_t) . z_t| and tau = running 90% quantile of a_t on the training streams (fixed at eval):
+- PST: u = u_x(x_t) if a_t >= tau, else the trainable fixed u_f (input direction only at the large-rewrite cells).
+- PSI: the reverse (fixed direction at the large-rewrite cells, input direction everywhere else).
+- PSR: u_x(x_t) at a random 10% of cells, else u_f (same amount of input direction, wrong timing).
+Noise floor: every arm also at --carry_seed 1000 (carry init + channel order; backbone unchanged), incl. P and Pfix.
+Unit = (H, backbone seed), H192 + H336 x 3 seeds = 6 units; each arm's test gain = mean over carry seeds 0 and 1000
+(P / Pfix at carry seed 0 = the err_s2 runs).  m = P - Pfix.  Criteria fixed in advance (test):
+- (E0) noise: median |gain(cs 0) - gain(cs 1000)| over P and Pfix units < median m.  If it fails, no claim either way.
+- (E1) PST carries the margin: PST - Pfix >= .7 m in >= 5/6.
+- (E2) PSI - Pfix <= .3 m in >= 5/6 and PSR - Pfix <= .3 m in >= 5/6.
+- Claim "the stable P gain comes from the input-chosen direction at the large-rewrite cells" iff E0, E1 and E2 all hold.
+Jobs: gate_prove.sh <H>, out err_gate/cs{0,1000}/.  Also printed: realised gate fraction on all no-grad passes.
