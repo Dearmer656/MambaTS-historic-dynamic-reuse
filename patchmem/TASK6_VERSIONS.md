@@ -1124,3 +1124,28 @@ Criteria fixed in advance (test, refit b, H192 + H336 x 3 seeds):
   val) hold >= 50% of the test difference in >= 5/6.
 Then describe the top-10% cells (hour-of-week, input change dmu / dls, channels, time since previous event).
 Job: src_diag.sh <H> (21675 H192, 21676 H336), out err_src/.
+Result (jobs 21675 H192 / 21676 H336, 6000; replica == eval_carry in every run).  Test gain %, refit b.
+  P full H192 .433/.527/.473, H336 .355/.279/.343 (3047/2024/2025); Pfix .317/.297/.294, .251/.237/.297.
+  T -> I at the top-10% |T z - z| cells loses 57/37/61, 46/55/39 % of P's gain; random 10% loses 1-6 %; keeping T only at
+  the top-10% cells retains 90-94 %; top30 loses 55-77 %; noT (T -> I everywhere) leaves -.09..+.10.  Pfix: the same
+  pattern (top10 loses 48-93 %, keep10 retains 91-104 %).
+- (S1) fails (top10 loss 37-61 % < 70 %; random <= 6 % holds).  (S2) holds 6/6 (keep10 >= 90 %).
+- (S3) fails: the best val-chosen <= 20 % group (channel) holds .29/.33/.50/.36/.91/.78 of the test P - Pfix difference
+  (3/6 >= .5); hour-of-week, |dmu|, |dls|, hha deciles hold .04-.44.  The P - Pfix difference is spread like P's own gain:
+  ~85 % of both sit in cells 0-23 h after a top-10% event of the channel (65 % of cells).
+- Top-10% P cells: |z| 1.5-1.9x the mean, beta 1.1-2.9x, hh 3x; |dmu| / |dls| larger in 4/6 (equal in H192 s2025, H336
+  s2025); mostly Tue / Wed working hours (s2025 H192: late evening); only 27-37 % overlap with Pfix's top-10% cells;
+  |cos(u, z)| at events .14-.21 for both P and Pfix (no alignment difference).
+- Reading: in both P and Pfix the gain needs only the ~10 % largest state rewrites (sparse, input-triggered, when the
+  accumulated shock state is large); without T the trained readout loses all gain.  Whether the input-dependent
+  direction (P vs Pfix) matters at those cells: next entry.
+
+### Direction ablation at the top-10% cells: eval_sr --src --src_dir (P only)
+At the top-10% cells (and, as control, at the random 10% cells) keep beta_t and replace u_t by: u of the input at a random
+other time 25-335 h back (shuf), a random unit vector (rand), the channel's principal val direction (mean, top eigvec of
+sum u u^T: a fixed Pfix-like direction), z / |z| (radial).  Smoke (32 ch, s3047 H192): full .236, top10 (T=I) .014,
+top10_ushuf -.024, urand -.004, umean .048, uz .012; rand10 .197, rand10_ushuf .181, urand .165, umean .200.
+Criteria fixed in advance (test, refit b, H192 + H336 x 3 seeds), L_x = full - x:
+- (D1) the input-dependent direction carries the effect: L(top10_ushuf) >= .7 L(top10) and L(rand10_ushuf) <= .2 L(top10): 6/6.
+- (D2) a fixed direction is not enough: L(top10_umean) >= .5 L(top10): 6/6.
+Job: SRCX=--src_dir OSUF=_dir ARMS=s1_P src_diag.sh <H>, out err_src_dir/.

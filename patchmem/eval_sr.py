@@ -826,8 +826,15 @@ def run(code, seed, args):
         c_, s_ = rho * torch.cos(net.theta), rho * torch.sin(net.theta)
         z0 = [None]
 
-        def run_(mask=None, rec=False):
-            """mask (n C) bool, cpu: True -> T_t = I at that cell.  Returns {'ex','xx'} per split x bucket."""
+        UU = torch.zeros(C, 2 * net.d, 2 * net.d, device=dev)                      # per-channel sum u u^T over val rows
+        umean = [None]
+        gs = torch.Generator(device=dev).manual_seed(seed)
+
+        def run_(mask=None, rec=False, umode=None):
+            """mask (n C) bool, cpu: True -> T_t = I at that cell, or with umode the Householder at that cell keeps beta_t
+            but uses another unit u: 'shuf' u of the input at a random other time (25..335 h back, one draw per step),
+            'rand' random direction, 'mean' the channel's principal val u (top eigvec of sum u u^T; fixed, Pfix-like), 'z' z / |z| (radial shrink).
+            Returns {'ex','xx'} per split x bucket."""
             acc_ = {key: z3() for key in ('ex', 'xx')}
             k0 = 0 if rec else k_v0
             state = torch.zeros(C, net.d, 2, device=dev) if rec else z0[0].clone()
@@ -849,8 +856,26 @@ def run(code, seed, args):
                         if u_prev is not None:
                             st['ucos'][r] = (u * u_prev).sum(-1).cpu()
                         u_prev = u
-                    if mask is not None:
+                        if int(split[k]) in (1, 3):
+                            UU.add_(u[:, :, None] * u[:, None, :])
+                    if mask is not None and umode is None:
                         zT = torch.where(mask[k].to(dev)[:, None, None], state, zT)
+                    elif mask is not None:
+                        u, beta = net.u_beta(x)
+                        zf = state.flatten(1)
+                        if umode == 'shuf':
+                            ks = k - int(torch.randint(25, 336, (1,), generator=gs, device=dev))
+                            u2 = net.u_beta(x_at(ks, call))[0]
+                        elif umode == 'rand':
+                            u2 = F.normalize(torch.randn(C, 2 * net.d, generator=gs, device=dev), dim=-1)
+                        elif umode == 'mean':
+                            if umean[0] is None:                                   # top eigvec of E[u u^T] (sign-free)
+                                umean[0] = torch.linalg.eigh(UU.double())[1][..., -1].float()
+                            u2 = umean[0]
+                        else:
+                            u2 = zf / zf.norm(dim=-1, keepdim=True).clamp_min(EPS)
+                        zA = (zf - beta * u2 * (u2 * zf).sum(-1, keepdim=True)).view_as(state)
+                        zT = torch.where(mask[k].to(dev)[:, None, None], zA, zT)
                     z_ = torch.stack([c_ * zT[..., 0] - s_ * zT[..., 1], s_ * zT[..., 0] + c_ * zT[..., 1]], -1)
                     sg = sig[k, call][:, None] ** net.g()
                     w = wd[k - 1] / sg if k >= 1 else torch.zeros(C, net.nb, device=dev)
@@ -883,22 +908,30 @@ def run(code, seed, args):
         out = {'full': full}
         vr = (split[rows] == 1) | (split[rows] == 3)                               # val rows: thresholds from val only
         g = torch.Generator().manual_seed(seed)
-        for tag, q_ in (('top10', 0.9), ('top30', 0.7)):
+        for tag, q_ in (('top10', 0.9),) if args.src_dir else (('top10', 0.9), ('top30', 0.7)):
             th = torch.quantile(st['hha'][vr].flatten()[torch.randperm(int(vr.sum()) * C, generator=g)[:4_000_000]], q_)
             sel = st['hha'] >= th                                                  # (rows C)
             frac = float(sel.float().mean())
             for kind_, mk in ((tag, sel), (f'rand{tag[3:]}', torch.rand(sel.shape, generator=g) < frac), (f'keep{tag[3:]}', ~sel)):
                 M = torch.zeros(n, C, dtype=torch.bool)
                 M[rows] = mk
+                if args.src_dir and kind_.startswith('keep'):
+                    continue
                 out[kind_] = dict(frac=float(mk.float().mean()), **gains(run_(M)))
-        M = torch.zeros(n, C, dtype=torch.bool)
-        M[rows] = True
-        out['noT'] = dict(frac=1.0, **gains(run_(M)))
+                if args.src_dir:                                                   # same cells, other directions
+                    for um in ('shuf', 'rand', 'mean', 'z'):
+                        out[f'{kind_}_u{um}'] = dict(frac=float(mk.float().mean()), **gains(run_(M, umode=um)))
+        if not args.src_dir:
+            M = torch.zeros(n, C, dtype=torch.bool)
+            M[rows] = True
+            out['noT'] = dict(frac=1.0, **gains(run_(M)))
         for key, v in out.items():
-            print(f'[src] {name} {key:7s} frac {v.get("frac", 0):.3f} | test fixb {v["fixb"]["test"]:+.3f} refit {v["refit"]["test"]:+.3f}'
+            print(f'[src] {name} {key:12s} frac {v.get("frac", 0):.3f} | test fixb {v["fixb"]["test"]:+.3f} refit {v["refit"]["test"]:+.3f}'
                   f' | val fixb {v["fixb"]["val_select"]:+.3f} refit {v["refit"]["val_select"]:+.3f}', flush=True)
         res[f'src_{name}'] = out
         tt = T0 + rows
+        if args.src_dir:
+            return
         np.savez(od / f'{code}_H{H}_s{seed}_{name}_src.npz', rows=rows.numpy(), times=tt.numpy(), split=split[rows].numpy(),
                  dmu=dmu[rows.to(dev)].float().cpu().numpy(), dls=dls[rows.to(dev)].float().cpu().numpy(),
                  **{key: v.numpy() for key, v in st.items()})
@@ -1078,6 +1111,7 @@ def main():
     p.add_argument('--ext_dir', default='patchmem/logs/server/err_stack/fc')
     p.add_argument('--tpl', default='', help='causal running-mean error templates as stacking regressors: Rm,Dm,Wm')
     p.add_argument('--age', action='store_true', help='split the carry correction by shock injection age (P / Pfix / Pdiag)')
+    p.add_argument('--src_dir', action='store_true', help='with --src: only the top10 / rand10 cells, T -> I and other u')
     p.add_argument('--src', action='store_true', help='per origin x channel gain + T_t stats of P / Pfix, T_t -> I ablations')
     p.add_argument('--se_len', type=int, default=0, help='S_e key window length (0: the backbone input length L)')
     p.add_argument('--roll', default='', help='causal rolling stack: window grid in val/test origins, e.g. 168,336,672')
