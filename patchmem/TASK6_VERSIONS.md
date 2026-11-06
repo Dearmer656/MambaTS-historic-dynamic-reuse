@@ -1176,3 +1176,22 @@ Unit = (H, backbone seed), H192 + H336 x 3 seeds = 6 units; each arm's test gain
 - (E2) PSI - Pfix <= .3 m in >= 5/6 and PSR - Pfix <= .3 m in >= 5/6.
 - Claim "the stable P gain comes from the input-chosen direction at the large-rewrite cells" iff E0, E1 and E2 all hold.
 Jobs: gate_prove.sh <H>, out err_gate/cs{0,1000}/.  Also printed: realised gate fraction on all no-grad passes.
+
+### What does the carry's input supply? beta_t variance (ana_beta.py) and input-free arms PFc / PFh / Ph
+Gain ladder from Step 2 (test gain %, s3047/2024/2025): H192 GPhi .01/.01/.01, Pdiag .10/.08/.05, Pfix .32/.30/.30, P .44/.53/.47;
+H336 GPhi .01/.01/.01, Pdiag .12/.12/.08, Pfix .25/.24/.30, P .36/.28/.34.  Pdiag -> Pfix (.12-.25) is >= P - Pfix (.04-.23) in 5/6 units.
+ana_beta (cpu, err_src dumps; means fit on val, R2 on test): hour-of-week explains beta_t R2 .45-.72 (exception H336 s3047 Pfix .16),
+channel x hour .54-.87 (that unit .21), channel alone 0, lag-1 corr .58-.92.  So beta_t may be mostly a weekly clock.
+Interim note: the gated runs (22497 / 22498) are not finished when this was fixed; only their carry seed 0 results and P cs1000 H192 had been seen.
+Between-model arms, Step 2 config, x replaced (X_ARMS; everything else unchanged):
+- s1_PFc: fixed u, x = 1 -> constant beta: fixed linear T (no time variation at all).
+- s1_PFh: fixed u, x = one-hot hour-of-week -> beta(hour).
+- s1_Ph: x = one-hot hour-of-week in P -> u(hour), beta(hour): a weekly schedule, no input content.
+Caveat: the tables are shared across channels, so channel x hour structure is out of reach (R2 gap above).
+Unit = (H, backbone seed), 6 units; gain = mean over carry seeds 0 and 1000.  P / Pfix: err_s2 + err_gate/cs1000; Pdiag: err_s2 + err_clock/cs1000.
+Criteria fixed in advance (test), each "supported" at >= 5/6, "rejected" at <= the .3 line in >= 5/6, else partial:
+- (N0) noise: for each denominator below, median |gain(cs 0) - gain(cs 1000)| of the arms involved < median denominator; else no claim from it.
+- (C1) fixed linear coupling: PFc - Pdiag >= .7 (Pfix - Pdiag); rejected if <= .3.
+- (C2) beta is a clock: PFh - PFc >= .7 (Pfix - PFc); rejected if <= .3.
+- (C3) direction is a clock: Ph - Pfix >= .7 (P - Pfix); rejected if <= .3.
+Jobs: clock_prove.sh <H>, out err_clock/cs{0,1000}/.  Smoke (32 ch, 2 epochs) runs; no Codex review (MCP disconnected, CLI sandbox failure).

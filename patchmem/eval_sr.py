@@ -74,12 +74,14 @@ CARRY_ARMS = {'s1_I': (1, 'I', 1), 's1_R': (1, 'R', 1), 's1_D': (1, 'D', 1), 's1
               's1_Ponly': (1, 'P', 1, False),
               's1_G': (1, 'G', 1), 's1_GF': (1, 'GF', 1),
               's1_Pfix': (1, 'PF', 1), 's1_Pdiag': (1, 'PD', 1),
-              's1_PST': (1, 'PST', 1), 's1_PSI': (1, 'PSI', 1), 's1_PSR': (1, 'PSR', 1)}            # Step 2: fixed u / diagonal-only                   # per-mode state gate (+ per-mode phase shift)                             #  [, rotation: False = theta 0 + per-lead readout])
+              's1_PST': (1, 'PST', 1), 's1_PSI': (1, 'PSI', 1), 's1_PSR': (1, 'PSR', 1),
+              's1_PFc': (1, 'PF', 1), 's1_PFh': (1, 'PF', 1), 's1_Ph': (1, 'P', 1)}            # Step 2: fixed u / diagonal-only                   # per-mode state gate (+ per-mode phase shift)                             #  [, rotation: False = theta 0 + per-lead readout])
 D_MODES = 64
 S_ARMS = ('S_e', 'S_r')
 LS = 96                                                                  # shock-history lags of the base
 
 
+X_ARMS = {'s1_PFc': 'c', 's1_PFh': 'h', 's1_Ph': 'h'}                       # x replaced by a constant / hour-of-week one-hot
 GATE_FRAC = 0.1                                                         # PST / PSI / PSR: share of input-direction cells
 
 
@@ -463,8 +465,17 @@ def run(code, seed, args):
     if args.zero_only:
         return
 
+    xmode = [None]                                                                 # X_ARMS mode of the current arm
+
+    def nx_():
+        return {None: nx, 'c': 1, 'h': PW * q}[xmode[0]]
+
     def x_at(k, c):
         t = T0 + k
+        if xmode[0] == 'c':
+            return torch.ones(len(c), 1, device=dev)
+        if xmode[0] == 'h':
+            return F.one_hot(torch.full((len(c),), int(t) % (PW * q), device=dev), PW * q).float()
         w = (Xd[t + kq96][:, c].T - mu_w[t, c][:, None]) / sd_w[t, c].clamp_min(fc.SD_FLOOR)[:, None]
         return torch.cat([w, dmu[k, c][:, None], dls[k, c][:, None]], 1).float()
 
@@ -480,7 +491,7 @@ def run(code, seed, args):
 
     def train_carry(nb, kind, nh=1, rot=True):
         torch.manual_seed(seed + args.carry_seed)
-        net = ShockSSM(nx, nb, kind, q, D_MODES, nh, rot).to(dev)
+        net = ShockSSM(nx_(), nb, kind, q, D_MODES, nh, rot).to(dev)
         if args.freeze_theta and isinstance(net.theta, nn.Parameter):
             net.theta.requires_grad_(False)                                        # keep the weekly harmonics
         prm = [p_ for p_ in net.parameters() if p_.requires_grad]
@@ -968,10 +979,11 @@ def run(code, seed, args):
     for name in arms:
         nb, kind, nh, *rest = CARRY_ARMS[name]
         rot = rest[0] if rest else True
+        xmode[0] = X_ARMS.get(name)
         t_start = time.time()
         if args.load_carry:                                                        # reuse a trained carry (--dump state)
             torch.manual_seed(seed)
-            net = ShockSSM(nx, nb, kind, q, D_MODES, nh, rot).to(dev)
+            net = ShockSSM(nx_(), nb, kind, q, D_MODES, nh, rot).to(dev)
             ld = torch.load(Path(args.load_carry) / f'{code}_H{H}_s{seed}_{name}_dump.pt', map_location=dev, weights_only=False)
             net.load_state_dict(ld['state'])
             net.eval()
@@ -983,7 +995,7 @@ def run(code, seed, args):
         dump = None
         if args.dump:
             dump = {key: [] for key in ('beta', 'hh_rel', 'u_cos', 'gate', 'gate_min', 'phase', 'm_rms', 'rho_rms')}
-            init = ShockSSM(nx, nb, kind, q, D_MODES, nh, rot)                         # same deterministic theta / rho init
+            init = ShockSSM(nx_(), nb, kind, q, D_MODES, nh, rot)                         # same deterministic theta / rho init
         mech = None
         if args.mech and name in args.mech.split(','):
             mech = {key: torch.zeros(D_MODES, dtype=torch.float64, device=dev)
