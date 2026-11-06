@@ -1149,3 +1149,14 @@ Criteria fixed in advance (test, refit b, H192 + H336 x 3 seeds), L_x = full - x
 - (D1) the input-dependent direction carries the effect: L(top10_ushuf) >= .7 L(top10) and L(rand10_ushuf) <= .2 L(top10): 6/6.
 - (D2) a fixed direction is not enough: L(top10_umean) >= .5 L(top10): 6/6.
 Job: SRCX=--src_dir OSUF=_dir ARMS=s1_P src_diag.sh <H>, out err_src_dir/.
+Result (jobs 22278 H192 / 22279 H336, 6000).  Loss as a multiple of L(top10) = loss with T -> I at the top-10% cells
+(3047/2024/2025):  top10_ushuf H192 1.32/1.75/1.19, H336 1.65/1.39/1.48;  top10_urand 1.28/1.96/1.16, 1.68/1.34/1.63;
+top10_umean 1.23/1.43/1.12, 1.30/1.03/1.16;  top10_uz 1.51-2.65.  Controls at the random 10% cells: T -> I .01-.16,
+ushuf .10/.37/.08, .14/.14/.22, urand .07-.50, umean .05-.17, uz 1.38-2.60.
+- (D1) first part holds 6/6 (wrong-time direction at the top cells loses MORE than removing T there); control part
+  (rand10_ushuf <= .2) fails 2/6 (H192 s2024 .37, H336 s2025 .22) -> D1 fails as pre-registered (4/6).
+- (D2) holds 6/6: a fixed per-channel principal direction at the top cells loses 1.03-1.43 x L(top10).
+- Reading: inside the trained P, the gain is carried by the ~10% largest state rewrites AND by their input-chosen
+  direction: any other direction there (other time / random / fixed / radial) is worse than no rewrite at all, while the
+  same swap at random cells costs 3-13x less.  Caveat: within-model ablation (B / readout co-adapted with P's u); the
+  between-model difference P - Pfix is .04-.23 pp.
