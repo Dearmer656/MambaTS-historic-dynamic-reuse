@@ -1209,3 +1209,23 @@ Outside the criteria: P > Pfix in 12/12 same-carry-seed pairs, so the P - Pfix m
 Realised gate fraction, no-grad passes: PST .102-.126, PSI .105-.141, PSR .100.
 Corrections to the carry-seed-0 reading: "PSI / PSR clearly below Pfix" and "PST > PSR 6/6" came from a high Pfix at cs0 and did not survive (PSI, PSR within noise of Pfix in most units; PST > PSR 4/6).
 Correction to the ladder note above: with Pfix averaged over carry seeds, Pdiag -> Pfix (Pdiag still cs0 only) .17/.18/.22/.13/.08/.19 is >= P - Pfix in 2/6, not 5/6.  Pfix keeps 54-76% of P.
+
+### Input-free arms: results (jobs 22693 / 22694; test gain %, mean over carry seeds 0 + 1000)
+Unit order H192 s3047/2024/2025, H336 s3047/2024/2025:
+  Pdiag .098/.086/.065/.112/.110/.090; PFc .044/.055/.054/.097/.083/.075; PFh .084/.096/.063/.142/.102/.111;
+  Pfix .266/.254/.268/.254/.192/.272; Ph .245/.256/.212/.343/.331/.283; P .438/.457/.497/.355/.321/.360.
+- N0 holds for all three (noise median .016 / .024 / .038 vs denominator median .168 / .199 / .151).
+- C1 rejected: (PFc - Pdiag)/(Pfix - Pdiag) -.32/-.19/-.05/-.10/-.32/-.09 (<= .3 in 6/6).  A fixed linear coupling gives no gain; PFc is below Pdiag in 11/12 pairs.
+- C2 rejected: (PFh - PFc)/(Pfix - PFc) .18/.21/.04/.29/.17/.19 (<= .3 in 6/6).  A shared weekly beta recovers little, although hour-of-week explains beta R2 .45-.72: variance explained was not gain.
+- C3 partial: (Ph - Pfix)/(P - Pfix) -.12/.01/-.25/.88/1.08/.12 (>= .7 in 2/6, <= .3 in 4/6).
+Outside the criteria (same-carry-seed pairs): Pfix > PFh 12/12 (+.151), Ph > PFh 12/12, P > Ph 10/12 (+.126; H192 +.19/.20/.29, H336 +.01/-.01/.08), PFh > PFc 11/12 (+.032).
+Reading: the gain needs T_t to vary in time; x carries something beyond a shared weekly clock for beta.  A shared weekly direction schedule alone reaches about Pfix's level.
+
+### What in x gives the fixed-u beta its gain? PFch / PFd / PFw
+Fixed u, Step 2 config, only x changes: PFch beta(channel x hour-of-week), a table of 168 C values; PFd x = (dmu, dls); PFw x = the 96 h window only.
+Unit, gain and carry seeds as above; den = Pfix - PFh (.182/.158/.205/.112/.090/.161).  Criteria fixed in advance (test): supported if >= .7 den in >= 5/6, rejected if <= .3 den in >= 5/6, else partial;
+(N0) median |gain(cs 0) - gain(cs 1000)| over the arms involved < median den, else no claim from it.
+- (D1) PFch - PFh: beta is a channel-specific weekly clock.
+- (D2) PFd - PFh: the recent level / scale change suffices.
+- (D3) PFw - PFh: the window shape suffices.
+Jobs: src_x.sh <H>, out err_srcx/cs{0,1000}/.  Smoke (32 ch, 2 epochs) runs; no Codex review (MCP disconnected, CLI sandbox failure).

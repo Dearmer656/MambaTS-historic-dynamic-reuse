@@ -75,13 +75,15 @@ CARRY_ARMS = {'s1_I': (1, 'I', 1), 's1_R': (1, 'R', 1), 's1_D': (1, 'D', 1), 's1
               's1_G': (1, 'G', 1), 's1_GF': (1, 'GF', 1),
               's1_Pfix': (1, 'PF', 1), 's1_Pdiag': (1, 'PD', 1),
               's1_PST': (1, 'PST', 1), 's1_PSI': (1, 'PSI', 1), 's1_PSR': (1, 'PSR', 1),
-              's1_PFc': (1, 'PF', 1), 's1_PFh': (1, 'PF', 1), 's1_Ph': (1, 'P', 1)}            # Step 2: fixed u / diagonal-only                   # per-mode state gate (+ per-mode phase shift)                             #  [, rotation: False = theta 0 + per-lead readout])
+              's1_PFc': (1, 'PF', 1), 's1_PFh': (1, 'PF', 1), 's1_Ph': (1, 'P', 1),
+              's1_PFch': (1, 'PF', 1), 's1_PFd': (1, 'PF', 1), 's1_PFw': (1, 'PF', 1)}            # Step 2: fixed u / diagonal-only                   # per-mode state gate (+ per-mode phase shift)                             #  [, rotation: False = theta 0 + per-lead readout])
 D_MODES = 64
 S_ARMS = ('S_e', 'S_r')
 LS = 96                                                                  # shock-history lags of the base
 
 
-X_ARMS = {'s1_PFc': 'c', 's1_PFh': 'h', 's1_Ph': 'h'}                       # x replaced by a constant / hour-of-week one-hot
+X_ARMS = {'s1_PFc': 'c', 's1_PFh': 'h', 's1_Ph': 'h',                       # x replaced by a constant / hour-of-week one-hot /
+          's1_PFch': 'ch', 's1_PFd': 'd', 's1_PFw': 'w'}                     # channel x hour index / (dmu, dls) only / window only
 GATE_FRAC = 0.1                                                         # PST / PSI / PSR: share of input-direction cells
 
 
@@ -116,8 +118,12 @@ class ShockSSM(nn.Module):
             nn.init.constant_(self.wb.bias, -2.0)                              # beta ~ 0.24 at init
         elif kind == 'PF':                                                     # one global trainable u, beta_t from x
             self.uf = nn.Parameter(torch.randn(2 * d, generator=torch.Generator().manual_seed(2)))
-            self.wb = nn.Linear(nx, 1)
-            nn.init.constant_(self.wb.bias, -2.0)
+            if nx < 0:                                                         # table beta(index), x = long index
+                self.wb = nn.Embedding(-nx, 1)
+                nn.init.constant_(self.wb.weight, -2.0)
+            else:
+                self.wb = nn.Linear(nx, 1)
+                nn.init.constant_(self.wb.bias, -2.0)
         elif kind in ('PST', 'PSI', 'PSR'):                                    # input u_x(x) or fixed u_f, chosen per cell
             self.Wu = nn.Linear(nx, 2 * d)
             self.uf = nn.Parameter(torch.randn(2 * d, generator=torch.Generator().manual_seed(2)))
@@ -468,7 +474,7 @@ def run(code, seed, args):
     xmode = [None]                                                                 # X_ARMS mode of the current arm
 
     def nx_():
-        return {None: nx, 'c': 1, 'h': PW * q}[xmode[0]]
+        return {None: nx, 'c': 1, 'h': PW * q, 'ch': -PW * q * C, 'd': 2, 'w': fc.LQ}[xmode[0]]
 
     def x_at(k, c):
         t = T0 + k
@@ -476,7 +482,13 @@ def run(code, seed, args):
             return torch.ones(len(c), 1, device=dev)
         if xmode[0] == 'h':
             return F.one_hot(torch.full((len(c),), int(t) % (PW * q), device=dev), PW * q).float()
+        if xmode[0] == 'ch':
+            return int(t) % (PW * q) * C + torch.as_tensor(c, device=dev)
+        if xmode[0] == 'd':
+            return torch.stack([dmu[k, c], dls[k, c]], 1).float()
         w = (Xd[t + kq96][:, c].T - mu_w[t, c][:, None]) / sd_w[t, c].clamp_min(fc.SD_FLOOR)[:, None]
+        if xmode[0] == 'w':
+            return w.float()
         return torch.cat([w, dmu[k, c][:, None], dls[k, c][:, None]], 1).float()
 
     def step(net, z, k, cg, wd):
