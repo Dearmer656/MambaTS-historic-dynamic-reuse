@@ -47,6 +47,7 @@ if __name__ == '__main__':
     parser.add_argument('--output_attention', action='store_true', help='output attention', default=False)
     parser.add_argument('--visualize', action='store_true', help='visualize', default=False)
     parser.add_argument('--flash_attention', action='store_true', help='flash attention', default=False)
+    parser.add_argument('--pos', type=str, default='rope', help='TimeAttention q/k transform: rope | nope | path | rope_path (PAT-317)')
 
     # adaptation
     parser.add_argument('--adaptation', action='store_true', help='adaptation', default=False)
