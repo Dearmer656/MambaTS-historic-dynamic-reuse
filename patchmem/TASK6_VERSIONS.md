@@ -1252,3 +1252,17 @@ Unit, gain, carry seeds as above; den = PFw - PFh .156/.127/.163/.110/.060/.135.
 - (R1) PFwr - PFh: learning the filter direction is not needed.
 - (R2) PFwru - PFh: learning the filter direction and u are not needed.
 Jobs: src_r.sh <H>, out err_srcr/cs{0,1000}/.  Smoke runs, u verified at init in the PFwru dump; no Codex review (MCP disconnected, CLI sandbox failure).
+
+### Frozen filter: results (jobs 24289 / 24290; test gain %, mean over carry seeds 0 + 1000)
+Unit order H192 s3047/2024/2025, H336 s3047/2024/2025; den = PFw - PFh .156/.127/.162/.110/.060/.135:
+  PFwr .068/.096/.037/.103/.094/.075; PFwru .059/.055/.044/.100/.089/.079 (PFh .084/.096/.063/.142/.102/.111, PFw .240/.223/.226/.252/.162/.246).
+- N0 holds (noise median .020 / .013 vs den median .131).
+- R1 rejected: ratio -.11/.00/-.16/-.36/-.13/-.27 (<= .3 in 6/6).  R2 rejected: -.16/-.32/-.12/-.38/-.22/-.24 (6/6).
+- PFw > PFwr 12/12 (+.146): the filter direction must be learned; a random window gate (scale and bias trained) is no better than the shared clock (PFwr > PFh 3/12).
+- The random-feature hypothesis above is rejected.  Together with the filter analysis: a learned filter is needed, but different carry seeds learn different filters and
+  uncorrelated beta timing with the same gain, so the learned solution is not unique; what is shared across them is not yet known.
+
+### Where is the gain made, across carry seeds? (ana_seed.py, eval_sr --src on loaded carries; descriptive, jobs 24707 / 24708)
+src_seed.sh <H>: --src for Pfix cs1000 (err_gate/cs1000 dumps) and PFw cs0 / cs1000 (err_srcx dumps); Pfix cs0 = err_src.
+Compared on test cells, cs0 vs cs1000: d_all (per-cell squared-error reduction) corr per cell / per origin / per channel, top-10% overlap; the same for hha (rewrite size).
+Fixed in advance: "the location of the gain is stable" iff per-origin d_all corr >= .5 in >= 5/6 units for both Pfix and PFw; "the location is not stable" iff <= .2 in >= 5/6.
