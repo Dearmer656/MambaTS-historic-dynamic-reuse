@@ -76,19 +76,34 @@ CARRY_ARMS = {'s1_I': (1, 'I', 1), 's1_R': (1, 'R', 1), 's1_D': (1, 'D', 1), 's1
               's1_Pfix': (1, 'PF', 1), 's1_Pdiag': (1, 'PD', 1),
               's1_PST': (1, 'PST', 1), 's1_PSI': (1, 'PSI', 1), 's1_PSR': (1, 'PSR', 1),
               's1_PFc': (1, 'PF', 1), 's1_PFh': (1, 'PF', 1), 's1_Ph': (1, 'P', 1),
-              's1_PFch': (1, 'PF', 1), 's1_PFd': (1, 'PF', 1), 's1_PFw': (1, 'PF', 1)}            # Step 2: fixed u / diagonal-only                   # per-mode state gate (+ per-mode phase shift)                             #  [, rotation: False = theta 0 + per-lead readout])
+              's1_PFch': (1, 'PF', 1), 's1_PFd': (1, 'PF', 1), 's1_PFw': (1, 'PF', 1),
+              's1_PFwr': (1, 'PF', 1), 's1_PFwru': (1, 'PF', 1)}            # Step 2: fixed u / diagonal-only                   # per-mode state gate (+ per-mode phase shift)                             #  [, rotation: False = theta 0 + per-lead readout])
 D_MODES = 64
 S_ARMS = ('S_e', 'S_r')
 LS = 96                                                                  # shock-history lags of the base
 
 
 X_ARMS = {'s1_PFc': 'c', 's1_PFh': 'h', 's1_Ph': 'h',                       # x replaced by a constant / hour-of-week one-hot /
-          's1_PFch': 'ch', 's1_PFd': 'd', 's1_PFw': 'w'}                     # channel x hour index / (dmu, dls) only / window only
+          's1_PFch': 'ch', 's1_PFd': 'd', 's1_PFw': 'w', 's1_PFwr': 'w', 's1_PFwru': 'w'}   # channel x hour index / (dmu, dls) only / window only
+FROZEN_ARMS = {'s1_PFwr': ('w',), 's1_PFwru': ('w', 'u')}                # at random init: beta filter direction / + u
 GATE_FRAC = 0.1                                                         # PST / PSI / PSR: share of input-direction cells
 
 
 def lead_bucket(h, nb, dev):
     return torch.arange(h, device=dev) * nb // h
+
+
+class FixedFilter(nn.Module):
+    """a w0 . x + b: direction w0 frozen at the Linear's init, scale a and bias b trainable."""
+    def __init__(self, lin):
+        super().__init__()
+        w0 = lin.weight.data[0]
+        self.register_buffer('w0', F.normalize(w0, dim=0))
+        self.a = nn.Parameter(w0.norm())
+        self.b = nn.Parameter(lin.bias.data.clone())
+
+    def forward(self, x):
+        return self.a * (x @ self.w0)[:, None] + self.b
 
 
 class ShockSSM(nn.Module):
@@ -472,6 +487,7 @@ def run(code, seed, args):
         return
 
     xmode = [None]                                                                 # X_ARMS mode of the current arm
+    frozen = [()]                                                                  # FROZEN_ARMS of the current arm
 
     def nx_():
         return {None: nx, 'c': 1, 'h': PW * q, 'ch': -PW * q * C, 'd': 2, 'w': fc.LQ}[xmode[0]]
@@ -504,6 +520,10 @@ def run(code, seed, args):
     def train_carry(nb, kind, nh=1, rot=True):
         torch.manual_seed(seed + args.carry_seed)
         net = ShockSSM(nx_(), nb, kind, q, D_MODES, nh, rot).to(dev)
+        if 'w' in frozen[0]:
+            net.wb = FixedFilter(net.wb).to(dev)
+        if 'u' in frozen[0]:
+            net.uf.requires_grad_(False)
         if args.freeze_theta and isinstance(net.theta, nn.Parameter):
             net.theta.requires_grad_(False)                                        # keep the weekly harmonics
         prm = [p_ for p_ in net.parameters() if p_.requires_grad]
@@ -992,6 +1012,7 @@ def run(code, seed, args):
         nb, kind, nh, *rest = CARRY_ARMS[name]
         rot = rest[0] if rest else True
         xmode[0] = X_ARMS.get(name)
+        frozen[0] = FROZEN_ARMS.get(name, ())
         t_start = time.time()
         if args.load_carry:                                                        # reuse a trained carry (--dump state)
             torch.manual_seed(seed)

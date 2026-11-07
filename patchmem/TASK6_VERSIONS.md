@@ -1229,3 +1229,26 @@ Unit, gain and carry seeds as above; den = Pfix - PFh (.182/.158/.205/.112/.090/
 - (D2) PFd - PFh: the recent level / scale change suffices.
 - (D3) PFw - PFh: the window shape suffices.
 Jobs: src_x.sh <H>, out err_srcx/cs{0,1000}/.  Smoke (32 ch, 2 epochs) runs; no Codex review (MCP disconnected, CLI sandbox failure).
+
+### Content of x: results (jobs 23726 / 23727; test gain %, mean over carry seeds 0 + 1000)
+Unit order H192 s3047/2024/2025, H336 s3047/2024/2025; den = Pfix - PFh .182/.159/.205/.112/.090/.161:
+  PFch .040/.042/.029/.058/.052/.072; PFd .061/.097/.069/.099/.112/.079; PFw .240/.223/.226/.252/.162/.246; Pfix .266/.254/.268/.254/.192/.272.
+- N0 holds for all three (noise median .033 / .041 / .045 vs den median .160).
+- D1 rejected: ratio -.24/-.34/-.17/-.75/-.55/-.24.  PFch < PFh 12/12.  Caveat: 144816 table entries, each updated about once a week, so under-training is not excluded.
+- D2 rejected: ratio -.13/.01/.03/-.39/.12/-.20.
+- D3 supported (5/6): ratio .86/.80/.79/.99/.67/.84.  PFw > PFh 12/12; Pfix > PFw 10/12 (+.026).
+So beta's gain comes through the 96 h window, seen by one linear filter.
+
+### Filter and beta across carry seeds (ana_filt.py; descriptive; PFw dumps, Pfix from err_s2 + err_gate/cs1000)
+- PFw filter cos, same unit cs0 vs cs1000: .17/.13/-.27/.07/.02/-.50; over all 12 runs median .06.  No stable lag or period (largest period share .06).
+- Logit beta corr on test cells, cs0 vs cs1000: PFw .38/.15/-.34/-.54/.20/-.65; Pfix .08/.13/-.36/.15/-.18/-.69.  The gain stays while when-to-rewrite does not (e.g. H336 s2025 PFw gain .249 / .244, corr -.65).
+- Same carry seed, PFw vs Pfix corr .98/.85/.99/-.39/.69/.91: beta timing follows the carry seed more than the data.
+- |cos(u, init)| .68-.95 and u participation 24-36 of 64 modes: fixed u stays close to its random init, so the u stability across runs is largely shared init (uf init does not change with carry seed).
+Hypothesis: the specific filter does not matter; any window-driven rank-one rewrite gives the readout a useful state-input interaction (random-feature like).
+
+### Is the learned filter needed? PFwr / PFwru
+x = window, Step 2 config.  s1_PFwr: beta logit = a w0 . x + b, direction w0 frozen at the Linear's random init (differs by carry seed), scale a and bias b trainable, u trainable.  s1_PFwru: u also frozen at init.
+Unit, gain, carry seeds as above; den = PFw - PFh .156/.127/.163/.110/.060/.135.  Criteria fixed in advance (test), supported >= .7 den in >= 5/6, rejected <= .3 den in >= 5/6, else partial; N0 as before:
+- (R1) PFwr - PFh: learning the filter direction is not needed.
+- (R2) PFwru - PFh: learning the filter direction and u are not needed.
+Jobs: src_r.sh <H>, out err_srcr/cs{0,1000}/.  Smoke runs, u verified at init in the PFwru dump; no Codex review (MCP disconnected, CLI sandbox failure).
