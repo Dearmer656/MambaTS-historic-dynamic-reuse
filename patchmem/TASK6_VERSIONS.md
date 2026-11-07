@@ -1272,3 +1272,21 @@ Results (jobs 24707 / 24708; loaded-carry gains reproduce the trained ones), uni
 - rewrite size hha, same comparison: per-origin corr -.23 to .40, top-10% overlap .10-.28 (near chance).
 So carries from different seeds rewrite their state at different times but reduce the error at the same origins / cells: the stable part is which errors get corrected,
 not the internal rewrite schedule (not identifiable from the gain).
+
+### What do the stably corrected errors share? (ana_stable.py; descriptive, existing --src dumps, no training)
+S = test cells in the top 10% of d_all for both carry seeds (Pfix: err_src + Pfix_cs1000; PFw: PFw_cs0 + PFw_cs1000).  ee = remaining error after base_sh.
+Fixed in advance (unit = (H, backbone seed), 6 units, both arms):
+- (S1) "the stable cells are just the large base errors": top-10% d_all overlap cs0 vs cs1000 computed within each val decile of ee, mean over deciles.
+  Supported iff <= .2 in >= 5/6 units for both arms; rejected iff >= .3 in >= 5/6 for both (stability beyond error size); else partial.
+- (S2) "the corrected fraction is stable too": per-origin corr of sum d / sum ee, cs0 vs cs1000, >= .5 in >= 5/6 for both arms.
+Descriptive: S vs all (ee, |dmu|, |dls|, hour-of-day / day, channel concentration, run length), gain share in S, P - Pfix (cs0) share in Pfix's S.
+Results (srun cpu_intr; unit order H192 s3047/2024/2025, H336 s3047/2024/2025):
+- S is 5-8% of test cells and holds 98-255% of the net gain; the top-10% cells of one seed hold 134-218%, negative-gain cells -87 to -201%
+  (net gain = a small difference of a large gross gain and a large gross loss).
+- S1 rejected (stability goes beyond error size): within-ee-decile overlap Pfix .52/.61/.65/.75/.56/.66, PFw .63/.70/.68/.61/.65/.65 (>= .3 in 6/6), nearly the unconditioned overlap.
+  S cells have median ee only 1.9-2.3x the median; 26-30% of S is in the top-10% ee.
+- S2 holds: relative-gain per-origin corr Pfix .49/.80/.85/.92/.72/.84 (5/6), PFw .81/.84/.92/.69/.84/.77 (6/6).
+- S vs all: |dmu| .76-.90x, |dls| .58-.76x of the median (S is in calm windows, not after input jumps); top-20% channels hold .62-.72 of S;
+  S comes in runs of 7.9-9.3 consecutive hourly origins of one channel (random 1.1; top-10% ee runs 24-32 h); hour-of-day flat (4% each); day mild (Fri/Sat 15-18%, Sun/Mon 11-13% at H192).
+- P - Pfix (cs0; net diff +.04 to +.23%): share in Pfix's S -.90 to .36, in P's own top-10% d 1.25-4.98: the P increment sits on other cells than the stable Pfix gain.
+Reading: the stably corrected errors are multi-hour episodes on a subset of channels in calm input windows, selected by more than error size; which property marks them is open.
