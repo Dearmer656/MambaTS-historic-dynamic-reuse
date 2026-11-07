@@ -1266,3 +1266,9 @@ Unit order H192 s3047/2024/2025, H336 s3047/2024/2025; den = PFw - PFh .156/.127
 src_seed.sh <H>: --src for Pfix cs1000 (err_gate/cs1000 dumps) and PFw cs0 / cs1000 (err_srcx dumps); Pfix cs0 = err_src.
 Compared on test cells, cs0 vs cs1000: d_all (per-cell squared-error reduction) corr per cell / per origin / per channel, top-10% overlap; the same for hha (rewrite size).
 Fixed in advance: "the location of the gain is stable" iff per-origin d_all corr >= .5 in >= 5/6 units for both Pfix and PFw; "the location is not stable" iff <= .2 in >= 5/6.
+Results (jobs 24707 / 24708; loaded-carry gains reproduce the trained ones), unit order H192 s3047/2024/2025, H336 s3047/2024/2025, cs0 vs cs1000:
+- per-origin d_all corr: Pfix .49/.84/.88/.92/.69/.85 (>= .5 in 5/6), PFw .84/.87/.94/.72/.83/.80 (6/6).  -> "the location of the gain is stable": holds.
+- per-cell d_all corr Pfix .26-.81, PFw .53-.75; top-10% gain-cell overlap Pfix .54-.77, PFw .64-.72 (chance .10).
+- rewrite size hha, same comparison: per-origin corr -.23 to .40, top-10% overlap .10-.28 (near chance).
+So carries from different seeds rewrite their state at different times but reduce the error at the same origins / cells: the stable part is which errors get corrected,
+not the internal rewrite schedule (not identifiable from the gain).
