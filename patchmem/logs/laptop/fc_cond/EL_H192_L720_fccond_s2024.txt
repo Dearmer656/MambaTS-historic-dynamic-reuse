@@ -1,0 +1,134 @@
+commit bcac2a8
+Use GPU: cuda:0
+test 5069
+[F] (7893, 192, 321) forecasts cached (14s)
+[a] epoch 0 loss 0.9502 w 0.500
+[a] epoch 1 loss 0.9271 w 0.528
+[a] epoch 2 loss 0.9218 w 0.552
+[a] epoch 3 loss 0.9184 w 0.575
+[a] epoch 4 loss 0.9142 w 0.595
+[a] epoch 5 loss 0.9120 w 0.610
+[a] epoch 6 loss 0.9106 w 0.623
+[a] epoch 7 loss 0.9094 w 0.632
+[a] epoch 8 loss 0.9078 w 0.640
+[a] epoch 9 loss 0.9070 w 0.645
+[a] epoch 10 loss 0.9050 w 0.650
+[a] epoch 11 loss 0.9037 w 0.655
+[a] epoch 12 loss 0.9010 w 0.660
+[a] epoch 13 loss 0.9000 w 0.665
+[a] epoch 14 loss 0.8985 w 0.666
+[a] epoch 15 loss 0.8975 w 0.670
+[a] epoch 16 loss 0.8969 w 0.671
+[a] epoch 17 loss 0.8962 w 0.672
+[a] epoch 18 loss 0.8952 w 0.674
+[a] epoch 19 loss 0.8946 w 0.675
+[a] epoch 20 loss 0.8940 w 0.676
+[a] epoch 21 loss 0.8936 w 0.677
+[a] epoch 22 loss 0.8932 w 0.677
+[a] epoch 23 loss 0.8928 w 0.678
+[a] epoch 24 loss 0.8924 w 0.678
+[a] epoch 25 loss 0.8922 w 0.679
+[a] epoch 26 loss 0.8920 w 0.679
+[a] epoch 27 loss 0.8919 w 0.679
+[a] epoch 28 loss 0.8918 w 0.679
+[a] epoch 29 loss 0.8918 w 0.679
+[a] trained in 0.8 min
+[b] epoch 0 loss 0.9530 w 0.497
+[b] epoch 1 loss 0.9241 w 0.533
+[b] epoch 2 loss 0.9173 w 0.566
+[b] epoch 3 loss 0.9128 w 0.595
+[b] epoch 4 loss 0.9082 w 0.619
+[b] epoch 5 loss 0.9053 w 0.639
+[b] epoch 6 loss 0.9025 w 0.656
+[b] epoch 7 loss 0.8993 w 0.670
+[b] epoch 8 loss 0.8970 w 0.682
+[b] epoch 9 loss 0.8947 w 0.691
+[b] epoch 10 loss 0.8925 w 0.700
+[b] epoch 11 loss 0.8905 w 0.707
+[b] epoch 12 loss 0.8887 w 0.714
+[b] epoch 13 loss 0.8863 w 0.721
+[b] epoch 14 loss 0.8840 w 0.726
+[b] epoch 15 loss 0.8826 w 0.732
+[b] epoch 16 loss 0.8817 w 0.736
+[b] epoch 17 loss 0.8805 w 0.739
+[b] epoch 18 loss 0.8794 w 0.743
+[b] epoch 19 loss 0.8783 w 0.745
+[b] epoch 20 loss 0.8773 w 0.748
+[b] epoch 21 loss 0.8766 w 0.749
+[b] epoch 22 loss 0.8763 w 0.751
+[b] epoch 23 loss 0.8755 w 0.752
+[b] epoch 24 loss 0.8752 w 0.752
+[b] epoch 25 loss 0.8748 w 0.753
+[b] epoch 26 loss 0.8746 w 0.753
+[b] epoch 27 loss 0.8744 w 0.753
+[b] epoch 28 loss 0.8743 w 0.753
+[b] epoch 29 loss 0.8742 w 0.753
+[b] trained in 0.8 min
+[c] epoch 0 loss 0.9413 w 0.507
+[c] epoch 1 loss 0.9199 w 0.548
+[c] epoch 2 loss 0.9120 w 0.584
+[c] epoch 3 loss 0.9046 w 0.617
+[c] epoch 4 loss 0.8971 w 0.644
+[c] epoch 5 loss 0.8926 w 0.666
+[c] epoch 6 loss 0.8897 w 0.682
+[c] epoch 7 loss 0.8875 w 0.694
+[c] epoch 8 loss 0.8839 w 0.705
+[c] epoch 9 loss 0.8822 w 0.713
+[c] epoch 10 loss 0.8804 w 0.719
+[c] epoch 11 loss 0.8787 w 0.724
+[c] epoch 12 loss 0.8768 w 0.728
+[c] epoch 13 loss 0.8751 w 0.733
+[c] epoch 14 loss 0.8738 w 0.735
+[c] epoch 15 loss 0.8726 w 0.738
+[c] epoch 16 loss 0.8717 w 0.740
+[c] epoch 17 loss 0.8707 w 0.741
+[c] epoch 18 loss 0.8701 w 0.743
+[c] epoch 19 loss 0.8687 w 0.744
+[c] epoch 20 loss 0.8671 w 0.745
+[c] epoch 21 loss 0.8667 w 0.746
+[c] epoch 22 loss 0.8658 w 0.747
+[c] epoch 23 loss 0.8653 w 0.748
+[c] epoch 24 loss 0.8647 w 0.748
+[c] epoch 25 loss 0.8643 w 0.748
+[c] epoch 26 loss 0.8640 w 0.749
+[c] epoch 27 loss 0.8638 w 0.749
+[c] epoch 28 loss 0.8635 w 0.749
+[c] epoch 29 loss 0.8634 w 0.749
+[c] trained in 1.0 min
+[d] epoch 0 loss 0.9538 w 0.494
+[d] epoch 1 loss 0.9229 w 0.525
+[d] epoch 2 loss 0.9133 w 0.557
+[d] epoch 3 loss 0.9077 w 0.584
+[d] epoch 4 loss 0.9016 w 0.608
+[d] epoch 5 loss 0.8956 w 0.629
+[d] epoch 6 loss 0.8929 w 0.646
+[d] epoch 7 loss 0.8903 w 0.660
+[d] epoch 8 loss 0.8873 w 0.672
+[d] epoch 9 loss 0.8852 w 0.683
+[d] epoch 10 loss 0.8829 w 0.693
+[d] epoch 11 loss 0.8807 w 0.703
+[d] epoch 12 loss 0.8787 w 0.711
+[d] epoch 13 loss 0.8767 w 0.718
+[d] epoch 14 loss 0.8747 w 0.724
+[d] epoch 15 loss 0.8731 w 0.728
+[d] epoch 16 loss 0.8722 w 0.732
+[d] epoch 17 loss 0.8706 w 0.734
+[d] epoch 18 loss 0.8691 w 0.736
+[d] epoch 19 loss 0.8674 w 0.738
+[d] epoch 20 loss 0.8672 w 0.739
+[d] epoch 21 loss 0.8657 w 0.741
+[d] epoch 22 loss 0.8649 w 0.742
+[d] epoch 23 loss 0.8643 w 0.743
+[d] epoch 24 loss 0.8634 w 0.743
+[d] epoch 25 loss 0.8629 w 0.743
+[d] epoch 26 loss 0.8623 w 0.744
+[d] epoch 27 loss 0.8621 w 0.744
+[d] epoch 28 loss 0.8618 w 0.744
+[d] epoch 29 loss 0.8617 w 0.744
+[d] trained in 32.9 min
+[val] w {'a': 0.534897602835243, 'b': 0.5637419339238787, 'c': 0.5523866048644483, 'd': 0.5619568970704559}
+[test all        ] base 0.15499 | gain % a +7.180 b +4.563 c +5.017 d +4.940 | rho a 0.269 b 0.230 c 0.239 d 0.238
+[test first_half ] base 0.17023 | gain % a +9.942 b +6.411 c +7.034 d +7.336 | rho a 0.316 b 0.260 c 0.272 d 0.277
+[test second_half] base 0.13976 | gain % a +3.817 b +2.313 c +2.562 d +2.022 | rho a 0.211 b 0.191 c 0.196 d 0.190
+[crit] {'d_gt_c': False, 'd_gt_a': False, 'b_gt_a': False, 'beats_freshcast': False}  stored FreshCast gain 8.066892114441256
+[done] patchmem/logs/laptop/fc_cond/EL_H192_L720_fccond_s2024.json  peak GPU 7.5 GB, RSS 1.9 GB, 40.7 min
