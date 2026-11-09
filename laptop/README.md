@@ -26,7 +26,21 @@ Any data/seed: `bash laptop/run_errpath_shared.sh E|W SEED`. Settings are identi
 
 ErrPath-shared = O-ErrPath with the Householder path in the P-dim patch space, the same reflection for every variable (no cross-variable mixing; `R1_OBS_VSHARE=1`). See Linear PAT-307 / PAT-312.
 
-### Task 8 (current, assigned 2026-11-09): PAT-316 where FreshCast's Electricity gain comes from (no backbone training)
+### Task 9 (current, assigned 2026-11-10): PAT-319 FreshCast scorer conditioned on f / RoPE age / PaTH path (no backbone training)
+
+```bash
+git pull origin laptop && conda activate mambats
+bash laptop/run_fccond.sh         # selftest + smoke, then 3 tasks (EL H192 L720 x seeds 3047, 2024, 2025), one at a time
+PAR=2 bash laptop/run_fccond.sh   # two at a time, only if the smoke's peak GPU memory is below ~7 GB
+```
+
+`patchmem/fc_cond.py` trains four FreshCast candidate scorers on the frozen iTransformer checkpoints (same as task 8):
+a = FreshCast RKR, b = a + the backbone forecast, c = b + RoPE age query-key term, d = b + PaTH day-path query-key term.
+Hypothesis and criteria are in the file's docstring (fixed 2026-11-09 before any result). The smoke run prints peak GPU
+memory and RAM. Results are pushed after every task; rerunning the same command resumes (finished tasks are skipped).
+Task 8 below is done.
+
+### Task 8 (done, assigned 2026-11-09): PAT-316 where FreshCast's Electricity gain comes from (no backbone training)
 
 ```bash
 git pull origin laptop && conda activate mambats
