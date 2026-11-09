@@ -1,0 +1,17 @@
+Use GPU: cuda:0
+test 5069
+[F] (7893, 192, 321) forecasts cached (13s)
+[a] epoch 0 loss 1.0374 w 0.498
+[a] trained in 0.0 min
+[b] epoch 0 loss 1.0337 w 0.498
+[b] trained in 0.0 min
+[c] epoch 0 loss 1.0245 w 0.498
+[c] trained in 0.0 min
+[d] epoch 0 loss 1.0335 w 0.498
+[d] trained in 0.1 min
+[val] w {'a': 0.016540196321136787, 'b': 0.13441843568645348, 'c': 0.13705835952395962, 'd': 0.15028726049069072}
+[test all        ] base 0.15654 | gain % a +0.324 b +1.683 c +1.689 d +1.789 | rho a 0.139 b 0.132 c 0.132 d 0.135
+[test first_half ] base 0.16787 | gain % a +0.352 b +1.677 c +1.644 d +1.796 | rho a 0.142 b 0.132 c 0.130 d 0.136
+[test second_half] base 0.14576 | gain % a +0.293 b +1.689 c +1.738 d +1.782 | rho a 0.137 b 0.133 c 0.135 d 0.135
+[crit] {'d_gt_c': True, 'd_gt_a': True, 'b_gt_a': True, 'beats_freshcast': False}  stored FreshCast gain 8.625253569179998
+[done] patchmem/logs/laptop/fc_cond/EL_H192_L720_fccond_s3047_smoke.json  peak GPU 6.8 GB, RSS 1.9 GB, 0.4 min
