@@ -26,7 +26,23 @@ Any data/seed: `bash laptop/run_errpath_shared.sh E|W SEED`. Settings are identi
 
 ErrPath-shared = O-ErrPath with the Householder path in the P-dim patch space, the same reflection for every variable (no cross-variable mixing; `R1_OBS_VSHARE=1`). See Linear PAT-307 / PAT-312.
 
-### Task 7 (current, assigned 2026-10-30): PAT-315 decomp2 Pd_err, Electricity (no training of the backbone)
+### Task 8 (current, assigned 2026-11-09): PAT-316 where FreshCast's Electricity gain comes from (no backbone training)
+
+```bash
+git pull origin laptop && conda activate mambats
+bash laptop/run_fcsrc.sh          # selftest + smoke, then 6 tasks (EL H192, L720 / L96 x seeds 3047, 2024, 2025), 2 at a time
+PAR=1 bash laptop/run_fcsrc.sh    # one at a time, if two tasks together run out of GPU memory or RAM
+```
+
+`patchmem/fc_src.py` on the frozen iTransformer checkpoints (`checkpoints/iTransformer_base_EL_*_H192_*`, seed 3047 added):
+the FreshCast reproduction (same RKR recipe) with its correction split into candidates inside the backbone lookback ('in')
+and beyond it ('out'), a causal running mean of matured backbone errors (Rm, drift tracking), and both halves of the test
+period. Hypotheses and criteria are in the file's docstring (fixed 2026-11-09 before any result). The smoke run prints the
+peak GPU memory and RAM per task; two tasks at once need about twice that. Results are pushed after every task; an
+interrupted run is resumed by running the same command again (finished tasks are skipped).
+Task 7 below is done.
+
+### Task 7 (done, assigned 2026-10-30): PAT-315 decomp2 Pd_err, Electricity (no training of the backbone)
 
 ```bash
 git pull origin laptop && conda activate mambats
