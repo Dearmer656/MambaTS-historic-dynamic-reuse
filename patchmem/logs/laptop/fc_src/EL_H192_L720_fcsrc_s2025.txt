@@ -40,3 +40,7 @@ test 5069
 [val] Rm W 1344: raw a -0.0430 corr -0.0096 |g| 202.66 nonzero 0.920
 [val] Rm W 2688: raw a -0.0216 corr -0.0048 |g| 201.46 nonzero 0.920
 [val] Rm W 24 a 0.000  val sse by W [821589.8, 821589.8, 821589.8, 821589.8, 821589.8, 821589.8]
+[test all        ] base 0.15499 | gain % FC +8.513 FC_in +6.731 FC_out +5.725 Rm +0.000 joint +8.898 | align_out 0.406 mass in/out 0.662/0.338 rho FC 0.295 Rm -0.061
+[test first_half ] base 0.16918 | gain % FC +10.649 FC_in +8.487 FC_out +7.268 Rm +0.000 joint +11.217 | align_out 0.386 mass in/out 0.663/0.337 rho FC 0.336 Rm -0.081
+[test second_half] base 0.14081 | gain % FC +5.948 FC_in +4.622 FC_out +3.872 Rm +0.000 joint +6.112 | align_out 0.442 mass in/out 0.661/0.339 rho FC 0.244 Rm -0.032
+[done] patchmem/logs/laptop/fc_src/EL_H192_L720_fcsrc_s2025.json  peak GPU 6.7 GB, RSS 6.0 GB, 35.0 min
