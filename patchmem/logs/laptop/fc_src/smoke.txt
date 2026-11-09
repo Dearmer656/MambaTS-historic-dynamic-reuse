@@ -1,0 +1,17 @@
+Use GPU: cuda:0
+test 5069
+[rkr] epoch 0 loss 2.2170
+[E] (7701, 192, 321) errors cached (21s)
+[val] w {'FC': 0.003294902769737326, 'FC_in': 0.0018970276543624513, 'FC_out': 0.018065228255756134}
+[val] Rm W 24: raw a -0.0521 corr -0.0307 |g| 519.75 nonzero 0.950
+[val] Rm W 168: raw a -0.2160 corr -0.0904 |g| 369.57 nonzero 0.950
+[val] Rm W 336: raw a -0.3514 corr -0.1167 |g| 293.05 nonzero 0.950
+[val] Rm W 672: raw a -0.1156 corr -0.0293 |g| 223.65 nonzero 0.950
+[val] Rm W 1344: raw a -0.0573 corr -0.0132 |g| 202.95 nonzero 0.950
+[val] Rm W 2688: raw a -0.0471 corr -0.0108 |g| 201.97 nonzero 0.950
+[val] Rm W 24 a 0.000  val sse by W [778787.6, 778787.6, 778787.6, 778787.6, 778787.6, 778787.6]
+[warn] FC gain 0.067 vs stored 8.625 (RKR nondeterminism?)
+[test all        ] base 0.15654 | gain % FC +0.067 FC_in +0.038 FC_out +0.361 Rm +0.000 joint +0.444 | align_out 0.743 mass in/out 0.286/0.714 rho FC 0.140 Rm -0.067
+[test first_half ] base 0.16787 | gain % FC +0.073 FC_in +0.040 FC_out +0.394 Rm +0.000 joint +0.624 | align_out 0.748 mass in/out 0.288/0.712 rho FC 0.144 Rm -0.086
+[test second_half] base 0.14576 | gain % FC +0.060 FC_in +0.034 FC_out +0.324 Rm +0.000 joint +0.246 | align_out 0.737 mass in/out 0.284/0.716 rho FC 0.137 Rm -0.043
+[done] patchmem/logs/laptop/fc_src/EL_H192_L720_fcsrc_s3047_smoke.json  peak GPU 4.4 GB, RSS 5.9 GB, 0.7 min
