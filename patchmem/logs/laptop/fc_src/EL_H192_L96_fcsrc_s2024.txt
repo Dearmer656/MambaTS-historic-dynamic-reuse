@@ -1,0 +1,46 @@
+commit ae231fb
+Use GPU: cuda:0
+test 5069
+[rkr] epoch 0 loss 1.8694
+[rkr] epoch 1 loss 1.8149
+[rkr] epoch 2 loss 1.7972
+[rkr] epoch 3 loss 1.7865
+[rkr] epoch 4 loss 1.7812
+[rkr] epoch 5 loss 1.7750
+[rkr] epoch 6 loss 1.7706
+[rkr] epoch 7 loss 1.7699
+[rkr] epoch 8 loss 1.7649
+[rkr] epoch 9 loss 1.7627
+[rkr] epoch 10 loss 1.7606
+[rkr] epoch 11 loss 1.7596
+[rkr] epoch 12 loss 1.7576
+[rkr] epoch 13 loss 1.7575
+[rkr] epoch 14 loss 1.7564
+[rkr] epoch 15 loss 1.7552
+[rkr] epoch 16 loss 1.7536
+[rkr] epoch 17 loss 1.7522
+[rkr] epoch 18 loss 1.7511
+[rkr] epoch 19 loss 1.7499
+[rkr] epoch 20 loss 1.7496
+[rkr] epoch 21 loss 1.7487
+[rkr] epoch 22 loss 1.7478
+[rkr] epoch 23 loss 1.7476
+[rkr] epoch 24 loss 1.7468
+[rkr] epoch 25 loss 1.7465
+[rkr] epoch 26 loss 1.7460
+[rkr] epoch 27 loss 1.7458
+[rkr] epoch 28 loss 1.7456
+[rkr] epoch 29 loss 1.7455
+[E] (7701, 192, 321) errors cached (121s)
+[val] w {'FC': 0.6671222741388712, 'FC_in': 0.04980654476436336, 'FC_out': 0.6187130798301805}
+[val] Rm W 24: raw a -0.1022 corr -0.0591 |g| 535.25 nonzero 0.910
+[val] Rm W 168: raw a -0.1566 corr -0.0600 |g| 355.13 nonzero 0.910
+[val] Rm W 336: raw a -0.2323 corr -0.0687 |g| 273.87 nonzero 0.910
+[val] Rm W 672: raw a -0.0365 corr -0.0087 |g| 220.35 nonzero 0.910
+[val] Rm W 1344: raw a +0.0003 corr +0.0001 |g| 213.35 nonzero 0.910
+[val] Rm W 2688: raw a +0.0071 corr +0.0016 |g| 213.84 nonzero 0.910
+[val] Rm W 2688 a 0.007  val sse by W [858364.4, 858364.4, 858364.4, 858364.4, 858364.4, 858362.1]
+[test all        ] base 0.16513 | gain % FC +13.623 FC_in +0.354 FC_out +13.417 Rm -0.000 joint +13.595 | align_out 0.937 mass in/out 0.215/0.785 rho FC 0.371 Rm -0.002
+[test first_half ] base 0.17996 | gain % FC +15.885 FC_in +0.525 FC_out +15.979 Rm +0.000 joint +15.864 | align_out 0.926 mass in/out 0.219/0.781 rho FC 0.403 Rm 0.001
+[test second_half] base 0.15030 | gain % FC +10.916 FC_in +0.150 FC_out +10.351 Rm -0.001 joint +10.878 | align_out 0.953 mass in/out 0.211/0.789 rho FC 0.330 Rm -0.006
+[done] patchmem/logs/laptop/fc_src/EL_H192_L96_fcsrc_s2024.json  peak GPU 6.7 GB, RSS 6.0 GB, 49.0 min
