@@ -17,7 +17,7 @@ criteria fixed before any result (L720, seeds 3047 / 2024 / 2025, full test set)
      on the same validation origins.
      Supported: gain(Rm) >= 0.5 gain(FC) in 3/3 AND gain(FC) on the second half of the test origins > first half in 3/3.
      Rejected:  gain(Rm) < 0.25 gain(FC) in 3/3.
-  Reported, not criteria: per-half gains of every arm, candidate mass in / out, rho of each correction, joint (FC, Rm)
+  Reported, not criteria: per-half gains of every arm, candidate mass in / out, rho of each correction (Rm: raw, a-free), joint (FC, Rm)
   least squares on the validation origins (does FC add beyond Rm), L96 as a reference (there almost every candidate is
   'out'), reproduction of the stored FreshCast gain (RKR training is GPU-nondeterministic: warning beyond 0.5 pp).
 Caveat: FC_in / FC_out are counterfactual readouts of a scorer trained on all candidates, not separately trained models.
@@ -138,7 +138,10 @@ def run(code, seed, args):
     fit = {}
     for W in WINDOWS:
         g = rm_val[W].double()
-        a = min(max(float((e_val.double() * g).sum() / g.square().sum().clamp_min(1e-12)), 0.0), 1.0)
+        eg, gg = float((e_val.double() * g).sum()), float(g.square().sum())
+        print(f'[val] Rm W {W}: raw a {eg / max(gg, 1e-12):+.4f} corr {eg / max((gg * float(e_val.double().square().sum())) ** 0.5, 1e-300):+.4f} '
+              f'|g| {gg ** 0.5:.2f} nonzero {float((g != 0).double().mean()):.3f}', flush=True)
+        a = min(max(eg / max(gg, 1e-12), 0.0), 1.0)
         fit[W] = (a, float((e_val.double() - a * g).square().sum()))
     W_rm = min(WINDOWS, key=lambda k: fit[k][1])
     a_rm = fit[W_rm][0]
@@ -179,8 +182,8 @@ def run(code, seed, args):
                 hs['dd_in'] += pin.square().sum()
                 hs['dd_out'] += pout.square().sum()
                 hs['dd_x'] += (pin * pout).sum()
-                hs['ed_Rm'] += (e * drm).sum()
-                hs['dd_Rm'] += drm.square().sum()
+                hs['ed_Rm'] += (e * rm_c[j].T).sum()                                  # raw Rm (a-free): rho keeps its sign
+                hs['dd_Rm'] += rm_c[j].T.square().sum()
                 hs['mass_in'] += d['mass_in'].sum()
                 hs['mass_out'] += d['mass_out'].sum()
                 hs['n'] += e.numel()
