@@ -338,6 +338,13 @@ def run(code, seed, args):
         ost = oi.rolling(X, bcfg['P'])
         b_ages = torch.as_tensor(oi.pool_cands('phase')[0], device=dev)
     kh = torch.arange(H, device=dev)
+    LH = sorted({0, min(23, H - 1), H // 2 - 1, H - 1})                              # same leads as eval_sr --mech
+    mech = None
+    if args.mech_out:                                                                # test: per (C, H) sums + lead series
+        nt = len(test_o)
+        mech = {k: torch.zeros(C, H, dtype=torch.float64, device=dev) for k in
+                ('rr', 'FC_rd', 'FC_dd', 'B_rd', 'B_dd')}
+        mech.update({k: torch.zeros(nt, C, len(LH), dtype=torch.float16) for k in ('ser_r', 'ser_FC', 'ser_B')})
 
     def sweep(origins, w_fc=None, w_ur=None):
         acc = {k: torch.zeros((), dtype=torch.float64, device=dev) for k in
@@ -372,6 +379,16 @@ def run(code, seed, args):
                             mt, st, vh = b_arm(X, ost, t, c, b_ages, bcfg['readout'], bcfg['beta'])
                             yb = f + bcfg['a'] * (mt.double() - f) + bcfg['c'] * st.double() * vh.double()
                             acc['b'] += (y - yb).square().sum()
+                        if mech is not None:                                         # corrections vs the backbone
+                            ti = i + j
+                            mech['rr'][c] += e.square()
+                            for nm, dc in (('FC', w_fc * d), ('B', yb - f if bcfg is not None else None)):
+                                if dc is None:
+                                    continue
+                                mech[f'{nm}_rd'][c] += e * dc
+                                mech[f'{nm}_dd'][c] += dc.square()
+                                mech[f'ser_{nm}'][ti, c.cpu()] = dc[:, LH].half().cpu()
+                            mech['ser_r'][ti, c.cpu()] = e[:, LH].half().cpu()
         out = {k: float(v) for k, v in acc.items()}
         out['share'] = (share / share.sum()).tolist()
         return out
@@ -382,6 +399,30 @@ def run(code, seed, args):
         w_ur = min(max(v['eu'] / max(v['uu'], 1e-12), 0.0), 1.0)
         print(f'[val] w_fc {w_fc:.3f} w_ur {w_ur:.3f}', flush=True)
         te = sweep(test_o, w_fc, w_ur)
+    if args.ext_out:                                                                 # raw corrections, every val + test origin
+        ext_o = torch.cat([torch.arange(n_tr, n_tr + n_va - H + 1), test_o])
+        ext = {k: np.zeros((len(ext_o), C, H), dtype=np.float16) for k in ('FC', 'B')}
+        with torch.no_grad():
+            for i in range(0, len(ext_o), args.forecast_bs):
+                ob = ext_o[i:i + args.forecast_bs]
+                F = forecast(exp, Xc, Mc, ob)
+                for j, t0 in enumerate(ob.tolist()):
+                    for c in chunks(C, dev):
+                        t = torch.full_like(c, t0)
+                        sp = build(X, ws, sdesc, order, t, c)
+                        R = readout(X, ws, t, c, sp['s'], sp['p'], sp['val'])
+                        r = (model(sp['z'], sp['u'], sp['valid'])[..., None] * R).sum(1)
+                        f = F[j][:, c].T
+                        ci = c.cpu().numpy()
+                        ext['FC'][i + j, ci] = (r - f).half().cpu().numpy()
+                        if bcfg is not None:
+                            mt, st, vh = b_arm(X, ost, t, c, b_ages, bcfg['readout'], bcfg['beta'])
+                            yb = f + bcfg['a'] * (mt - f) + bcfg['c'] * st * vh
+                            ext['B'][i + j, ci] = (yb - f).half().cpu().numpy()
+        eo = Path(args.ext_out)
+        eo.mkdir(parents=True, exist_ok=True)
+        np.savez(eo / f'{code}_H{H}_L{L}_s{seed}_ext.npz', origins=ext_o.numpy(), w_fc=w_fc, **ext)
+        print(f'[ext] saved {len(ext_o)} origins', flush=True)
     n = te['n']
     base = te['ee'] / n
     if abs(base - official) > 1e-4:
@@ -402,7 +443,15 @@ def run(code, seed, args):
                n_test_origins=len(test_o), val_origins=val_o.tolist(), eps_mean=float(eps.mean()), rkr_loss=log,
                settings=dict(LQ=LQ, J=J, K=K_STEPS, N=N_SHAPE, Q=Q_DIST, sd_floor=SD_FLOOR, n_train_q=N_TRAIN_Q,
                              epochs=EPOCHS), **res)
-    p = Path(args.out_dir) / f'{code}_H{H}_L{L}_freshcast_s{seed}.json'
+    if mech is not None:
+        md = Path(args.mech_out)
+        md.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(md / f'{code}_H{H}_L{L}_s{seed}_fc.npz', leads=np.array(LH), test_origins=test_o.numpy(),
+                            **{k: v.cpu().numpy() for k, v in mech.items()})
+        for nm in ('FC', 'B'):
+            g_ = 100 * (2 * float(mech[f'{nm}_rd'].sum()) - float(mech[f'{nm}_dd'].sum())) / float(mech['rr'].sum())
+            print(f'[mech] {nm} gain {g_:+.3f}%', flush=True)
+    p = Path(args.mech_out or args.ext_out or args.out_dir) / f'{code}_H{H}_L{L}_freshcast_s{seed}.json'
     p.write_text(json.dumps(out, indent=2) + '\n')
     print(f'[done] {p}', flush=True)
 
@@ -413,6 +462,8 @@ def main():
     p.add_argument('--seed', type=int, default=3047)
     p.add_argument('--forecast_bs', type=int, default=8)
     p.add_argument('--out_dir', default='patchmem/logs/server/error_path')
+    p.add_argument('--ext_out', default='', help='save raw FC / B corrections (r - f, y_B - f) for every val + test origin')
+    p.add_argument('--mech_out', default='', help='save test corrections (sums + lead series) and the json here')
     a = p.parse_args()
     run(a.data, a.seed, a)
 

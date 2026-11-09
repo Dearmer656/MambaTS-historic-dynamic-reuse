@@ -668,3 +668,625 @@ B beats FC on 47-57% of Traffic channels at H192, 11-27% elsewhere on Traffic, 2
 FCB (nests FC_ac) is worse than FC_ac on test at T H96 / H720 (-0.5..-0.8): adding s_B does not transfer val -> test.
 Reading: B's win at T L720 H192 is not a better candidate set or weighting; FC dips at H192 (1.2-1.7 vs 2.2-2.5 at
 H96 / H336) and is seed-unstable (s3047), while B is flat (1.6-1.7 over H192 / H336). Nothing to extend.
+
+## decomp2 Pd_err: PaTH carry driven by error features (eval_decomp2.py, commits c6d5286 / 8b057ef, job 12873 + laptop task 7)
+Pd_err x = (per-bucket mean D[k]/sd_t, its change from k-1, dmu, dlogsd), train-tail standardized, clip +-5; Pd x = 96-step window.
+Test gain % vs base, s3047/2024/2025, H192 (EL L720 s2025 from laptop 2be3ef9, reproduces the cluster's shared arms exactly):
+| setting | FC | S | Pd | Pd_I | Pd_err | S(+)Pd | S(+)Pd_I | S(+)Pd_err | S->Pd_err |
+|---|---|---|---|---|---|---|---|---|---|
+| T L96 | 9.33/8.96/10.00 | 4.09/4.11/4.17 | 2.69/2.80/2.56 | 0.53/0.59/0.76 | 3.55/2.94/3.10 | 4.98/5.18/5.00 | 4.01/4.10/4.21 | 5.65/5.47/5.11 | 5.67/5.25/5.46 |
+| T L720 | 1.19/1.47/1.72 | 0.79/0.66/0.75 | 0.07/0.12/0.14 | -0.42/-0.62/-0.62 | 0.24/0.20/0.17 | 0.78/0.69/0.80 | 0.19/-0.10/-0.06 | 0.86/0.72/0.79 | 0.88/0.72/0.79 |
+| EL L96 | 14.70/13.62/14.23 | 4.25/4.20/4.29 | 2.63/3.26/2.31 | 2.70/3.76/2.95 | 3.19/3.30/3.31 | 5.36/5.67/5.29 | 5.26/5.70/5.39 | 5.63/5.63/5.73 | 5.40/5.44/5.62 |
+| EL L720 | 8.63/8.07/8.51 | 0.81/0.89/0.90 | 0.16/0.17/0.17 | 0.08/0.11/0.13 | 0.15/0.10/0.25 | 0.86/0.94/0.93 | 0.76/0.85/0.87 | 0.76/0.81/0.91 | 0.76/0.80/0.91 |
+Criterion (Pd_err > Pd and > Pd_I, 3/3): PASS T L96, T L720; FAIL EL L96 (Pd_I wins s2024), EL L720 (Pd wins s3047/2024).
+Stacked (S(+)Pd_err > S(+)Pd and > S(+)Pd_I, 3/3): PASS T L96 only (+0.67/+0.29/+0.11 over S(+)Pd); T L720 s2025 -0.01,
+EL L96 s2024 -0.04. Everything stays far below FC (best T L96 5.7 vs 9-10; EL L96 5.7 vs 14).
+
+## What the iTransformer-TEFL map learns (diag_tefl_map.py, commit ef02e9f, V100 jobs 13199 / 13200)
+g = W2 relu(W1 eps), eps = f-only error vector issued one horizon ago; TEFL_paper_L96_E192, H192, s3047/2024/2025.
+Retained share of the TEFL test gain when g is replaced by a val-fitted mimic (alpha_h per lead), base / TEFL MSE
+match tefl_metrics.json:
+| data | TEFL gain % | diag | mean | phase | last | week | amp | lin | lin r1 | lin r2 | lin r4 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ETTh2 | 4.8-5.0 | .49-.51 | .84-.87 | .58-.59 | .48-.50 | .39-.40 | .02 | .99-1.00 | .73-.97 | .97-.98 | .98-.99 |
+| ETTm1 | 9.3-9.8 | .32-.33 | .17-.18 | .09-.11 | .44-.47 | - | .03 | .93-.94 | .27-.33 | .71-.75 | .88-.89 |
+| ETTm2 | 6.4-6.6 | .37-.39 | .48-.51 | .27-.28 | .41-.43 | - | .02-.03 | .90-.91 | .47-.52 | .76-.81 | .83-.85 |
+| Weather | 7.3-7.5 | .17-.18 | .34 | .29-.30 | .36 | - | .13-.14 | .94 | .45-.46 | .66-.70 | .93-.94 |
+| Traffic | 4.8-4.9 | .13 | .02 | .06-.07 | .02 | .36-.37 | .01-.02 | .90-.91 | .25 | .36-.37 | .53-.54 |
+Criterion (a simple mimic >= 80% on 3/3): PASS only ETTh2 (mean = level shift). Common: g ~ linear in eps (R^2 .80-.95)
+although every ReLU unit switches; |g| small (std ratio .06-.3 of eps); corr(g[h], eps[h]) -0.5..-0.8 at far leads
+(pulls against the last horizon's error); input weight spread over the whole eps; gain on 99-100% of channels; amp ~ 0
+(not a forecast-amplitude rescale). Rank: ETTh2 ~1 (output profile ~constant over leads, cos -0.97), ETTm / Weather ~4,
+Traffic high (rank 4 = 53%), with 37% of A's energy on same-hour-of-day entries (chance 4%).
+
+## Value of the backbone's own errors vs TEFL (eval_err_value.py 1e6b658, eval_err_value2.py 6da9b21; V100 srun 13231/13232, 13237/13238)
+Post hoc on the frozen standalone iTransformer (L96 H192), linear predictor of e_t = E[t] (192 leads) from
+eps = E[t-H] (TEFL's input), u = one-step error history (96), D = newest observation diagonal (192), bias.
+Fit on train origins (targets inside train; Traffic last 6048), lam on val, test once; TEFL = official test MSE of the
+jointly trained TEFL_paper_L96_E192 (same test windows). Stage 1 pooled (all channels share W); stage 2 per channel
+W_c shrunk toward W_pool (lam2 on val). Test MSE improvement vs TEFL %, s3047/2024/2025:
+| data | TEFL vs base | pooled eps | pooled all | per-ch eps+D | per-ch all | per-ch all vs base |
+|---|---|---|---|---|---|---|
+| ETTh2 | +1.8..1.9 | +5.7/+6.2/+5.9 | +5.2/+6.2/+5.6 | +6.6/+7.1/+6.8 | +6.0/+7.0/+6.4 | +7.7/+8.7/+8.2 |
+| ETTm1 | +5.2..5.9 | -0.3/-0.3/+0.9 | +0.4/+0.7/+2.1 | +0.9/+0.5/+2.2 | +0.4/+0.3/+2.7 | +6.2/+6.2/+7.7 |
+| ETTm2 | +7.1..7.4 | -0.9/+0.7/-0.9 | -0.0/+2.5/+2.5 | +1.0/+4.0/+4.4 | +0.8/+4.2/+4.1 | +7.8/+11.0/+11.2 |
+| Weather | +6.2..7.3 | -1.1/-1.2/-1.6 | +1.6/-0.2/-0.4 | +6.8/+3.5/+3.3 | +6.8/+3.8/+3.8 | +13.2/+9.8/+10.8 |
+| Traffic | -1.6..-2.2 | +5.8/+5.9/+5.4 | +6.0/+6.1/+5.5 | +5.8/+5.9/+5.4 | +6.0/+6.0/+5.5 | +4.0/+4.0/+4.0 |
+Criterion (arm < TEFL on 3/3 seeds, per dataset): per-channel eps+D and per-channel all PASS on 5/5 datasets; pooled all
+fails ETTm2 (s3047 -0.04) and Weather (2/3). Fresh D adds to eps on ETTm1/ETTm2/Weather; per-channel heads matter on
+Weather / ETTm2 (lam2 0.1-1), not on ETTh2 / Traffic (lam2 10-100). Smallest margin ETTm1 (+0.3..+2.7).
+Codex: no leakage (feature targets <= t-1, fit targets inside train, lam on val); test moments are computed before
+selection but never enter it.
+
+## Direction A: delayed / partial feedback, horizon sweep (code 3eb4635; jobs 13507 H96 bases, 13543 / 13544 sweep)
+Question: at origin t the error information is a triangle (a forecast issued at t-k has k observed leads); TEFL reads
+only the fully matured eps = E[t-H]. If the fresh part (u, D) is the structural value, its gain must grow with H.
+Delta(H) = gain(all) - gain(eps), pooled arms (same ridge / val-lam protocol as above), H in {96, 192, 336, 720},
+datasets E M1 M2 W T EL, seeds 3047/2024/2025; T / EL keep 5665 train origins at every H (m_tr = 5664 + 2H).
+Pre-registered criterion: A holds iff on >= 4/6 datasets Delta(720) > Delta(96) on 3/3 seeds AND 3-seed mean
+Delta(720) >= 1.0 pp there. Secondary: per-channel Delta (E M1 M2 W). Outputs patchmem/logs/server/err_value/hsweep.
+H192 rerun reproduces the stage-1 numbers (E s3047 eps +7.38%, all +6.94%). Codex: no bugs (comment off-by-one fixed).
+Result (72 + 48 runs, jobs 13543 / 13544 / 13548), Delta(H) pp, s3047/2024/2025:
+| data | H96 | H192 | H336 | H720 |
+|---|---|---|---|---|
+| ETTh2 | -0.19/+0.54/+1.02 | -0.44/-0.10/-0.23 | -2.03/-1.83/-2.01 | +1.17/+1.86/-5.29 |
+| ETTm1 | +1.38/+2.46/+2.79 | +0.65/+0.90/+1.08 | +1.09/+1.40/+0.68 | -0.18/-0.26/-3.56 |
+| ETTm2 | +2.18/+1.97/+2.92 | +0.81/+1.67/+3.12 | +0.11/+1.35/-0.23 | +0.17/-0.44/+0.33 |
+| Weather | +0.76/+1.31/+1.33 | +2.48/+0.94/+1.08 | +1.30/+0.91/+1.21 | +0.17/+0.73/+0.42 |
+| Traffic | +0.40/+0.41/+0.43 | +0.20/+0.16/+0.11 | +0.21/+0.17/+0.20 | +0.24/+0.38/+0.29 |
+| EL | +0.69/+0.72/+0.72 | +0.21/+0.06/+0.17 | -0.02/+0.18/+0.70 | -0.24/-0.42/-0.23 |
+Criterion: Delta(720) > Delta(96) 3/3 on 0/6 datasets -> A FAILS (and is EFC's own motivation anyway). The fresh-error
+gain shrinks with H (largest at H96); at H720 the 'all' arm (1537 features) can lose to eps alone (val-chosen lam
+overfits: ETTh2 s2025 -5.3, ETTm1 s2025 -3.6).
+
+## Lead structure of the forecast error (diag_err_lead.py f48ed84, plot_err_lead.py; jobs 13560 / 13561)
+Frozen standalone iTransformer L96, train + val origins only (test never streamed), pooled H x H covariance of
+orig e_o = E[o, :], diag d_t = E[t-1-l, l] (all forecasts of y[t-1]), pred = ridge 'all' prediction (lam 0.1, fit on
+train, on val), resid = e - pred.  R_nb = variance kept by nb equal lead buckets (R1 = common shift), PR = eff. dim.
+3 seeds agree to +-0.01.  s3047 (H192 / H720):
+| data | orig R1 | orig top3 | orig PR | diag R1 | pred R8 | pred PR |
+|---|---|---|---|---|---|---|
+| ETTh2 | .45/.47 | .69/.67 | 3.6/3.4 | .81/.75 | .63/.79 | 3.5/2.2 |
+| ETTm1 | .34/.38 | .58/.55 | 5.7/5.2 | .81/.75 | .74/.69 | 5.0/2.2 |
+| ETTm2 | .51/.50 | .73/.72 | 2.9/3.1 | .76/.70 | .79/.76 | 2.5/2.0 |
+| Weather | .30/.29 | .53/.44 | 7.6/8.8 | .86/.80 | .94/.81 | 2.1/1.7 |
+| Traffic | .06/.06 | .14/.13 | 65/101 | .89/.86 | .22/.21 | 12.5/15 |
+| EL | .21/.23 | .34/.35 | 15/14 | .81/.77 | .37/.35 | 9.9/10 |
+Rules: shared in H (orig R1 >= .8) FAIL 6/6; low-dim (top3 >= .9) FAIL 6/6; 8 lead buckets keep the predictable part
+(pred R8 >= .9) PASS only Weather H192.  The same-target errors ARE shared (diag R1 .70-.89): the error is mainly a
+property of the target time, and one forecast's lead correlation is ~Toeplitz in the lead gap with stripes at 24 h
+(Traffic / EL; 96 steps on ETTm1) -> a shock series indexed by target time, with daily recurrence.  Predictable part:
+Traffic / EL = pure 24-periodic stripes (lead buckets destroy it, R8 .2-.4); Weather = smooth near-constant offset;
+ETT = smooth + periodic, PR 2-5.  Figures patchmem/logs/server/err_lead/figures/err_lead_corr_H{192,720}_s3047.png.
+
+## Two-granularity error model (eval_sr.py, commit 1422489; check diag_shock_ridge.py) — design, runs 13953-13956
+From the lead structure: E[o, h] = s_{o+h} + r[o, h], s_tau = mean of the observation diagonal of tau (one new value per
+step and channel; energy share of s 0.81 on ETTh2).  Shock layer (target-fixed, carried over time): base_sh = closed-form
+ridge from the shock history s_(t-1-j), j < 96, to E[t] (design (a), user choice); on rho = E - base_sh a learned carry
+of 64 damped-rotation modes (RoPE view of the daily stripes), arms differing only in the state-driven transition part:
+s1_R none, s1_D scalar decay g(x), s1_P PaTH I - b(x) u u^T (b in (0, 2), generalised Householder as in PaTH).
+Residual layer (origin-fixed, state -> error): input-window top-k retrieval, value S_e = rho[o] or S_r = r[o].
+Criteria (fixed, dataset counts iff 3/3 seeds, claim holds iff >= 4/6): C1 s1_P > s1_R and s1_D; C1b s1_P > base_sh;
+C2 shock history 'sh' > full diagonal 'D' (diag_shock_ridge); C3 S_r(+)s1_P > S_e(+)s1_P; C4 S_r(+)s1_P vs TEFL and
+ridge 'all' (>= 4 of the datasets with the baseline).
+Pre-run checks (s3047, not part of the criteria): learned carries without a closed-form base stayed at -0.3..+0.9 % on
+ETTh2 (phase table and SSM); linear ridge on the shock history: ETTh2 sh +7.95 / D +5.92 / Dm +0.24 / eps +7.48 /
+sh+eps +8.56; ETTm1 +2.87 / +1.52 / -0.11 / +5.56 / +6.94; Weather +5.62 / +4.86 / +0.73 / +5.80 / +7.44.
+Codex: no causality / split / indexing issue; Traffic memory -> T alone per job (64G).
+
+### Results (runs 13953-13956, EL s2025 rerun 14079 after a 4 h timeout): test gain %, mean of 3 seeds
+| data | base_sh | s1_R | s1_D | s1_P | S_e | S_r | S_e(+)s1_P | S_r(+)s1_P | TEFL | ridge all |
+|---|---|---|---|---|---|---|---|---|---|---|
+| E | 8.14 | 8.12 | 8.06 | 7.90 | 8.84 | 7.29 | 8.62 | 7.10 | 1.85 | 7.41 |
+| M1 | 2.89 | 2.23 | 2.52 | 2.44 | 8.30 | 2.36 | 7.87 | 2.01 | 5.63 | 6.61 |
+| M2 | 7.28 | 7.19 | 7.18 | 7.04 | 10.31 | 7.52 | 10.09 | 7.33 | 7.17 | 8.70 |
+| W | 5.61 | 5.41 | 5.57 | 5.60 | 9.69 | 6.26 | 9.66 | 6.26 | 6.80 | 7.09 |
+| T | 2.27 | 2.27 | 2.28 | 2.45 | 6.84 | 3.72 | 6.94 | 3.89 | -1.96 | 4.01 |
+| EL | 3.80 | 3.63 | 3.80 | 3.80 | 9.18 | 5.01 | 9.18 | 4.99 | — | — |
+Criteria (3/3 seeds per dataset):
+- C1 PaTH carry > R and D: Traffic only (1/6) -> FAIL.  C1b s1_P > base_sh: Traffic only (+0.15..0.23 pp) -> FAIL.
+- C2 shock history > full diagonal: E M1 W T (M2 2/3, EL 2/2, s2025 ridge check not rerun) -> HOLDS (4/6).
+- C3 S_r(+)s1_P > S_e(+)s1_P: 0/6 -> FAIL (retrieving the whole remaining error beats retrieving r everywhere).
+- C4 S_r(+)s1_P vs TEFL and ridge 'all': 0/5 -> FAIL.
+Energy share of the shock s in E: 0.76-0.89 (T 0.89, W 0.85, E/M1/EL 0.81, M2 0.76-0.78).
+Not a criterion: S_e (base_sh + input-window kNN of rho) beats TEFL and ridge 'all' on 5/5 datasets, 3/3 seeds (+1.0..3.0
+pp over ridge), k mostly at the grid edge 256 (T 16-64, EL 64).  Not pursued: it is kNN error retrieval (RATL/RACE type).
+What the carry learned (--dump, eval_sr --dump; analyze_carry_dump.py; E, W s3047, job 14038; E reproduces bit-exact, W carry
+arms differ 0.1-0.2 % run to run): theta left the weekly harmonics (median 4-11 spacings) to short modes (period 2.4-9 h,
+memory 3-8 h) that differ between arms; tau shrank (median 37 h -> 22-28 h); PaTH beta stays at init (median 0.23 / 0.31,
+bias -2.04 / -1.69), Householder moves 1.6-1.8 % of |z| per step, cos(u_t, u_t-1) median 0.95 / 0.997 (u ~ constant, not
+state driven); D gate median 0.997 with rare resets (W q10 0.04); carry readout rms = 0.6-4 % of rho rms.
+Conclusion: after the linear shock base nothing carry-able is left; the state-driven transfer has no role on these
+benchmarks (earlier carries without the base did not learn either).  PAT-315 carry line stopped; direction pending user.
+
+## Is the carry's failure the data or its training? fixed-rotary shock ridge (diag_rot_ridge.py) — design, jobs 15176-15178
+Code check of eval_sr (user asked for a bug): no indexing bug, but two training defects that block periodic lags:
+truncated BPTT of one day (gradient to B / theta / rho only from lags < 24 q: weekly lags unreachable, daily at the edge)
+and Adam lr 3e-3 on theta vs the harmonic spacing 2 pi / (PW q) (0.037 rad hourly) -> theta drifts (dump: 4-11 spacings).
+Training-free check: theta, rho frozen at the s1_R init, z_j = rho e^(i theta) z_(j-1) + (1 - rho) s_j (64 modes, memory
+4 h .. 2 weeks), ridge to E[t] as diag_shock_ridge (pooled channels, train fit, lam on val, test once), same origins for all
+arms (warm-up 6 weeks + H).  Arms sh (96 lags), rot, sh+rot, sh+tail (z_(t-97): only shocks older than the lags).
+Criterion (fixed): sh+rot - sh >= 0.3 pp, 3/3 seeds, >= 4/6 datasets -> the carry failure is training, fix BPTT/theta
+and rerun R/D/P; else the 96 lags already hold the periodic information.  Codex: tail arm, longer warm-up, T 110G.
+Results (jobs 15176-15178, all 18 runs): test gain %, seeds 3047 / 2024 / 2025
+| data | sh | rot | sh+rot | sh+tail | sh+rot - sh (pp) |
+|---|---|---|---|---|---|
+| E | 7.79 / 8.27 / 8.26 | 4.26 / 4.66 / 4.15 | 7.88 / 8.35 / 8.35 | 8.43 / 8.90 / 8.85 | 0.09 / 0.08 / 0.09 |
+| M1 | 3.05 / 3.05 / 3.43 | 5.35 / 5.36 / 6.09 | 5.32 / 5.31 / 6.04 | 5.57 / 5.58 / 6.29 | 2.27 / 2.26 / 2.61 |
+| M2 | 6.93 / 7.68 / 7.05 | 8.17 / 9.10 / 8.58 | 8.13 / 9.03 / 8.44 | 8.94 / 10.27 / 10.22 | 1.19 / 1.35 / 1.39 |
+| W | 5.40 / 4.90 / 5.94 | 6.84 / 6.10 / 7.04 | 5.77 / 5.57 / 6.79 | 7.19 / 6.40 / 7.26 | 0.37 / 0.67 / 0.85 |
+| T | 2.30 / 2.19 / 2.28 | 1.85 / 1.76 / 1.83 | 3.07 / 2.93 / 3.03 | 3.53 / 3.43 / 3.51 | 0.76 / 0.74 / 0.75 |
+| EL | 3.76 / 3.83 / 3.84 | 2.42 / 2.50 / 2.48 | 4.20 / 4.27 / 4.28 | 4.81 / 4.89 / 4.87 | 0.44 / 0.45 / 0.44 |
+Criterion holds 5/6 (all but ETTh2): the fixed rotary state carries shock information beyond the 96 lags, mostly from
+shocks older than the lags (sh+tail >= sh+rot everywhere; sh+rot is hurt by one shared lam over overlapping blocks).
+On M1 / M2 / W the 96 lags cover only 24 h / 24 h / 16 h, so base_sh never saw the daily lag.  -> the learned carries'
+null result was their training (BPTT one day, theta drift), not the data.  Next (to confirm with user): carry with
+theta frozen, BPTT >= one week, on top of a base that already contains the fixed rotary state.
+
+## eval_sr v2: carry on top of the fixed rotary base (user: 跑) — design, jobs 15581-15584
+--base shrot: base ridge = 96 shock lags + fixed rotary state, block rot (z_(t-1)) or tail (z_(t-97)) chosen with lam on
+val, train moments after a 6-week warm-up; --freeze_theta (weekly harmonics kept); --bptt_h 168 (one week).  Arms s1_R /
+s1_D / s1_P and S_e / S_r unchanged; criteria C1 / C1b / C3 / C4 unchanged (3/3 seeds, >= 4/6).  Defaults reproduce v1.
+Codex: no correctness issue (defaults kept, Zr causal, bias last, same columns in fit and subtraction); memory T 110G.
+Note: one-week BPTT gives ~7x fewer optimizer updates per epoch than v1 (epochs kept at 10).
+Results v2 (jobs 15581-15584, 18/18): test gain %, mean of 3 seeds (base block chosen on val: sh+rot on M1, sh+tail else)
+| data | base | s1_R | s1_D | s1_P | S_e | S_e(+)s1_P | S_r(+)s1_P | TEFL | ridge all |
+|---|---|---|---|---|---|---|---|---|---|
+| E | 8.81 | 8.20 | 8.24 | 8.39 | 9.45 | 9.08 | 7.58 | 1.85 | 7.41 |
+| M1 | 5.55 | 5.49 | 4.61 | 6.47 | 10.72 | 10.83 | 5.55 | 5.63 | 6.61 |
+| M2 | 9.81 | 9.70 | 9.32 | 9.99 | 11.75 | 11.81 | 10.17 | 7.17 | 8.70 |
+| W | 6.94 | 7.15 | 7.13 | 7.89 | 10.70 | 11.25 | 8.47 | 6.80 | 7.09 |
+| T | 3.49 | 3.49 | 3.53 | 4.38 | 7.39 | 7.65 | 5.31 | -1.96 | 4.01 |
+| EL | 4.85 | 4.86 | 4.85 | 4.94 | 9.50 | 9.54 | 6.04 | — | — |
+Criteria (3/3 seeds): C1 P > R, D: M1 M2 T (E fails s3047 by 0.02 vs D, W s2024, EL s2025) -> 3/6 FAIL;
+C1b P > base: M1 T W -> 3/6 FAIL (E: carry overfits, train loss P 0.49 -> 0.46-0.48 but test below base);
+C3 0/6 FAIL; C4 S_r(+)s1_P > TEFL and ridge: M2 W T -> 3/5 FAIL.
+Versus v1: PaTH now learns (train loss drops, R stays flat); on M1 / W / T s1_P - base = +0.92 / +0.95 / +0.89 pp while
+R and D add ~0 there, i.e. the gain is the state-driven Householder, not the rotation.  Misses: E (overfit, no
+early stopping on val), EL (~+0.1).  S_e(+)s1_P > S_e on M1 / W / T / EL.
+
+## Traffic long lookback (user: focus on Traffic, L = 720, H = 192 / 336) — eval_sr v3 dev, docker branch fc83e75
+Why: at L720 the other methods' gains shrink (FreshCast 1.5-2.5 %, B ~1.7 %, residual ICL 0.4 %); the short-input
+"weekly history substitute" no longer explains a gain, so a carry gain there is the state-dependent part.
+v3 code (bd1611d): ITR_L lookback; s1_P2 / s1_P4 = 2 / 4 Householders per step (T_t = H_1 ... H_nh; 2 reflections can
+express a state-driven rotation = phase shift of a periodic mode); --early_stop (epoch with the best val MSE of the carry
+alone); FreshCast / B refs (--fc_dir).  Smoke (job 16106, ETTh2 2 ch, 2 epochs): all arms run, early-stop log ok.
+Dev protocol: Traffic L720 H192 / H336 x 3 seeds, arms s1_R / s1_D / s1_P / s1_P2, flags shrot + freeze_theta + bptt 168
++ early_stop; choices made on VAL only.  Runs on the docker A6000 (branch docker: data, 6 frozen checkpoints, refs,
+docker/run_traffic_dev.sh pushes patchmem/logs/docker/sr3/ after every run).  Confirmation on unseen settings
+(other traffic datasets / H) to be fixed after dev.
+
+### Server 3090 arms (user: why PaTH on z at all?) — commit 20d0632, jobs 16258-16260
+Question: z is already a per-frequency periodic memory (LTI under Lam); PaTH should only edit it when the state says the
+periodic pattern fails (reset a band, shift a phase, move energy between harmonics).  Householder in the mixed 128-d
+coordinates is an indirect parameterisation of these edits, and D (one scalar gate) was a weak control.  New arms:
+s1_G per-mode state gate g_k(x) (bias 6), s1_GF gate + per-mode phase shift delta_k(x) = pi tanh(.) (zero init) =
+"selective rotary" (complex diagonal selective SSM); s1_Ponly = no Lam (theta 0, rho kept), per-lead readout C_h z_t
+(compound ablation: rotation + extrapolation).  Same flags as the docker dev (shrot, freeze_theta, bptt 168,
+early_stop), Traffic L720 H192 / H336 x 3 seeds, s1_P rerun as the same-machine anchor.  Smoke 16246 ok.
+Reading (val for choices): G / GF >= P -> per-frequency selectivity suffices, Householder not needed; P clearly better
+-> cross-frequency mixing is the reason for PaTH.
+
+## Amplitude miscalibration check: one scalar alpha (diag_amp_scale.py, plot_amp_scale.py; job 17149)
+Frozen iTransformer L96 H192, raw y' = alpha y^ vs centered y' = mu + alpha (y^ - mu) (mu = input-window mean), one
+alpha per dataset+seed, grid 0.7..1.3 step .025, chosen on val, test once (base = official). Test gain %, s3047/2024/2025:
+| data | raw alpha | raw gain | centered alpha | centered gain |
+|---|---|---|---|---|
+| Weather | .800/.775/.775 | 3.19/2.02/2.41 | 1.025/.950/.925 | -0.09/0.38/0.69 |
+| Traffic | .975 x3 | 0.29/0.23/0.29 | .975 x3 | 0.17/0.12/0.18 |
+| ETTh2 | .975 x3 | 0.84/1.01/0.82 | 1.000/1.025/1.025 | 0.00/-0.14/-0.15 |
+| ETTm1 | .900 x3 | 0.97/0.81/0.96 | 1.050/1.050/1.025 | -0.49/-0.44/-0.18 |
+Raw scaling improves 12/12 runs with the same alpha across seeds; centered scaling (the amplitude test: periodic swing
+around the local level) is ~0 or negative (ETTh2 / ETTm1 prefer alpha >= 1, test worse; Traffic +0.12..0.18; Weather mixed).
+Reading: the raw gain is shrinkage of the forecast toward 0 = the train mean in the standardised scale (a level / bias
+correction, largest on Weather), not an amplitude miscalibration of the periodic part.  Decision per the plan: amplitude
+miscalibration does not explain the periodic forecast error -> direction stopped, no model complexity added.
+Codex: formulas and splits ok; test curve removed from the outputs (test only at the val-chosen alpha).
+Results (jobs 16258-16260; 6/6 complete): Traffic L720 test gain % vs backbone
+| H / seed | base | P | G | GF | P_only | S_e | S_e(+)P | FC | B |
+|---|---|---|---|---|---|---|---|---|---|
+| 192 / 3047 | 0.01 | 0.42 | 0.07 | 0.02 | -0.26 | 1.40 | 1.71 | 1.19 | 1.61 |
+| 192 / 2024 | 0.02 | 0.47 | 0.09 | 0.03 | -0.22 | 1.24 | 1.56 | 1.47 | 1.68 |
+| 192 / 2025 | 0.03 | 0.50 | 0.03 | 0.03 | 0.03 | 1.34 | 1.66 | 1.72 | 1.69 |
+| 336 / 3047 | 0.24 | 0.54 | 0.20 | 0.24 | -0.02 | 1.18 | 1.42 | 1.30 | 1.65 |
+| 336 / 2024 | 0.05 | 0.34 | 0.14 | 0.06 | -0.49 | 1.04 | 1.24 | 2.09 | 1.70 |
+| 336 / 2025 | 0.21 | 0.47 | 0.18 | 0.21 | -0.12 | 1.17 | 1.39 | 2.53 | 1.62 |
+- P > G, GF on val and test in every run: the PaTH gain is the non-diagonal (cross-frequency) Householder mixing; per-mode
+  gate / phase shift (selective rotary) ~ base.
+- S_e(+)P - S_e = +0.2..0.3 pp in every finished run (complementary); H192 vs FC / B mixed, H336 far below FC (2.1-2.5).
+- Selection problem: P_only has the lowest val MSE in 4/5 runs (best epoch 0-1) but is below base on test (to -0.49):
+  val fits b and picks the epoch and differs from test -> a val-only rule would pick the wrong arm.  Proposal (pending
+  user): split val into a fit half (b) and a selection half.
+- Docker R / D / P2 runs: nothing pushed yet.
+
+## PAT-315 PaTH mechanism analysis (user plan, 3 steps in order) — Step 1 diagnostics, commit 2611ace, jobs 17448-17450
+Carry parameters of jobs 16258-16260 were not saved -> the same config / seeds are rerun with --dump --mech (arms s1_P,
+s1_GF; Traffic L720 H192, 3 seeds); the rerun must reproduce the err_sr3 test MSE (GPU nondeterminism aside).
+eval_sr: ShockSSM.trans() = T_t split out of step (same ops); --mech records on test, per rotary mode, the change of
+complex amplitude / phase across T_t (raw and energy-weighted), and for P the self vs cross-mode part of beta u u^T z;
+after all arms an exact decomposition on test with the json coefficients: r_tot = E, d_tot = base + extra; r_inc = E - base,
+d_inc = extra; sums per (channel, lead) + fixed-lead (0/23/95/191) series of r and d.  Smoke 17444: decomposition equals
+the json test MSE of every method.  analyze_path_mech.py: gain = align (2<r,d>) - energy (<d,d>), corr rho / size s (gain
+<= rho^2 at s = rho), per lead / channel; Hilbert per fixed lead x channel after FFT band-pass (daily 20-28 h, weekly
+140-196 h): PLV, amplitude ratio, lag (> 0: correction lags r); mode plots.  Codex: mode-name parsing, fp32 readout for an
+exact decomposition, lag sign -> fixed.
+Step 1 results (jobs 17448-17450; reruns reproduce err_sr3 P / GF test MSE exactly; decomposition = json test MSE exactly).
+Beyond base (r = E - base), Traffic L720 H192, s3047 / 2024 / 2025:
+| method | gain % | align 2<r,d> | energy <d,d> | rho | s | gain / rho^2 |
+|---|---|---|---|---|---|---|
+| P | .41/.45/.48 | .73/.72/.97 | .32/.27/.49 | .065/.069/.069 | .057/.052/.070 | .99/.94/1.00 |
+| GPhi | .003/.008/.001 | .012/.017/.013 | .009/.009/.012 | .006/.009/.006 | .009/.010/.011 | .78/.99/.23 |
+| S_e | 1.39/1.22/1.31 | 3.42/3.16/3.34 | 2.03/1.95/2.03 | .120/.113/.117 | .142/.140/.143 | .96/.95/.95 |
+| S_e+P | 1.69/1.54/1.64 | 4.00/3.70/4.03 | 2.31/2.17/2.40 | .132/.126/.130 | .152/.147/.155 | .98/.97/.96 |
+- Amplitude is not the difference: every method sits at its optimal size (gain ~ rho^2, s ~ rho; the val-fitted bucket
+  coefficient sets it).  P vs GPhi is entirely alignment rho (.065-.069 vs .006-.009).
+- Per lead: GPhi helps only lead 0 (1.5-2.3 %), ~0 elsewhere; P 0.7 % (h0-23), 0.45 (h24-95), 0.33-0.46 (h96-191).
+- Parseval split of <r, d> along time (fixed lead): P at h0 is 85-99 % non-harmonic (transient); at h23/95/191 75-100 %
+  sits on the daily / weekly harmonics (24/k, 168/k +-4 %), mostly the higher daily harmonics (12, 8, 6 h ...) since the
+  20-28 h band carries ~0 beyond h23.  S_e: ~60 % harmonic / 40 % non-harmonic at every lead.
+- Hilbert daily band (fundamental): PLV of P is not above GPhi (h0 .48-.69 vs .51-.82), and both amplitude ratios -> 0
+  beyond h23 -> P's gain is not a better phase of the daily fundamental.
+- Rotary modes across T_t (test, energy-weighted): P edits little per step (|d phase| .03 rad, d log amp -.011..-.014,
+  energy ratio ~1); its update is 98 % cross-mode, which equals the share of a random direction (1 - 1/64): not evidence by
+  itself.  GPhi rotates modes a lot (|d phase| 1.0-1.3 rad / step, damps) yet its readout aligns with r only at lead 0.
+Answer (Step 1): P's improvement is alignment, not amplitude; the aligned content beyond lead 0 is the higher daily /
+weekly harmonics of the error waveform (shape), not the phase of the daily fundamental; per-mode gate + phase (GPhi)
+cannot reproduce it.  Consistent with, but not proof of, cross-mode mixing -> Step 2.
+
+### Step 2: isolate state-dependent cross-mode mixing — commit bd144b6, jobs 17937-17939
+Arms (same frozen iTransformer L720, shrot base, theta frozen, BPTT 168, early stop): GPhi (per-mode gate + phase),
+P (I - beta_t u_t u_t^T), P_fixed_u = s1_Pfix (I - beta_t u u^T, one global trainable u; 548 params vs 13092),
+P_diag = s1_Pdiag (I - beta_t diag(u_t^2), the same generator as P; 13092 params).  --val_split: val in time order ->
+val_fit (first half: retrieval a, carry b, joint a/b) and val_select (second half: base block/lam, k, epoch, reported
+val_mse); test untouched.  Traffic L720 H192 / H336 x 3 seeds; --mech / --dump for P / Pfix / Pdiag (beta_t, u drift,
+self vs cross-mode).  Smoke 17923 ok (decomposition = json).  Codex: PD diagnostics and P2/P4 dump path fixed.
+Acceptance (user): P > P_fixed_u stably -> input-dependent direction matters; P > P_diag stably -> non-diagonal
+coupling necessary; ties -> drop the dynamic cross-mode claim.  P_only not used as evidence.
+
+### Carry LR diagnosis — job 18142 (elm72, 1 GPU)
+Question (user): is the flat carry train loss an LR problem (too large / oscillating)?  Evidence before: s1_P train loss only
+0.3-1.1% below the zero-carry reference (mean E^2 on train targets 0.19867/0.19746/0.19710, carry_zero_ref.py), saw-tooth across
+epochs; s1_GF ~0.  New flags (defaults bit-identical): --lr, --lr_sched cos (per epoch), --warmup N (linear over updates, ~476
+updates per epoch), --log_updates (per-update loss + grad norm).  s1_P, Traffic L720 H192 s3047, Step 2 settings, configs:
+const 3e-3 (reference) / 1e-3 / 3e-4 / 1e-4, cos+warmup500 at 3e-3 and 1e-3.  Output patchmem/logs/server/err_lr/<cfg>/.
+Fixed criterion: LR is the cause only if some config gives a train-loss reduction >= 2% vs zero carry (reference best ~0.8%)
+with a steady decrease AND a val_select gain clearly above the reference; otherwise the ceiling is the model/target, not LR.
+Test MSE reported but not used to pick an LR.
+
+### FC / B vs PaTH correction analysis — commit 392ba37, job 18184 (elm82)
+eval_freshcast --mech_out (FC rerun: test gain 1.110/1.502/1.722% vs original 1.188/1.47/1.72%, GPU nondeterminism in
+train_rkr; B identical 1.610/1.679/1.690%) + merge_fc_mech.py -> patchmem/logs/server/err_fc_mech (all corrections vs the
+backbone; error series match eval_sr to fp16).  Traffic L720 H192, seeds 3047/2024/2025:
+- decomposition: P rho .066/.071/.071, s .058/.053/.070, eff ~1.  FC rho .135/.140/.148 (2x P) but s .219/.208/.215 > rho ->
+  eff .61/.77/.79 (over-scaled: optimal-scale gain 1.82/1.96/2.18% vs actual).  B rho .128-.131, eff ~1.  S_e+P rho .127-.132 ~ B.
+- per lead: FC lead 0 -11.5/-9.8/-9.4% (B -2.4/-2.0/-1.3%), P lead 0 +1.3..+2.0%.  Mean h0-23: P .65-.69, FC .44-1.02,
+  B .80-1.02; h24-95: P .48-.54, FC 1.71-2.15, B 1.82-1.88; h96-191: P .34-.49, FC .77-1.54, B 1.52-1.74.
+- Hilbert daily band: lead 0 PLV P .55-.71 > FC .39-.41 > B .29-.32, but P amp ratio .12-.15 vs FC .62-.66; lead 191 P PLV
+  .23-.25 amp .01-.02 vs FC .29 amp .26-.29.  Weekly lead 191: P PLV .49-.67 amp .02-.04, FC .46-.52 amp .26-.31.
+- band split of the alignment: FC / B at h23-191 ~half harmonic, half non-harmonic; at lead 0 their 28-140 h part is negative.
+Reading: FC's advantage = 2x correlation sustained over mid/long leads; P is best at lead 0 but its periodic-band
+correction fades with lead (readout C Lambda^(h+1) damps by rho^(h+1)).  The two are complementary in lead.
+
+- 2026-11-03: LR diagnosis job 18142 and zero-ref job 18168 cancelled by the user (direction under review). Only result: L720 s3047 mean rho^2 = 0.19856 vs mean E^2 0.19867, so the E^2-based carry percentages stand.
+
+### Error correlation vs target / lead gap (err_corr_lag.py, Traffic L720 H192, 3 seeds, train/val/test descriptive)
+- same lead, target gap d: AR-like decay d1 .56-.63, d2 .30-.37, d6 .06-.11, d12 .02-.05 (all leads); daily peaks only at long
+  leads (h95 d24 .16/.20/.27-.28, h191 d24 .21/.22-.23/.31-.32 train/val/test), peaks at 24k up to 168 h then gone; lead 0 and
+  lead 23 almost no periodicity.  Test has stronger daily peaks than train.
+- same origin, lead gap: same shape (g1 .57-.62, peaks at 24k, g24 .17-.29).
+- same target, lead gap: .99 -> .72 (target-position error vector nearly 1-D: the target's shock).
+- Reading for the path interval: segments shorter than ~6-12 h are redundant; 24 h = full daily cycle; candidates k in {12, 24, 48},
+  final choice needs a downstream (val) criterion.
+
+### Lead-wise stacking (FC long leads, something else short) — commit after 43360dc, job 18243
+Question (user): FC is weak / harmful at short leads; can a short-lead method (S_e, PaTH carry P) plus FC at long leads beat FC?
+Per lead bucket (8 buckets of 24 leads) least squares of rho = E - base on [S_e, P, FC raw (r - f), B raw (y_B - f)],
+fit on val_fit, reported val_select / test once.  P = the Step 2 s1_P carry loaded from err_s2 dumps (no retraining; its test
+MSE must reproduce Step 2).  FC retrained once (GPU nondeterminism) and its raw corrections dumped for every val+test origin.
+Arms fixed in advance: FC, B, S_e, P, FC+P, FC+S_e, FC+S_e+P, B+S_e, B+S_e+P, FC+B+S_e, FC+B+S_e+P.
+Criteria (3/3 seeds, test): (i) FC+S_e+P beats FC and B; (ii) FC+S_e+P beats FC+S_e -> P adds beyond S_e;
+(iii) the extra gain sits in the short-lead buckets.
+Result (job 18285, elm72 6000; first attempt 18243 landed on V100 and was moved): s1_P loaded test 0.36138/0.36369/0.36151
+= Step 2 exactly.  Test gain % vs backbone (val_select MSE in brackets), seeds 3047/2024/2025:
+  FC .62/.92/1.03 (own-w FC 1.03/1.49/1.72) | B 1.21/1.30/1.32 (own B 1.61/1.68/1.69) | S_e 1.44/1.28/1.37 | P .45/.55/.50
+  FC+S_e 1.34/1.54/1.64 | FC+S_e+P 1.59/1.84/1.86 | B+S_e 1.98/1.94/2.01 | B+S_e+P 2.25/2.28/2.26 | FC+B+S_e+P 1.79/2.08/2.03
+- (ii) P adds beyond the others 3/3 in every combination: +.25/.30/.22 pp over FC+S_e, +.27/.34/.25 over B+S_e.
+  Increment per lead bucket largest at h0-23 (+.46..+.56) but present in every bucket (+.16..+.37).
+- (i) FC+S_e+P beats stacked FC and own-w FC 3/3, but not own B on s3047 (1.59 vs 1.61).
+- val / test disagree: every FC arm has the lowest val, every B arm the best test; val selection picks FC+S_e+P (3/3).
+  Consistent with the error-correlation result (test daily periodicity ~50% stronger than train/val; B = same-clock pool).
+- stacked FC (per-bucket coefficients on val_fit) is worse than FC's own global w: FC raw corrections are unstable val -> test.
+
+### Causal running-mean error templates (user: error levels per stage matter; correlation analyses had removed means)
+eval_sr --tpl Rm,Dm,Wm: per channel and lead, mean of matured rho_(t - P m)[h] (target observed by t - 1):
+Rm recent mean (P 1 h, W 24/48/96/192 h), Dm same clock (P 24 h, W 1/2/4/8 days), Wm same hour-of-week (P 168 h,
+W 1/2/4/8 weeks); W chosen on val_select, then stacked per lead bucket (val_fit) with S_e / P / FC / B.
+Arms fixed in advance: Rm, Dm, Wm, Dm+Wm, T3 = Rm+Dm+Wm, T3+P, T3+S_e, T3+S_e+P, T3+B, T3+B+S_e+P, T3+FC+S_e+P, T3+FC+B+S_e+P.
+Questions: (a) how much do causal mean templates alone give (vs B); (b) does B add beyond T3 (retrieval vs mean template);
+(c) does P still add beyond T3+S_e.
+Result (job 18400): W on val_select: Rm 192/96/96 h, Dm 8 days, Wm 8 weeks.  Test gain % vs backbone (3047/2024/2025):
+  Rm .00/.01/.03, Dm .02/.02/.04, Wm .01/-.13/-.08 (val_select gain ~1.7%!), T3 -.04/-.15/-.09; T3+S_e 1.37/1.20/1.33 (< S_e);
+  T3+B 1.18/1.27/1.41 (~ B); T3+S_e+P 1.70/1.58/1.64; T3+B+S_e+P 2.17/2.19/2.20 (< B+S_e+P).
+- Causal error-mean templates (recent level, same clock, same hour-of-week) give ~0 on test: the correctable part is not
+  the error level.  B's gain is not a mean template.  P still adds beyond T3+S_e 3/3.
+- Wm: large val_select gain, none on test (short buckets +.3..+.4, long buckets -.5..-.6): another val/test mismatch.
+- Uncentered / raw-pooled error correlations (err_corr_lag --norm unc|raw) are almost identical to z-score: per-channel
+  error means are negligible, long-lag (336/504 h) correlation ~0 on test.
+
+### Step 2 final (H192 + H336, 3 seeds, test gain %): P vs P_fixed_u vs P_diag vs GPhi
+  H192 P .45/.55/.50, Pfix .33/.32/.32, Pdiag .11/.10/.07, GPhi .02/.03/.03
+  H336 P .40/.33/.37, Pfix .29/.29/.33, Pdiag .16/.17/.11, GPhi .05/.06/.04
+- P > P_fixed_u 6/6 (margin .04-.23 pp; Pfix with 548 params keeps 70-90% of P's gain) -> input-dependent direction adds a
+  little; P > P_diag 6/6 (.16-.45 pp) -> cross-mode coupling matters.  Best epochs scattered (1..9).
+
+### PaTH retrieval (eval_pathret.py) — user choices: path on values, values = observed continuations y, memory = all matured
+### origins (12 weeks) + learned hour-of-week clock bias.  Daily Householder path from each day's 24 lead-0 errors.
+Arms B0 (B-like fixed same-hour-of-week retrieval), A1 (learned retrieval, H = I), A2 (+ daily path on values),
+A2s (each memory day keeps its transition set, random order).  Causal unit test passes for all arms (change with y[>=t]
+perturbed = rerun float noise <= 5e-7; y[t-1] perturbed changes the output).  Train 8 epochs x 2000 origins (all channels),
+early stop on val_select, test once, 3 seeds; jobs below.
+Criteria fixed in advance (test, 3/3 seeds): (1) A1 > B0 (learned retrieval over fixed same-clock retrieval);
+(2) A2 > A1 and A2 > A2s (the ordered daily path adds); (3) afterwards stacked with S_e / P (eval_sr --ext) - A2 must
+still add beyond A1 in the stack.  Ties -> no path claim.
+Result (jobs 18583 A1->A2->B0, 18584 A2s; elm72 6000).  Test gain % vs backbone (3047/2024/2025):
+  B0 .92/.96/1.06, A1 .89/.94/1.06, A2 .99/1.00/1.08, A2s .98/.99/1.17.  (eval_freshcast B, coefficients fit on val_fit: 1.61/1.68/1.69.)
+- (1) A1 > B0 fails (0/3 strictly; 2025 tie): learned q.k + clock bias does not beat fixed same-hour-of-week retrieval.
+- (2) A2 > A1 3/3 (+.09/+.05/+.02) but A2 > A2s fails (+.01/+.01/-.09): the gain is not from the path order.  No path claim.
+- (3) not run (criteria 1-2 already fail).
+- Train loss stays at the no-correction level (~0.199 vs zero 0.1987) for all arms; B0 (same retrieval as B) fit on train
+  gives ~1.0% vs B fit on val_fit ~1.65%: train-segment backbone errors (in-sample) under-state the correctable part.
+  Next candidate (not run, awaits user): fit retrieval/coefficients on val_fit, early stop on val_select.
+
+### PaTH retrieval v2: fit on val_fit (eval_pathret --fit val_fit; user approved 2026-11-04)
+Same arms / model / criteria as above; only change: training origins = val_fit (first half of val, memories reach back
+into train), 12 epochs over all val_fit origins, early stop on val_select[::4], test once.  Out: err_pathret_vf/.
+Jobs 19122 (A1 -> A2 -> B0), 19123 (A2s), elm72 6000.
+Criteria (test, 3/3): (0) B0 should reach ~B (1.6%) if the train-fit diagnosis is right; (1) A1 > B0; (2) A2 > A1 and
+A2 > A2s; (3) stack with S_e / P via eval_sr --ext, A2 still beats A1.  Ties -> no path claim.
+Result (job 19122; A2s 19123 still running).  Test gain % (3047/2024/2025): B0 .64/.76/.80, A1 .43/.48/.35, A2 .51/.54/.42
+  (train-fit v1: B0 .92/.96/1.06, A1 .89/.94/1.06, A2 .99/1.00/1.08).  val_select improves (B0 0.3674 -> 0.3643, s3047)
+  while test gets worse.
+- (0) fails: fitting on val_fit does not bring B0 to B; the train-fit diagnosis was wrong.  Learned strengths grow from
+  a,c ~.08-.15 (train fit) to ~.25-.30 (val_fit): train under-states and val over-states the correction strength test wants;
+  the correctable deviation size drifts over time (val/test mismatch again).
+- (1) A1 > B0 fails 0/3.  A2 > A1 3/3 (+.08/+.06/+.07), A2s pending.
+
+### Rolling stack (eval_sr --roll 168,336,672; user approved 2026-11-04, item 1 of 3)
+At each val/test origin t and lead bucket, least-squares coefficients of the chosen regressors (S_e, P, FC, B, pathret
+v1 arms) are re-fit on the last W stored val/test origins j whose lead-h' target is observed by t - 1 (j + h' <= t - 1),
+pooled over the bucket's leads (causal); W chosen on val_select.  Static stack (fit once on val_fit) printed alongside.
+Codex review: no bugs.  Smoke (20 channels) ok.  Job: stack_roll.sh, out err_stack_roll/.
+Criteria (test, 3/3 seeds): (R1) roll[B+S_e+P] > stack[B+S_e+P] (rolling strength beats a fixed one); (R2) roll[B] > stack[B]
+and roll[B0] > stack[B0]; (R3) pathret under roll: A1 > B0, A2 > A1 and A2 > A2s, alone and with S_e+P.
+
+### Shock-age decomposition of the carry (eval_sr --age; item 2 of 3)
+T_t depends on x_t only, so z_t = sum_k Phi(t,k) B w_k exactly; ages 0..167 tracked separately + remainder (sum check
+vs the reference state: 2e-6 on the 20-channel smoke).  Bins (hours since injection): 0 | 1-5 | 6-23 | 24-71 | 72-167 | >=168.
+Loaded Step 2 carries (P, Pfix, Pdiag), their val_fit coefficient b; per bin: only-bin gain and leave-bin-out drop
+(full gain - gain without the bin), val_select / test / test weeks.  H192 + H336, 3 seeds.  Out err_age/.
+Criteria (fixed before the run): (A1 localisation) one bin has the largest test drop and drop >= 50% of P's full gain, same
+bin 6/6; (A2 path) in that bin drop(P) - drop(Pfix) >= 0.5 (gain(P) - gain(Pfix)), same vs Pdiag, 6/6; (A3 stable)
+drop > 0 in >= 70% of test weeks, and val_select picks the same bin as test, 6/6.
+
+### Retrieval key-window sweep (item 3 of 3): eval_bwin.py (B variants) + eval_sr --se_len
+B: same fixed config (P 168, value readout, beta 8, a .21, c .17, same-hour-of-week ages), only the query/key window R
+in {24,48,96,168,336,720} (B96 must equal eval_freshcast B).  S_e: key window l in the same grid (default 720).
+Each scored by the static val_fit stack (one coefficient per lead bucket); window chosen on val_select; all printed.
+Readings fixed in advance (test, 3/3): B best at R <= 168 and worse at 336/720 -> the useful key is the recent deviation
+shape; S_e with l <= 168 beats l = 720 -> long windows dilute it; both improve with length -> slow information unused.
+Job: win_sweep.sh, out err_bwin/, err_win/.
+Result (job 20284).  Test gain % vs backbone (3047/2024/2025), static (val_fit) -> rolling (W chosen on val_select: 672 in
+every case shown = grid edge):
+  FC .63/.92/1.03 -> 1.60/1.61/1.85;  B 1.21/1.30/1.32 -> 1.34/1.37/1.26;  S_e 1.44/1.28/1.38 -> 1.41/1.29/1.35;
+  P .45/.55/.50 -> .42/.48/.35;  B+S_e+P 2.25/2.28/2.26 -> 2.34/2.31/2.10;  FC+S_e+P 1.59/1.84/1.86 -> 2.38/2.31/2.35;
+  B0 .28/.35/.57 -> .80/.78/.89;  A1 .59/.68/.86 -> .93/.97/.96;  A2 .85/.82/.91 -> 1.05/1.05/1.05;  A2s .79/.76/1.01 -> 1.04/1.03/1.09;
+  A1+S_e+P roll 2.06/1.99/1.84, A2+S_e+P roll 2.14/2.05/1.92, A2s+S_e+P roll 2.12/2.03/1.93, B0+S_e+P roll 1.93/1.83/1.79.
+- (R1) roll[B+S_e+P] > static 2/3 -> fails.  (R2) B 2/3 fails; B0 3/3.
+- (R3) under roll: A1 > B0 3/3 (alone and +S_e+P); A2 > A1 3/3 (both); A2 > A2s 2/3 (s2025 loses, both) -> no path-order claim.
+- Not pre-registered: rolling helps exactly the drifting-strength regressors (FC +.7-1.0 pp 3/3, B0, pathret arms) and
+  slightly hurts the stable P; roll[FC+S_e+P] 2.38/2.31/2.35 > static B+S_e+P 3/3 (best so far, but val_select does not
+  single it out reliably).
+Result (jobs 20301/20302, A100).  Sum-of-parts check <= 1e-5 all runs.  Test, gain % vs base_sh; bins 0|1-5|6-23|24-71|72-167|>=168 h.
+  P full: H192 .43/.53/.47, H336 .36/.28/.34 (3047/2024/2025).  Leave-bin-out drop, P, H192 s3047: .002 .016 .064 .091 .121 .074
+  (s2024 .002 .018 .084 .118 .145 .089; s2025 .002 .014 .080 .096 .118 .037); H336 similar, peak 72-167 in 6/6.
+  Ages 0-5 h give ~0 (only-bin <= .02) in every run: P's gain comes from shocks 6 h - 1 week old (+ remainder).
+  P - Pfix drop by bin, H192: 3047 .001 .007 .020 .037 .028 -.002; 2024 .001 .014 .052 .066 .062 .023; 2025 .000 .002 .036 .061 .055 -.006;
+  H336: path advantage in 6-71 h, Pfix better at >=168 h (-.02..-.04).  Pdiag small in every bin.
+- (A1) same peak bin (72-167 h) 6/6 but its drop is only 23-31% of the full gain (< 50%) -> fails: not localised to one delay.
+- (A2) in 72-167 h, drop(P) - drop(Pfix) = .028/.062/.055 vs required .058/.115/.090 -> fails.
+- (A3) 72-167 h drop > 0 in 79-95% of test weeks 6/6, but val_select picks the same bin only 3/6 -> fails.
+- Reading: P corrects with a slow state built from shocks of the last ~6 h to 1 week (read mostly at short leads); the
+  input-dependent path adds mainly on 6-71 h old shocks; no single delay, and val does not identify it.
+Result (job 20303, A100-80; B96 == eval_freshcast B, max |diff| 3.9e-3).  Test gain % vs backbone (3047/2024/2025), static stack.
+  B by R (24/48/96/168/336/720): 3047 .98 1.14 1.21 1.18 .86 .75; 2024 1.01 1.19 1.30 1.29 .92 .79; 2025 1.20 1.32 1.32 1.28 1.11 .99.
+  S_e by l: 3047 .43 .65 1.02 1.25 1.44 1.44; 2024 .34 .55 .89 1.12 1.27 1.28; 2025 .37 .58 .93 1.18 1.36 1.37.
+  B_R+S_e(l)+P grid, val_select pick: 3047 (R48,l336) 2.25; 2024 (R48,l336|720 tie) 2.25; 2025 (R24,l336) 2.25
+  vs default (R96,l720) 2.25/2.28/2.26 -> window selection adds nothing.
+  val_select picks for B alone: 48/48/24 (test 1.14/1.19/1.20 < R96); for S_e alone: 336 3/3 (= l720 within .01).
+- (W1) B best at R <= 168 and worse at 336/720: holds 3/3 (peak 48-96, -.35..-.5 pp at 720).
+- (W2) S_e with l <= 168 beats l = 720: fails 0/3; S_e rises monotonically to l = 336 and is flat 336 -> 720.
+- (W3) both improve with length: fails (B falls).
+- Reading: the two retrievals use different scales.  B (same hour-of-week analogs) needs a key over the last 2-4 days;
+  longer keys dilute it.  S_e (free kNN) needs >= 2 weeks of key; at l = 96 it keeps ~70% of its l = 720 gain
+  (1.02/.89/.93 vs 1.44/1.28/1.37), at l = 24 ~30%.  Nothing beyond 2 weeks is used (336 == 720).
+Addendum pathret v2 (val_fit): A2s test gain .58/.85/.52 (3047/2024/2025; job 19123) vs A2 .51/.54/.42 -> shuffled order >= ordered 3/3, no path-order claim.
+
+### Source of the P / Pfix gain: eval_sr --src (loaded Step 2 carries, no retraining)
+Pass 1 replicates eval_carry exactly (asserted on test gain) and stores per (val/test origin, channel): carry gain
+d = sum_h e^2 - (e - b m)^2 and T_t stats (beta, hha = |T_t z - z|, hh = hha / |z|, cos(u_t, u_t-1), |z|).  Causal
+ablations of the trained net: T_t -> I at val/test cells with hha >= the val 90% (70%) quantile ("top10" / "top30"),
+at a random same-size set ("rand"), or everywhere except those cells ("keep"), and "noT" = T -> I at all val/test cells;
+b fixed and refit on val_fit.  Smoke (32 channels, s3047, H192): P full .236, top10 .014 (refit), rand10 .197, keep10 .216.
+Criteria fixed in advance (test, refit b, H192 + H336 x 3 seeds):
+- (S1) removing T at the top-10% cells loses >= 70% of the arm's gain while the random 10% loses <= 30%: 6/6 for P.
+- (S2) keeping T only at the top-10% cells retains >= 70% of the gain: 6/6 for P.
+- (S3) P - Pfix per-cell gain difference: the groups (hour-of-week, |dmu| decile, channel; <= 20% of cells, chosen on
+  val) hold >= 50% of the test difference in >= 5/6.
+Then describe the top-10% cells (hour-of-week, input change dmu / dls, channels, time since previous event).
+Job: src_diag.sh <H> (21675 H192, 21676 H336), out err_src/.
+Result (jobs 21675 H192 / 21676 H336, 6000; replica == eval_carry in every run).  Test gain %, refit b.
+  P full H192 .433/.527/.473, H336 .355/.279/.343 (3047/2024/2025); Pfix .317/.297/.294, .251/.237/.297.
+  T -> I at the top-10% |T z - z| cells loses 57/37/61, 46/55/39 % of P's gain; random 10% loses 1-6 %; keeping T only at
+  the top-10% cells retains 90-94 %; top30 loses 55-77 %; noT (T -> I everywhere) leaves -.09..+.10.  Pfix: the same
+  pattern (top10 loses 48-93 %, keep10 retains 91-104 %).
+- (S1) fails (top10 loss 37-61 % < 70 %; random <= 6 % holds).  (S2) holds 6/6 (keep10 >= 90 %).
+- (S3) fails: the best val-chosen <= 20 % group (channel) holds .29/.33/.50/.36/.91/.78 of the test P - Pfix difference
+  (3/6 >= .5); hour-of-week, |dmu|, |dls|, hha deciles hold .04-.44.  The P - Pfix difference is spread like P's own gain:
+  ~85 % of both sit in cells 0-23 h after a top-10% event of the channel (65 % of cells).
+- Top-10% P cells: |z| 1.5-1.9x the mean, beta 1.1-2.9x, hh 3x; |dmu| / |dls| larger in 4/6 (equal in H192 s2025, H336
+  s2025); mostly Tue / Wed working hours (s2025 H192: late evening); only 27-37 % overlap with Pfix's top-10% cells;
+  |cos(u, z)| at events .14-.21 for both P and Pfix (no alignment difference).
+- Reading: in both P and Pfix the gain needs only the ~10 % largest state rewrites (sparse, input-triggered, when the
+  accumulated shock state is large); without T the trained readout loses all gain.  Whether the input-dependent
+  direction (P vs Pfix) matters at those cells: next entry.
+
+### Direction ablation at the top-10% cells: eval_sr --src --src_dir (P only)
+At the top-10% cells (and, as control, at the random 10% cells) keep beta_t and replace u_t by: u of the input at a random
+other time 25-335 h back (shuf), a random unit vector (rand), the channel's principal val direction (mean, top eigvec of
+sum u u^T: a fixed Pfix-like direction), z / |z| (radial).  Smoke (32 ch, s3047 H192): full .236, top10 (T=I) .014,
+top10_ushuf -.024, urand -.004, umean .048, uz .012; rand10 .197, rand10_ushuf .181, urand .165, umean .200.
+Criteria fixed in advance (test, refit b, H192 + H336 x 3 seeds), L_x = full - x:
+- (D1) the input-dependent direction carries the effect: L(top10_ushuf) >= .7 L(top10) and L(rand10_ushuf) <= .2 L(top10): 6/6.
+- (D2) a fixed direction is not enough: L(top10_umean) >= .5 L(top10): 6/6.
+Job: SRCX=--src_dir OSUF=_dir ARMS=s1_P src_diag.sh <H>, out err_src_dir/.
+Result (jobs 22278 H192 / 22279 H336, 6000).  Loss as a multiple of L(top10) = loss with T -> I at the top-10% cells
+(3047/2024/2025):  top10_ushuf H192 1.32/1.75/1.19, H336 1.65/1.39/1.48;  top10_urand 1.28/1.96/1.16, 1.68/1.34/1.63;
+top10_umean 1.23/1.43/1.12, 1.30/1.03/1.16;  top10_uz 1.51-2.65.  Controls at the random 10% cells: T -> I .01-.16,
+ushuf .10/.37/.08, .14/.14/.22, urand .07-.50, umean .05-.17, uz 1.38-2.60.
+- (D1) first part holds 6/6 (wrong-time direction at the top cells loses MORE than removing T there); control part
+  (rand10_ushuf <= .2) fails 2/6 (H192 s2024 .37, H336 s2025 .22) -> D1 fails as pre-registered (4/6).
+- (D2) holds 6/6: a fixed per-channel principal direction at the top cells loses 1.03-1.43 x L(top10).
+- Reading: inside the trained P, the gain is carried by the ~10% largest state rewrites AND by their input-chosen
+  direction: any other direction there (other time / random / fixed / radial) is worse than no rewrite at all, while the
+  same swap at random cells costs 3-13x less.  Caveat: within-model ablation (B / readout co-adapted with P's u); the
+  between-model difference P - Pfix is .04-.23 pp.
+
+### Between-model test of the input-chosen direction at large-rewrite cells: gated carries PST / PSI / PSR
+Removes the co-adaptation caveat of the ablations: each arm is trained from scratch with the Step 2 config (10 epochs,
+bptt 168 h, frozen theta, early stop on val_select; same x, same beta_t(x)).  Per cell T_t = I - beta_t u u^T, with
+a_t = beta_t |u_x(x_t) . z_t| and tau = running 90% quantile of a_t on the training streams (fixed at eval):
+- PST: u = u_x(x_t) if a_t >= tau, else the trainable fixed u_f (input direction only at the large-rewrite cells).
+- PSI: the reverse (fixed direction at the large-rewrite cells, input direction everywhere else).
+- PSR: u_x(x_t) at a random 10% of cells, else u_f (same amount of input direction, wrong timing).
+Noise floor: every arm also at --carry_seed 1000 (carry init + channel order; backbone unchanged), incl. P and Pfix.
+Unit = (H, backbone seed), H192 + H336 x 3 seeds = 6 units; each arm's test gain = mean over carry seeds 0 and 1000
+(P / Pfix at carry seed 0 = the err_s2 runs).  m = P - Pfix.  Criteria fixed in advance (test):
+- (E0) noise: median |gain(cs 0) - gain(cs 1000)| over P and Pfix units < median m.  If it fails, no claim either way.
+- (E1) PST carries the margin: PST - Pfix >= .7 m in >= 5/6.
+- (E2) PSI - Pfix <= .3 m in >= 5/6 and PSR - Pfix <= .3 m in >= 5/6.
+- Claim "the stable P gain comes from the input-chosen direction at the large-rewrite cells" iff E0, E1 and E2 all hold.
+Jobs: gate_prove.sh <H>, out err_gate/cs{0,1000}/.  Also printed: realised gate fraction on all no-grad passes.
+
+### What does the carry's input supply? beta_t variance (ana_beta.py) and input-free arms PFc / PFh / Ph
+Gain ladder from Step 2 (test gain %, s3047/2024/2025): H192 GPhi .01/.01/.01, Pdiag .10/.08/.05, Pfix .32/.30/.30, P .44/.53/.47;
+H336 GPhi .01/.01/.01, Pdiag .12/.12/.08, Pfix .25/.24/.30, P .36/.28/.34.  Pdiag -> Pfix (.12-.25) is >= P - Pfix (.04-.23) in 5/6 units.
+ana_beta (cpu, err_src dumps; means fit on val, R2 on test): hour-of-week explains beta_t R2 .45-.72 (exception H336 s3047 Pfix .16),
+channel x hour .54-.87 (that unit .21), channel alone 0, lag-1 corr .58-.92.  So beta_t may be mostly a weekly clock.
+Interim note: the gated runs (22497 / 22498) are not finished when this was fixed; only their carry seed 0 results and P cs1000 H192 had been seen.
+Between-model arms, Step 2 config, x replaced (X_ARMS; everything else unchanged):
+- s1_PFc: fixed u, x = 1 -> constant beta: fixed linear T (no time variation at all).
+- s1_PFh: fixed u, x = one-hot hour-of-week -> beta(hour).
+- s1_Ph: x = one-hot hour-of-week in P -> u(hour), beta(hour): a weekly schedule, no input content.
+Caveat: the tables are shared across channels, so channel x hour structure is out of reach (R2 gap above).
+Unit = (H, backbone seed), 6 units; gain = mean over carry seeds 0 and 1000.  P / Pfix: err_s2 + err_gate/cs1000; Pdiag: err_s2 + err_clock/cs1000.
+Criteria fixed in advance (test), each "supported" at >= 5/6, "rejected" at <= the .3 line in >= 5/6, else partial:
+- (N0) noise: for each denominator below, median |gain(cs 0) - gain(cs 1000)| of the arms involved < median denominator; else no claim from it.
+- (C1) fixed linear coupling: PFc - Pdiag >= .7 (Pfix - Pdiag); rejected if <= .3.
+- (C2) beta is a clock: PFh - PFc >= .7 (Pfix - PFc); rejected if <= .3.
+- (C3) direction is a clock: Ph - Pfix >= .7 (P - Pfix); rejected if <= .3.
+Jobs: clock_prove.sh <H>, out err_clock/cs{0,1000}/.  Smoke (32 ch, 2 epochs) runs; no Codex review (MCP disconnected, CLI sandbox failure).
+
+### Gated carries: results (jobs 22497 / 22498, H192 + H336 x 3 seeds, carry seeds 0 + 1000; test gain % vs base_sh)
+Mean over carry seeds, unit order H192 s3047/2024/2025, H336 s3047/2024/2025:
+  P .438/.457/.497/.355/.321/.360; Pfix .266/.254/.268/.254/.192/.272; PST .391/.291/.458/.218/.267/.193; PSI .266/.278/.266/.218/.172/.130; PSR .245/.249/.311/.238/.213/.227
+  m = P - Pfix .172/.202/.229/.101/.129/.088.  (PST - Pfix)/m .73/.18/.83/-.35/.59/-.91; (PSI - Pfix)/m .00/.11/-.01/-.35/-.15/-1.63; (PSR - Pfix)/m -.12/-.03/.19/-.16/.16/-.52.
+- E0 holds: median noise .050 < median m .151 (max noise .137).
+- E1 fails: 2/6 (needed 5/6).
+- E2 holds: PSI 6/6, PSR 6/6.
+- Pre-registered claim "the stable P gain comes from the input-chosen direction at the large-rewrite cells": NOT established.
+Outside the criteria: P > Pfix in 12/12 same-carry-seed pairs, so the P - Pfix margin survives re-initialisation.  PST is itself unstable: |cs0 - cs1000| .017/.183/.107/.200/.044/.181
+(P .006-.137, Pfix .003-.102), so E1's failure can mean either that the direction at those cells is not the source or that the hard gate trains unreliably; this run does not separate them.
+Realised gate fraction, no-grad passes: PST .102-.126, PSI .105-.141, PSR .100.
+Corrections to the carry-seed-0 reading: "PSI / PSR clearly below Pfix" and "PST > PSR 6/6" came from a high Pfix at cs0 and did not survive (PSI, PSR within noise of Pfix in most units; PST > PSR 4/6).
+Correction to the ladder note above: with Pfix averaged over carry seeds, Pdiag -> Pfix (Pdiag still cs0 only) .17/.18/.22/.13/.08/.19 is >= P - Pfix in 2/6, not 5/6.  Pfix keeps 54-76% of P.
+
+### Input-free arms: results (jobs 22693 / 22694; test gain %, mean over carry seeds 0 + 1000)
+Unit order H192 s3047/2024/2025, H336 s3047/2024/2025:
+  Pdiag .098/.086/.065/.112/.110/.090; PFc .044/.055/.054/.097/.083/.075; PFh .084/.096/.063/.142/.102/.111;
+  Pfix .266/.254/.268/.254/.192/.272; Ph .245/.256/.212/.343/.331/.283; P .438/.457/.497/.355/.321/.360.
+- N0 holds for all three (noise median .016 / .024 / .038 vs denominator median .168 / .199 / .151).
+- C1 rejected: (PFc - Pdiag)/(Pfix - Pdiag) -.32/-.19/-.05/-.10/-.32/-.09 (<= .3 in 6/6).  A fixed linear coupling gives no gain; PFc is below Pdiag in 11/12 pairs.
+- C2 rejected: (PFh - PFc)/(Pfix - PFc) .18/.21/.04/.29/.17/.19 (<= .3 in 6/6).  A shared weekly beta recovers little, although hour-of-week explains beta R2 .45-.72: variance explained was not gain.
+- C3 partial: (Ph - Pfix)/(P - Pfix) -.12/.01/-.25/.88/1.08/.12 (>= .7 in 2/6, <= .3 in 4/6).
+Outside the criteria (same-carry-seed pairs): Pfix > PFh 12/12 (+.151), Ph > PFh 12/12, P > Ph 10/12 (+.126; H192 +.19/.20/.29, H336 +.01/-.01/.08), PFh > PFc 11/12 (+.032).
+Reading: the gain needs T_t to vary in time; x carries something beyond a shared weekly clock for beta.  A shared weekly direction schedule alone reaches about Pfix's level.
+
+### What in x gives the fixed-u beta its gain? PFch / PFd / PFw
+Fixed u, Step 2 config, only x changes: PFch beta(channel x hour-of-week), a table of 168 C values; PFd x = (dmu, dls); PFw x = the 96 h window only.
+Unit, gain and carry seeds as above; den = Pfix - PFh (.182/.158/.205/.112/.090/.161).  Criteria fixed in advance (test): supported if >= .7 den in >= 5/6, rejected if <= .3 den in >= 5/6, else partial;
+(N0) median |gain(cs 0) - gain(cs 1000)| over the arms involved < median den, else no claim from it.
+- (D1) PFch - PFh: beta is a channel-specific weekly clock.
+- (D2) PFd - PFh: the recent level / scale change suffices.
+- (D3) PFw - PFh: the window shape suffices.
+Jobs: src_x.sh <H>, out err_srcx/cs{0,1000}/.  Smoke (32 ch, 2 epochs) runs; no Codex review (MCP disconnected, CLI sandbox failure).
+
+### Content of x: results (jobs 23726 / 23727; test gain %, mean over carry seeds 0 + 1000)
+Unit order H192 s3047/2024/2025, H336 s3047/2024/2025; den = Pfix - PFh .182/.159/.205/.112/.090/.161:
+  PFch .040/.042/.029/.058/.052/.072; PFd .061/.097/.069/.099/.112/.079; PFw .240/.223/.226/.252/.162/.246; Pfix .266/.254/.268/.254/.192/.272.
+- N0 holds for all three (noise median .033 / .041 / .045 vs den median .160).
+- D1 rejected: ratio -.24/-.34/-.17/-.75/-.55/-.24.  PFch < PFh 12/12.  Caveat: 144816 table entries, each updated about once a week, so under-training is not excluded.
+- D2 rejected: ratio -.13/.01/.03/-.39/.12/-.20.
+- D3 supported (5/6): ratio .86/.80/.79/.99/.67/.84.  PFw > PFh 12/12; Pfix > PFw 10/12 (+.026).
+So beta's gain comes through the 96 h window, seen by one linear filter.
+
+### Filter and beta across carry seeds (ana_filt.py; descriptive; PFw dumps, Pfix from err_s2 + err_gate/cs1000)
+- PFw filter cos, same unit cs0 vs cs1000: .17/.13/-.27/.07/.02/-.50; over all 12 runs median .06.  No stable lag or period (largest period share .06).
+- Logit beta corr on test cells, cs0 vs cs1000: PFw .38/.15/-.34/-.54/.20/-.65; Pfix .08/.13/-.36/.15/-.18/-.69.  The gain stays while when-to-rewrite does not (e.g. H336 s2025 PFw gain .249 / .244, corr -.65).
+- Same carry seed, PFw vs Pfix corr .98/.85/.99/-.39/.69/.91: beta timing follows the carry seed more than the data.
+- |cos(u, init)| .68-.95 and u participation 24-36 of 64 modes: fixed u stays close to its random init, so the u stability across runs is largely shared init (uf init does not change with carry seed).
+Hypothesis: the specific filter does not matter; any window-driven rank-one rewrite gives the readout a useful state-input interaction (random-feature like).
+
+### Is the learned filter needed? PFwr / PFwru
+x = window, Step 2 config.  s1_PFwr: beta logit = a w0 . x + b, direction w0 frozen at the Linear's random init (differs by carry seed), scale a and bias b trainable, u trainable.  s1_PFwru: u also frozen at init.
+Unit, gain, carry seeds as above; den = PFw - PFh .156/.127/.163/.110/.060/.135.  Criteria fixed in advance (test), supported >= .7 den in >= 5/6, rejected <= .3 den in >= 5/6, else partial; N0 as before:
+- (R1) PFwr - PFh: learning the filter direction is not needed.
+- (R2) PFwru - PFh: learning the filter direction and u are not needed.
+Jobs: src_r.sh <H>, out err_srcr/cs{0,1000}/.  Smoke runs, u verified at init in the PFwru dump; no Codex review (MCP disconnected, CLI sandbox failure).
+
+### Frozen filter: results (jobs 24289 / 24290; test gain %, mean over carry seeds 0 + 1000)
+Unit order H192 s3047/2024/2025, H336 s3047/2024/2025; den = PFw - PFh .156/.127/.162/.110/.060/.135:
+  PFwr .068/.096/.037/.103/.094/.075; PFwru .059/.055/.044/.100/.089/.079 (PFh .084/.096/.063/.142/.102/.111, PFw .240/.223/.226/.252/.162/.246).
+- N0 holds (noise median .020 / .013 vs den median .131).
+- R1 rejected: ratio -.11/.00/-.16/-.36/-.13/-.27 (<= .3 in 6/6).  R2 rejected: -.16/-.32/-.12/-.38/-.22/-.24 (6/6).
+- PFw > PFwr 12/12 (+.146): the filter direction must be learned; a random window gate (scale and bias trained) is no better than the shared clock (PFwr > PFh 3/12).
+- The random-feature hypothesis above is rejected.  Together with the filter analysis: a learned filter is needed, but different carry seeds learn different filters and
+  uncorrelated beta timing with the same gain, so the learned solution is not unique; what is shared across them is not yet known.
+
+### Where is the gain made, across carry seeds? (ana_seed.py, eval_sr --src on loaded carries; descriptive, jobs 24707 / 24708)
+src_seed.sh <H>: --src for Pfix cs1000 (err_gate/cs1000 dumps) and PFw cs0 / cs1000 (err_srcx dumps); Pfix cs0 = err_src.
+Compared on test cells, cs0 vs cs1000: d_all (per-cell squared-error reduction) corr per cell / per origin / per channel, top-10% overlap; the same for hha (rewrite size).
+Fixed in advance: "the location of the gain is stable" iff per-origin d_all corr >= .5 in >= 5/6 units for both Pfix and PFw; "the location is not stable" iff <= .2 in >= 5/6.
+Results (jobs 24707 / 24708; loaded-carry gains reproduce the trained ones), unit order H192 s3047/2024/2025, H336 s3047/2024/2025, cs0 vs cs1000:
+- per-origin d_all corr: Pfix .49/.84/.88/.92/.69/.85 (>= .5 in 5/6), PFw .84/.87/.94/.72/.83/.80 (6/6).  -> "the location of the gain is stable": holds.
+- per-cell d_all corr Pfix .26-.81, PFw .53-.75; top-10% gain-cell overlap Pfix .54-.77, PFw .64-.72 (chance .10).
+- rewrite size hha, same comparison: per-origin corr -.23 to .40, top-10% overlap .10-.28 (near chance).
+So carries from different seeds rewrite their state at different times but reduce the error at the same origins / cells: the stable part is which errors get corrected,
+not the internal rewrite schedule (not identifiable from the gain).
+
+### What do the stably corrected errors share? (ana_stable.py; descriptive, existing --src dumps, no training)
+S = test cells in the top 10% of d_all for both carry seeds (Pfix: err_src + Pfix_cs1000; PFw: PFw_cs0 + PFw_cs1000).  ee = remaining error after base_sh.
+Fixed in advance (unit = (H, backbone seed), 6 units, both arms):
+- (S1) "the stable cells are just the large base errors": top-10% d_all overlap cs0 vs cs1000 computed within each val decile of ee, mean over deciles.
+  Supported iff <= .2 in >= 5/6 units for both arms; rejected iff >= .3 in >= 5/6 for both (stability beyond error size); else partial.
+- (S2) "the corrected fraction is stable too": per-origin corr of sum d / sum ee, cs0 vs cs1000, >= .5 in >= 5/6 for both arms.
+Descriptive: S vs all (ee, |dmu|, |dls|, hour-of-day / day, channel concentration, run length), gain share in S, P - Pfix (cs0) share in Pfix's S.
+Results (srun cpu_intr; unit order H192 s3047/2024/2025, H336 s3047/2024/2025):
+- S is 5-8% of test cells and holds 98-255% of the net gain; the top-10% cells of one seed hold 134-218%, negative-gain cells -87 to -201%
+  (net gain = a small difference of a large gross gain and a large gross loss).
+- S1 rejected (stability goes beyond error size): within-ee-decile overlap Pfix .52/.61/.65/.75/.56/.66, PFw .63/.70/.68/.61/.65/.65 (>= .3 in 6/6), nearly the unconditioned overlap.
+  S cells have median ee only 1.9-2.3x the median; 26-30% of S is in the top-10% ee.
+- S2 holds: relative-gain per-origin corr Pfix .49/.80/.85/.92/.72/.84 (5/6), PFw .81/.84/.92/.69/.84/.77 (6/6).
+- S vs all: |dmu| .76-.90x, |dls| .58-.76x of the median (S is in calm windows, not after input jumps); top-20% channels hold .62-.72 of S;
+  S comes in runs of 7.9-9.3 consecutive hourly origins of one channel (random 1.1; top-10% ee runs 24-32 h); hour-of-day flat (4% each); day mild (Fri/Sat 15-18%, Sun/Mon 11-13% at H192).
+- P - Pfix (cs0; net diff +.04 to +.23%): share in Pfix's S -.90 to .36, in P's own top-10% d 1.25-4.98: the P increment sits on other cells than the stable Pfix gain.
+Reading: the stably corrected errors are multi-hour episodes on a subset of channels in calm input windows, selected by more than error size; which property marks them is open.
