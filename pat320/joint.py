@@ -118,6 +118,9 @@ def main():
     ap.add_argument('--data', default=','.join(DATA)); ap.add_argument('--smoke', action='store_true')
     ap.add_argument('--out', default=str(ROOT / 'pat_logs' / 'p320'))
     ap.add_argument('--task_emb', action='store_true', help='PAT-320 control: learned per-dataset embedding')
+    ap.add_argument('--train_frac', type=float, default=1.0,
+                    help='PAT-320 v2: train only on the first fraction of every training split (the rest is out of sample '
+                         'for fitting the correction arms); val / test unchanged')
     a = ap.parse_args()
     if a.smoke:
         a.epochs, a.per_epoch, a.val_n = 1, 2000, 500
@@ -125,6 +128,8 @@ def main():
     dev = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     torch.manual_seed(a.seed); np.random.seed(a.seed); rng = np.random.default_rng(a.seed)
     xs = {f: {d: torch.tensor(load_split(d, f), device=dev) for d in names} for f in ('train', 'val', 'test')}
+    if a.train_frac < 1:
+        xs['train'] = {d: x[:int(a.train_frac * len(x))] for d, x in xs['train'].items()}
     for d in names:
         print(f'[data] {d}: C {xs["train"][d].shape[1]} | T train {len(xs["train"][d])} val {len(xs["val"][d])} '
               f'test {len(xs["test"][d])}', flush=True)
@@ -138,7 +143,8 @@ def main():
     print(f'[model] params {sum(p.numel() for p in model.parameters())}', flush=True)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs, eta_min=1e-8)
-    tag = ('joint_te' if a.task_emb else 'joint') + f'_s{a.seed}' + ('_smoke' if a.smoke else '')
+    tag = (('joint_te' if a.task_emb else 'joint') + (f'_tf{round(100 * a.train_frac)}' if a.train_frac < 1 else '')
+           + f'_s{a.seed}' + ('_smoke' if a.smoke else ''))
     os.makedirs(a.out, exist_ok=True); ck = os.path.join(a.out, f'{tag}.pth')
     best = float('inf'); hist = []
     for ep in range(a.epochs):
@@ -169,7 +175,7 @@ def main():
         if vm < best:
             best = vm; torch.save(model.state_dict(), ck)
     model.load_state_dict(torch.load(ck, map_location=dev)); model.eval()
-    res = dict(seed=a.seed, cfg=CFG, task_emb=a.task_emb, per_epoch=a.per_epoch, bs=a.bs, lr=a.lr, hist=hist, best_val=best, test={})
+    res = dict(seed=a.seed, cfg=CFG, task_emb=a.task_emb, train_frac=a.train_frac, per_epoch=a.per_epoch, bs=a.bs, lr=a.lr, hist=hist, best_val=best, test={})
     for d in names:
         set_task(model, d); r = test_dataset(model, xs['test'][d]); res['test'][d] = r
         print(f'[test] {d} | ' + ' | '.join(f'H{H} {r[H]["mse"]:.4f}/{r[H]["mae"]:.4f}' for H in HS)
