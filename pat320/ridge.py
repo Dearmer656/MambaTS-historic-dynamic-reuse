@@ -19,22 +19,29 @@ NB = 8
 
 
 @torch.no_grad()
-def series_pairs(bb, x, cache, t0, v, o_lo, o_hi, bs=2048):
-    """Features Z [n, 17], residuals R [n, 720] (zero where target leaves the series), for origins o_lo..o_hi of variable v."""
-    E, _ = cache; T = x.shape[0]
+def all_residuals(bb, x, o_lo, o_hi, bs=16384):
+    """Residuals R [C, n, 720] fp16 (zero where the target leaves the series) for origins o_lo..o_hi of every variable,
+    in large batches across variables (version 1 looped per variable: ECL took 2 h)."""
+    T, C = x.shape; n = o_hi - o_lo + 1
+    R = torch.empty(C, n, HMAX, dtype=torch.float16, device=x.device)
+    vv, oo = torch.meshgrid(torch.arange(C, device=x.device), torch.arange(o_lo, o_hi + 1, device=x.device), indexing='ij')
+    vv, oo = vv.reshape(-1), oo.reshape(-1); ar = torch.arange(HMAX, device=x.device)
+    for i in range(0, len(oo), bs):
+        v, o = vv[i:i + bs], oo[i:i + bs]
+        base = bb.rollout(win(x, v, o - L, L).unsqueeze(-1))
+        y = x[(o[:, None] + ar).clamp(max=T - 1), v[:, None]]
+        R[v, o - o_lo] = ((y - base) * (ar[None] < (T - o)[:, None])).half()
+    return R
+
+
+def series_pairs(x, cache, t0, v, o_lo, o_hi, R_all):
+    """Features Z [n, 17] and residuals R [n, 720] for origins o_lo..o_hi of variable v."""
+    E, _ = cache
     o = torch.arange(o_lo, o_hi + 1, device=x.device)
-    Z, R = [], []
-    for i in range(0, len(o), bs):
-        oo = o[i:i + bs]; vv = torch.full_like(oo, v)
-        e1 = E[v, oo - P - t0].float(); e2 = E[v, oo - 2 * P - t0].float()
-        z = torch.cat([torch.ones(len(oo), 1, device=x.device), e1.view(-1, NB, P // NB).mean(-1),
-                       e2.view(-1, NB, P // NB).mean(-1)], 1)
-        base = bb.rollout(win(x, vv, oo - L, L).unsqueeze(-1))
-        Hm = (T - oo).clamp(max=HMAX)
-        y = x[(oo[:, None] + torch.arange(HMAX, device=x.device)).clamp(max=T - 1), v]
-        r = (y - base) * (torch.arange(HMAX, device=x.device)[None] < Hm[:, None])
-        Z.append(z); R.append(r)
-    return o, torch.cat(Z), torch.cat(R)
+    e1 = E[v, o - P - t0].float(); e2 = E[v, o - 2 * P - t0].float()
+    Z = torch.cat([torch.ones(len(o), 1, device=x.device), e1.view(-1, NB, P // NB).mean(-1),
+                   e2.view(-1, NB, P // NB).mean(-1)], 1)
+    return o, Z, R_all[v].float()
 
 
 def ridge_preds(o, Z, R, lam, query):
@@ -65,14 +72,14 @@ def main():
     for d in a.data.split(','):
         t1 = time.time()
         xn, b = load_full(d); x = torch.tensor(xn, device=dev); T, C = x.shape
-        cache = build_cache(bb, x, b[0])
+        cache = build_cache(bb, x, b[0]); o_lo0 = b[0] + 2 * P; R_all = all_residuals(bb, x, o_lo0, T - HS[0])
         o_lo = b[0] + 2 * P                                                # first origin with two non-training error tokens
         (_, _), (slo, shi) = origins_val(b, 14)
         v_s, o_s = sample(np.random.default_rng(0), C, slo, shi, a.stop_n)   # same stop set as carry.py
         stop_sse = {lam: 0.0 for lam in LAMS}; base_sse = 0.0
         se = {lam: {H: 0.0 for H in HS} for lam in LAMS}; se0 = {H: 0.0 for H in HS}; cnt = {H: 0 for H in HS}
         for v in range(C):
-            o, Z, R = series_pairs(bb, x, cache, b[0], v, o_lo, T - HS[0])
+            o, Z, R = series_pairs(x, cache, b[0], v, o_lo, T - HS[0], R_all)
             qs = torch.tensor(o_s[v_s == v] - o_lo, device=dev)
             qt = torch.arange(b[1] - o_lo, len(o), device=dev)               # official test origins
             for lam in LAMS:
@@ -94,7 +101,7 @@ def main():
               + ' | '.join(f'H{H} {rr[H]["mse"]:.4f} (base {rr[H]["base_mse"]:.4f})' for H in HS)
               + f' | avg {np.mean([rr[H]["mse"] for H in HS]):.4f} vs {np.mean([rr[H]["base_mse"] for H in HS]):.4f}'
               + f' | {time.time() - t1:.0f}s', flush=True)
-        del cache
+        del cache, R_all
     json.dump(res, open(os.path.join(a.out, f'ridge_{Path(a.ckpt).stem}.json'), 'w'), indent=1)
 
 

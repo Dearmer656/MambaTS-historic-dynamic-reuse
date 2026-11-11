@@ -126,11 +126,14 @@ class Head(nn.Module):
 
 
 def origins_val(T_b, K):
-    """Fit / stop origin ranges inside the val split: target [o, o+720) inside val; stop starts after a gap L + 720."""
+    """Fit / stop origin ranges inside the val split (v1 = test start). Stop origins [cut, v1 - 720] have their whole
+    720-step target inside val; fit origins [v0, cut) are trained only on target steps before cut (loss mask), so no fit
+    target step is a stop target step. (Version 1 required whole fit targets plus a gap of L + 720, which left Traffic,
+    val = 1756 steps, with no fit origins.)"""
     v0, v1 = T_b[0], T_b[1]
     lo, hi = v0, v1 - HMAX
     cut = lo + int(0.6 * (hi - lo))
-    return (lo, cut - HMAX), (cut + L, hi)                      # fit targets end before cut; gap >= L + 720 to stop
+    return (lo, cut - 1), (cut, hi)
 
 
 def sample(rng, C, lo, hi, n):
@@ -194,7 +197,9 @@ def main():
             v, o = sample(rng, x.shape[1], flo, fhi, per)
             v, o = torch.tensor(v, device=dev), torch.tensor(o, device=dev)
             base, hq, e, hk, ok = features(bb, x, C_[d], b[0], v, o, a.K)
-            loss = loss + (base + head(hq, e, hk, ok) - win(x, v, o, HMAX)).square().mean() / len(names)
+            cut = fhi + 1; y = win(x, v, o, HMAX)                       # target steps >= cut belong to the stop set
+            msk = (o[:, None] + torch.arange(HMAX, device=dev)[None] < cut).float()
+            loss = loss + ((base + head(hq, e, hk, ok) - y).square() * msk).sum() / msk.sum() / len(names)
         opt.zero_grad(); loss.backward(); opt.step(); tl.append(loss.item())
         if step % a.eval_every == 0:
             r = stop_loss(); m = float(np.mean(list(r.values())))
