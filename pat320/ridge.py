@@ -71,7 +71,7 @@ def main():
     bb = Frozen(a.ckpt, dev); res = dict(ckpt=a.ckpt, lams=LAMS, test={}, lam={})
     for d in a.data.split(','):
         t1 = time.time()
-        xn, b = load_full(d); x = torch.tensor(xn, device=dev); T, C = x.shape
+        bb.set(d); xn, b = load_full(d); x = torch.tensor(xn, device=dev); T, C = x.shape
         cache = build_cache(bb, x, b[0]); o_lo0 = b[0] + 2 * P; R_all = all_residuals(bb, x, o_lo0, T - HS[0])
         o_lo = b[0] + 2 * P                                                # first origin with two non-training error tokens
         (_, _), (slo, shi) = origins_val(b, 14)

@@ -17,7 +17,7 @@ import torch
 from torch import nn
 from sklearn.preprocessing import StandardScaler
 ROOT = Path(__file__).resolve().parents[1]; sys.path.insert(0, str(ROOT))
-from pat320.joint import DATA, HS, L, P, build_model
+from pat320.joint import DATA, HS, L, P, build_model, set_task
 
 HMAX = HS[-1]
 
@@ -39,11 +39,16 @@ def load_full(name):
 class Frozen:
     """Backbone with a hook returning the last-layer state of the last input token."""
     def __init__(self, ckpt, dev):
-        self.m = build_model(dev); self.m.load_state_dict(torch.load(ckpt, map_location=dev)); self.m.eval()
+        sd = torch.load(ckpt, map_location=dev); self.task_emb = 'task_emb.weight' in sd   # joint_te_* checkpoints
+        self.m = build_model(dev, self.task_emb); self.m.load_state_dict(sd); self.m.eval()
         for p in self.m.parameters():
             p.requires_grad_(False)
         self._h = None
         self.m.blocks.register_forward_hook(lambda mod, inp, out: setattr(self, '_h', out[0]))
+
+    def set(self, d):
+        """Dataset of the following calls (used only by task-embedding backbones)."""
+        set_task(self.m, d)
 
     @torch.no_grad()
     def step(self, x):
@@ -160,7 +165,7 @@ def main():
         x, b = load_full(d); S[d] = (torch.tensor(x, device=dev), b)
     C_ = {}
     for d, (x, b) in S.items():
-        t1 = time.time(); C_[d] = build_cache(bb, x, b[0])
+        bb.set(d); t1 = time.time(); C_[d] = build_cache(bb, x, b[0])
         print(f'[cache] {d}: C {x.shape[1]} T {x.shape[0]} | {time.time() - t1:.0f}s', flush=True)
     head = Head(a.arm, bb.m.head.in_features, a.K).to(dev)
     opt = torch.optim.Adam(head.parameters(), lr=a.lr)
@@ -175,7 +180,7 @@ def main():
         head.eval(); r = {}
         with torch.no_grad():
             for d, (v, o) in stop.items():
-                x, b = S[d]; tot = 0.0
+                x, b = S[d]; bb.set(d); tot = 0.0
                 for i in range(0, len(o), 512):
                     vv, oo = v[i:i + 512], o[i:i + 512]
                     base, hq, e, hk, ok = features(bb, x, C_[d], b[0], vv, oo, a.K)
@@ -193,7 +198,7 @@ def main():
         loss = 0.0
         per = a.bs // len(names)
         for d in names:
-            x, b = S[d]; (flo, fhi), _ = origins_val(b, a.K)
+            x, b = S[d]; bb.set(d); (flo, fhi), _ = origins_val(b, a.K)
             v, o = sample(rng, x.shape[1], flo, fhi, per)
             v, o = torch.tensor(v, device=dev), torch.tensor(o, device=dev)
             base, hq, e, hk, ok = features(bb, x, C_[d], b[0], v, o, a.K)
@@ -214,7 +219,7 @@ def main():
     head.load_state_dict(state); head.eval()
     res = dict(arm=a.arm, K=a.K, seed=a.seed, ckpt=a.ckpt, best_step=best_step, stop0=r0, stop=best_r, test={})
     for d, (x, b) in S.items():
-        T, C = x.shape
+        bb.set(d); T, C = x.shape
         se = {H: [0.0, 0.0] for H in HS}; se0 = {H: 0.0 for H in HS}; cnt = {H: 0 for H in HS}
         lo, hi = b[1], T - HS[0]                                     # official test origins (start + 672)
         vs, os_ = torch.meshgrid(torch.arange(C, device=dev), torch.arange(lo, hi + 1, device=dev), indexing='ij')

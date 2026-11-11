@@ -32,8 +32,27 @@ def load_split(name, flag):
     return ds.data_x.astype(np.float32)
 
 
-def build_model(dev):
-    return Model(SimpleNamespace(**CFG)).to(dev)
+TASK = {d: i for i, d in enumerate(DATA)}          # fixed dataset index, independent of --data order/subset
+
+
+def build_model(dev, task_emb=False):
+    """Official Timer-XL; task_emb=True adds a learned per-dataset vector (zero init) to every input token embedding.
+    Set model.task (int, or LongTensor [B]) before each forward; the official forward/rollout code is unchanged."""
+    m = Model(SimpleNamespace(**CFG))
+    if task_emb:
+        m.task_emb = torch.nn.Embedding(len(DATA), CFG['d_model']); torch.nn.init.zeros_(m.task_emb.weight)
+        m.task = None
+
+        def hook(mod, inp, out):                         # out [B, C, N, D] (C = 1, channel independent)
+            assert m.task is not None, 'model.task not set'
+            t = m.task if torch.is_tensor(m.task) else torch.full((out.shape[0],), int(m.task), device=out.device)
+            return out + m.task_emb(t.to(out.device))[:, None, None, :]
+        m.embedding.register_forward_hook(hook)
+    return m.to(dev)
+
+
+def set_task(model, d):
+    model.task = TASK[d]
 
 
 def gather(x, idx, length):
@@ -81,7 +100,7 @@ def test_dataset(model, x, bs=4096):
 def val_loss(model, xs, vidx, bs=4096):
     out = {}
     for d, x in xs.items():
-        tot, n = 0.0, 0
+        set_task(model, d); tot, n = 0.0, 0
         for i0 in range(0, len(vidx[d]), bs):
             b = vidx[d][i0:i0 + bs]
             w = gather(x, b, L + P)
@@ -98,6 +117,7 @@ def main():
     ap.add_argument('--bs', type=int, default=256); ap.add_argument('--lr', type=float, default=5e-4)
     ap.add_argument('--data', default=','.join(DATA)); ap.add_argument('--smoke', action='store_true')
     ap.add_argument('--out', default=str(ROOT / 'pat_logs' / 'p320'))
+    ap.add_argument('--task_emb', action='store_true', help='PAT-320 control: learned per-dataset embedding')
     a = ap.parse_args()
     if a.smoke:
         a.epochs, a.per_epoch, a.val_n = 1, 2000, 500
@@ -114,11 +134,11 @@ def main():
         T, C = xs['val'][d].shape; n = (T - L - P + 1) * C
         pick = vr.choice(n, size=min(a.val_n, n), replace=False); pick.sort()
         vidx[d] = torch.tensor(np.stack([pick // (T - L - P + 1), pick % (T - L - P + 1)], 1), device=dev)
-    model = build_model(dev)
+    model = build_model(dev, a.task_emb)
     print(f'[model] params {sum(p.numel() for p in model.parameters())}', flush=True)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=a.epochs, eta_min=1e-8)
-    tag = f'joint_s{a.seed}' + ('_smoke' if a.smoke else '')
+    tag = ('joint_te' if a.task_emb else 'joint') + f'_s{a.seed}' + ('_smoke' if a.smoke else '')
     os.makedirs(a.out, exist_ok=True); ck = os.path.join(a.out, f'{tag}.pth')
     best = float('inf'); hist = []
     for ep in range(a.epochs):
@@ -133,11 +153,12 @@ def main():
         tl = []
         for i0 in range(0, len(allp), a.bs):
             b = allp[i0:i0 + a.bs]
-            ws = []
+            ws, ts = [], []
             for k in np.unique(b[:, 0]):
                 bk = torch.tensor(b[b[:, 0] == k][:, 1:], device=dev)
                 ws.append(gather(xs['train'][names[k]], bk, L + P))
-            w = torch.cat(ws)
+                ts.append(torch.full((len(bk),), TASK[names[k]], device=dev))
+            w = torch.cat(ws); model.task = torch.cat(ts)
             loss = (model(w[:, :L], None, None) - w[:, P:]).square().mean()
             opt.zero_grad(); loss.backward(); opt.step(); tl.append(loss.item())
         sched.step()
@@ -148,9 +169,9 @@ def main():
         if vm < best:
             best = vm; torch.save(model.state_dict(), ck)
     model.load_state_dict(torch.load(ck, map_location=dev)); model.eval()
-    res = dict(seed=a.seed, cfg=CFG, per_epoch=a.per_epoch, bs=a.bs, lr=a.lr, hist=hist, best_val=best, test={})
+    res = dict(seed=a.seed, cfg=CFG, task_emb=a.task_emb, per_epoch=a.per_epoch, bs=a.bs, lr=a.lr, hist=hist, best_val=best, test={})
     for d in names:
-        r = test_dataset(model, xs['test'][d]); res['test'][d] = r
+        set_task(model, d); r = test_dataset(model, xs['test'][d]); res['test'][d] = r
         print(f'[test] {d} | ' + ' | '.join(f'H{H} {r[H]["mse"]:.4f}/{r[H]["mae"]:.4f}' for H in HS)
               + f' | avg mse {np.mean([r[H]["mse"] for H in HS]):.4f}', flush=True)
     json.dump(res, open(os.path.join(a.out, f'{tag}.json'), 'w'), indent=1)
